@@ -1,6 +1,5 @@
 "use client"
 
-
 import React, { useState, useEffect } from "react"
 import { useMemo } from "react"
 import { Head, usePage, router } from "@inertiajs/react"
@@ -48,13 +47,11 @@ created_at: string
 updated_at: string
 }
 
-
 interface School {
 id: number
 name: string
 code: string
 }
-
 
 interface PageProps {
 programs: Program[]
@@ -77,7 +74,6 @@ errors?: {
 error?: string
 }
 }
-
 
 interface ProgramFormData {
 code: string
@@ -238,7 +234,7 @@ const SCESProgramsManagement: React.FC = () => {
 
     if (confirm(`Are you sure you want to delete "${program.name}"? This action cannot be undone.`)) {
       setLoading(true)
-      router.delete(route('sces.programs.destroy', program.id), {
+      router.delete(route('schools.sces.programs.destroy', program.id), {
         onSuccess: () => {
           toast.success('Program deleted successfully!')
         },
@@ -250,29 +246,29 @@ const SCESProgramsManagement: React.FC = () => {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
+const handleSubmit = (e: React.FormEvent) => {
+  e.preventDefault()
+  setLoading(true)
 
-    const url = selectedProgram 
-      ? route('sces.programs.update', selectedProgram.id)
-      : route('sces.programs.store')
-    
-    const method = selectedProgram ? 'put' : 'post'
+  const url = selectedProgram 
+  ? route("schools.sces.programs.update", { program: selectedProgram.id }) // ✅ correct name
+  : route("schools.sces.programs.store") 
 
-    router[method](url, formData, {
-      onSuccess: () => {
-        toast.success(`Program ${selectedProgram ? 'updated' : 'created'} successfully!`)
-        setIsCreateModalOpen(false)
-        setIsEditModalOpen(false)
-        setSelectedProgram(null)
-      },
-      onError: (errors) => {
-        toast.error(errors.error || `Failed to ${selectedProgram ? 'update' : 'create'} program`)
-      },
-      onFinish: () => setLoading(false)
-    })
-  }
+  const method = selectedProgram ? "put" : "post"
+
+  router[method](url, formData, {
+    onSuccess: () => {
+      toast.success(`Program ${selectedProgram ? "updated" : "created"} successfully!`)
+      setIsCreateModalOpen(false)
+      setIsEditModalOpen(false)
+      setSelectedProgram(null)
+    },
+    onError: (errors) => {
+      toast.error(errors.error || `Failed to ${selectedProgram ? "update" : "create"} program`)
+    },
+    onFinish: () => setLoading(false)
+  })
+}
 
   const handleFilter = () => {
     const params = new URLSearchParams()
@@ -284,7 +280,7 @@ const SCESProgramsManagement: React.FC = () => {
     params.set('sort_field', sortField)
     params.set('sort_direction', sortDirection)
     
-    router.get(`${route('sces.programs.index')}?${params.toString()}`)
+    router.get(`${route('schools.sces.programs.index')}?${params.toString()}`)
   }
 
   const toggleRowExpansion = (programId: number) => {
@@ -303,20 +299,18 @@ const SCESProgramsManagement: React.FC = () => {
     return `${years} years`
   }
 
-
-
-// Insert this after the filters state block
-const visibleColumns = useMemo(() => {
-  return [
-    "Program",
-    "Degree & Duration",
-    "Contact",
-    "Status",
-    "Statistics",
-    "Actions"
-  ]
-}, [])
-
+  // Insert this after the filters state block
+  const visibleColumns = useMemo(() => {
+    return [
+      "Program",
+      "Degree & Duration",
+      "Contact",
+      "Status",
+      "Statistics",
+      "Actions"
+    ]
+  }, [])
+  
 
   return (
     <AuthenticatedLayout>
@@ -643,7 +637,7 @@ const visibleColumns = useMemo(() => {
                       : 'Get started by creating a new program'
                     }
                   </p>
-                  {can.create && !searchTerm && statusFilter === 'all' && degreeFilter === 'all' && (
+                 
                     <button
                       onClick={handleCreateProgram}
                       className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -651,7 +645,7 @@ const visibleColumns = useMemo(() => {
                       <Plus className="w-4 h-4 mr-2" />
                       Create Program
                     </button>
-                  )}
+                  
                 </div>
               )}
             </div>
