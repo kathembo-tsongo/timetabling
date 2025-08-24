@@ -1,0 +1,82 @@
+[90m= [39m[34;4mIlluminate\Database\Eloquent\Collection[39;24m {#6377
+    [34mall[39m: [
+      [34;4mSpatie\Permission\Models\Permission[39;24m {#6434
+        [34mid[39m: [35m1[39m,
+        [34mname[39m: "[32mmanage users[39m",
+        [34mguard_name[39m: "[32mweb[39m",
+        [34mcreated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mupdated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mpivot[39m: [34;4mIlluminate\Database\Eloquent\Relations\Pivot[39;24m {#6433
+          [34mrole_id[39m: [35m1[39m,
+          [34mpermission_id[39m: [35m1[39m,
+        },
+      },
+      [34;4mSpatie\Permission\Models\Permission[39;24m {#6431
+        [34mid[39m: [35m2[39m,
+        [34mname[39m: "[32mmanage faculties[39m",
+        [34mguard_name[39m: "[32mweb[39m",
+        [34mcreated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mupdated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mpivot[39m: [34;4mIlluminate\Database\Eloquent\Relations\Pivot[39;24m {#6300
+          [34mrole_id[39m: [35m1[39m,
+          [34mpermission_id[39m: [35m2[39m,
+        },
+      },
+      [34;4mSpatie\Permission\Models\Permission[39;24m {#6430
+        [34mid[39m: [35m3[39m,
+        [34mname[39m: "[32mmanage units[39m",
+        [34mguard_name[39m: "[32mweb[39m",
+        [34mcreated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mupdated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mpivot[39m: [34;4mIlluminate\Database\Eloquent\Relations\Pivot[39;24m {#6435
+          [34mrole_id[39m: [35m1[39m,
+          [34mpermission_id[39m: [35m3[39m,
+        },
+      },
+      [34;4mSpatie\Permission\Models\Permission[39;24m {#6429
+        [34mid[39m: [35m4[39m,
+        [34mname[39m: "[32mmanage classrooms[39m",
+        [34mguard_name[39m: "[32mweb[39m",
+        [34mcreated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mupdated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mpivot[39m: [34;4mIlluminate\Database\Eloquent\Relations\Pivot[39;24m {#6223
+          [34mrole_id[39m: [35m1[39m,
+          [34mpermission_id[39m: [35m4[39m,
+        },
+      },
+      [34;4mSpatie\Permission\Models\Permission[39;24m {#6428
+        [34mid[39m: [35m5[39m,
+        [34mname[39m: "[32mmanage semesters[39m",
+        [34mguard_name[39m: "[32mweb[39m",
+        [34mcreated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mupdated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mpivot[39m: [34;4mIlluminate\Database\Eloquent\Relations\Pivot[39;24m {#6221
+          [34mrole_id[39m: [35m1[39m,
+          [34mpermission_id[39m: [35m5[39m,
+        },
+      },
+      [34;4mSpatie\Permission\Models\Permission[39;24m {#6427
+        [34mid[39m: [35m6[39m,
+        [34mname[39m: "[32mmanage timetable[39m",
+        [34mguard_name[39m: "[32mweb[39m",
+        [34mcreated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mupdated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mpivot[39m: [34;4mIlluminate\Database\Eloquent\Relations\Pivot[39;24m {#6250
+          [34mrole_id[39m: [35m1[39m,
+          [34mpermission_id[39m: [35m6[39m,
+        },
+      },
+      [34;4mSpatie\Permission\Models\Permission[39;24m {#6426
+        [34mid[39m: [35m7[39m,
+        [34mname[39m: "[32mview timetable[39m",
+        [34mguard_name[39m: "[32mweb[39m",
+        [34mcreated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mupdated_at[39m: "[32m2025-03-11 13:25:13[39m",
+        [34mpivot[39m: [34;4mIlluminate\Database\Eloquent\Relations\Pivot[39;24m {#6236
+          [34mrole_id[39m: [35m1[39m,
+          [34mpermission_id[39m: [35m7[39m,
+        },
+      },
+    ],
+  }
+

@@ -1,0 +1,16 @@
+[90m= [39m[34;4mApp\Models\User[39;24m {#6276
+    [34mid[39m: [35m2[39m,
+    [34mcode[39m: "[32m112722[39m",
+    [34mfirst_name[39m: "[32mBenjamin[39m",
+    [34mlast_name[39m: "[32mMwangi[39m",
+    [34mfaculty[39m: "[32mSCES[39m",
+    [34memail[39m: "[32mben@strathmore.edu[39m",
+    [34mphone[39m: "[32m0716571995[39m",
+    [34mrole[39m: "[32mSuperAdmin[39m",
+    [34memail_verified_at[39m: [36mnull[39m,
+    #[33mpassword[39m: "[32m$2y$12$Fr/MZlxUw2iTFEJ1aFiUmO6xZX9S0dzbguwCHjrLb8qUxNtWhIHwW[39m",
+    #[33mremember_token[39m: "[32mcdHb6omLrhmUZyJDr8bWfoGciVFDYiKAZMMgnhWIbQ4yvjYhcWipFwFzHS31[39m",
+    [34mcreated_at[39m: "[32m2025-03-11 13:25:14[39m",
+    [34mupdated_at[39m: "[32m2025-03-11 13:25:14[39m",
+  }
+
