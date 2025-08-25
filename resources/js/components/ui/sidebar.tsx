@@ -349,6 +349,7 @@ export default function Sidebar() {
             hasPermission(user, "manage-programs") ||
             hasPermission(user, "manage-semesters") ||
             hasPermission(user, "manage-classrooms") ||
+            hasPermission(user, "manage-units") ||
             hasPermission(user, "manage-exam-rooms") ||
             hasPermission(user, "manage-time-slots") ||
             hasRole(user, "Admin")) && (
