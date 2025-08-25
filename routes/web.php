@@ -142,6 +142,15 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // ===============================================================
+    // GENERIC PROGRAMS REDIRECT ROUTE
+    // ===============================================================
+    
+    Route::get('programs', function() {
+        // Redirect based on user's role/permissions - fallback to SCES for now
+        return redirect()->route('schools.sces.programs.index');
+    })->name('programs.index');
+
+    // ===============================================================
     // UNIFIED FACULTY ADMIN ROUTES
     // ===============================================================
     
@@ -223,78 +232,246 @@ Route::middleware(['auth'])->group(function () {
     // SCES Programs Routes
     Route::prefix('schools/sces')->middleware(['auth'])->name('schools.sces.programs.')->group(function () {
         Route::get('programs', function(Request $request) {
-            return app(ProgramController::class)->index($request, 'sces');
+            return app(ProgramController::class)->index($request, 'SCES');
         })->name('index');
         
         Route::get('programs/create', function() {
-            return app(ProgramController::class)->create('sces');
+            return app(ProgramController::class)->create('SCES');
         })->name('create');
         
-        Route::get('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->show('sces', $program);
+        Route::get('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('SCES', $program);
         })->name('show');
         
-        Route::get('programs/{program}/edit', function(Request $request, Program $program) {
-            return app(ProgramController::class)->edit('sces', $program);
+        Route::get('programs/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('SCES', $program);
         })->name('edit');
         
         Route::post('programs', function(Request $request) {
-            return app(ProgramController::class)->store($request, 'sces');
+            return app(ProgramController::class)->store($request, 'SCES');
         })->name('store');
         
         Route::put('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->update($request, 'sces', $program);
+            return app(ProgramController::class)->update($request, 'SCES', $program);
         })->name('update');
         
         Route::patch('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->update($request, 'sces', $program);
+            return app(ProgramController::class)->update($request, 'SCES', $program);
         })->name('patch');
         
-        Route::delete('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->destroy('sces', $program);
+        Route::delete('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('SCES', $program);
         })->name('destroy');
         
-        Route::get('programs-api/all', function() {
-            return app(ProgramController::class)->getAllPrograms('sces');
+        Route::get('api/programs', function() {
+            return app(ProgramController::class)->getAllPrograms('SCES');
         })->name('api.all');
     });
 
     // SBS Programs Routes
     Route::prefix('schools/sbs')->middleware(['auth'])->name('schools.sbs.programs.')->group(function () {
         Route::get('programs', function(Request $request) {
-            return app(ProgramController::class)->index($request, 'sbs');
+            return app(ProgramController::class)->index($request, 'SBS');
         })->name('index');
         
         Route::get('programs/create', function() {
-            return app(ProgramController::class)->create('sbs');
+            return app(ProgramController::class)->create('SBS');
         })->name('create');
         
-        Route::get('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->show('sbs', $program);
+        Route::get('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('SBS', $program);
         })->name('show');
         
-        Route::get('programs/{program}/edit', function(Request $request, Program $program) {
-            return app(ProgramController::class)->edit('sbs', $program);
+        Route::get('programs/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('SBS', $program);
         })->name('edit');
         
         Route::post('programs', function(Request $request) {
-            return app(ProgramController::class)->store($request, 'sbs');
+            return app(ProgramController::class)->store($request, 'SBS');
         })->name('store');
         
         Route::put('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->update($request, 'sbs', $program);
+            return app(ProgramController::class)->update($request, 'SBS', $program);
         })->name('update');
         
         Route::patch('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->update($request, 'sbs', $program);
+            return app(ProgramController::class)->update($request, 'SBS', $program);
         })->name('patch');
         
-        Route::delete('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->destroy('sbs', $program);
+        Route::delete('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('SBS', $program);
         })->name('destroy');
         
-        Route::get('programs-api/all', function() {
-            return app(ProgramController::class)->getAllPrograms('sbs');
+        Route::get('api/programs', function() {
+            return app(ProgramController::class)->getAllPrograms('SBS');
+        })->name('api.all');
+    });
+
+    // SLS Programs Routes
+    Route::prefix('schools/sls')->middleware(['auth'])->name('schools.sls.programs.')->group(function () {
+        Route::get('programs', function(Request $request) {
+            return app(ProgramController::class)->index($request, 'SLS');
+        })->name('index');
+        
+        Route::get('programs/create', function() {
+            return app(ProgramController::class)->create('SLS');
+        })->name('create');
+        
+        Route::get('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('SLS', $program);
+        })->name('show');
+        
+        Route::get('programs/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('SLS', $program);
+        })->name('edit');
+        
+        Route::post('programs', function(Request $request) {
+            return app(ProgramController::class)->store($request, 'SLS');
+        })->name('store');
+        
+        Route::put('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SLS', $program);
+        })->name('update');
+        
+        Route::patch('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SLS', $program);
+        })->name('patch');
+        
+        Route::delete('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('SLS', $program);
+        })->name('destroy');
+        
+        Route::get('api/programs', function() {
+            return app(ProgramController::class)->getAllPrograms('SLS');
+        })->name('api.all');
+    });
+
+    // TOURISM Programs Routes
+    Route::prefix('schools/tourism')->middleware(['auth'])->name('schools.tourism.programs.')->group(function () {
+        Route::get('programs', function(Request $request) {
+            return app(ProgramController::class)->index($request, 'TOURISM');
+        })->name('index');
+        
+        Route::get('programs/create', function() {
+            return app(ProgramController::class)->create('TOURISM');
+        })->name('create');
+        
+        Route::get('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('TOURISM', $program);
+        })->name('show');
+        
+        Route::get('programs/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('TOURISM', $program);
+        })->name('edit');
+        
+        Route::post('programs', function(Request $request) {
+            return app(ProgramController::class)->store($request, 'TOURISM');
+        })->name('store');
+        
+        Route::put('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'TOURISM', $program);
+        })->name('update');
+        
+        Route::patch('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'TOURISM', $program);
+        })->name('patch');
+        
+        Route::delete('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('TOURISM', $program);
+        })->name('destroy');
+        
+        Route::get('api/programs', function() {
+            return app(ProgramController::class)->getAllPrograms('TOURISM');
+        })->name('api.all');
+    });
+
+    // SHS Programs Routes
+    Route::prefix('schools/shs')->middleware(['auth'])->name('schools.shs.programs.')->group(function () {
+        
+        Route::get('/debug-programs', function() {
+    return [
+        'all_programs' => \App\Models\Program::all(),
+        'all_schools' => \App\Models\School::all(),
+        'user_roles' => auth()->user()->getRoleNames(),
+        'current_route' => request()->route()->getName() ?? 'No route name',
+        'url' => request()->fullUrl()
+    ];
+})->middleware('auth');
+        
+        Route::get('programs', function(Request $request) {
+            return app(ProgramController::class)->index($request, 'SHS');
+        })->name('index');
+        
+        
+        Route::get('programs/create', function() {
+            return app(ProgramController::class)->create('SHS');
+        })->name('create');
+        
+        Route::get('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('SHS', $program);
+        })->name('show');
+        
+        Route::get('programs/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('SHS', $program);
+        })->name('edit');
+        
+        Route::post('programs', function(Request $request) {
+            return app(ProgramController::class)->store($request, 'SHS');
+        })->name('store');
+        
+        Route::put('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SHS', $program);
+        })->name('update');
+        
+        Route::patch('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SHS', $program);
+        })->name('patch');
+        
+        Route::delete('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('SHS', $program);
+        })->name('destroy');
+        
+        Route::get('api/programs', function() {
+            return app(ProgramController::class)->getAllPrograms('SHS');
+        })->name('api.all');
+    });
+
+    // SHM Programs Routes
+    Route::prefix('schools/shm')->middleware(['auth'])->name('schools.shm.programs.')->group(function () {
+        Route::get('programs', function(Request $request) {
+            return app(ProgramController::class)->index($request, 'SHM');
+        })->name('index');
+        
+        Route::get('programs/create', function() {
+            return app(ProgramController::class)->create('SHM');
+        })->name('create');
+        
+        Route::get('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('SHM', $program);
+        })->name('show');
+        
+        Route::get('programs/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('SHM', $program);
+        })->name('edit');
+        
+        Route::post('programs', function(Request $request) {
+            return app(ProgramController::class)->store($request, 'SHM');
+        })->name('store');
+        
+        Route::put('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SHM', $program);
+        })->name('update');
+        
+        Route::patch('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SHM', $program);
+        })->name('patch');
+        
+        Route::delete('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('SHM', $program);
+        })->name('destroy');
+        
+        Route::get('api/programs', function() {
+            return app(ProgramController::class)->getAllPrograms('SHM');
         })->name('api.all');
     });
 
