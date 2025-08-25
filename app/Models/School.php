@@ -30,10 +30,11 @@ class School extends Model
         return $this->hasMany(Program::class);
     }
 
-    public function units()
-    {
-        return $this->hasMany(Unit::class, 'school_code', 'code');
-    }
+
+public function units()
+{
+    return $this->hasManyThrough(Unit::class, Program::class);
+}
 
     // Scopes
     public function scopeActive($query)

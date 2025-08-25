@@ -330,7 +330,7 @@ export default function UnitsIndex() {
                     </div>
                   )}
                 </div>
-                {can.create && (
+                
                   <button
                     onClick={handleCreateUnit}
                     className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
@@ -338,7 +338,7 @@ export default function UnitsIndex() {
                     <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
                     Create Unit
                   </button>
-                )}
+                
               </div>
             </div>
           </div>
@@ -520,7 +520,7 @@ export default function UnitsIndex() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {can.update && (
+                         
                               <button
                                 onClick={() => handleEditUnit(unit)}
                                 className="text-indigo-600 hover:text-indigo-900 transition-colors p-1 rounded hover:bg-indigo-50"
@@ -528,8 +528,8 @@ export default function UnitsIndex() {
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
-                            )}
-                            {can.delete && (
+                        
+                           
                               <button
                                 onClick={() => handleDeleteUnit(unit)}
                                 className="text-red-600 hover:text-red-900 transition-colors p-1 rounded hover:bg-red-50"
@@ -537,7 +537,7 @@ export default function UnitsIndex() {
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
-                            )}
+                            
                           </div>
                         </td>
                       </tr>

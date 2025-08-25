@@ -102,7 +102,19 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('admin')->middleware(['role:Admin'])->group(function () {
         Route::get('/', [DashboardController::class, 'adminDashboard'])
             ->name('admin.dashboard');
-            
+        
+        // Units Management
+        // Add this route BEFORE your existing school-specific routes
+
+    // Admin Units Route (no school parameter)
+    Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
+    Route::post('/units', [UnitController::class, 'Store'])->name('admin.units.store');
+    Route::get('/units/create', [UnitController::class, 'Create'])->name('admin.units.create');
+    Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
+    Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
+    Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
+    Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
+
         // Users Management
         Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
         Route::post('/users', [UserController::class, 'store'])->name('admin.users.store');
@@ -130,6 +142,7 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/semesters/{semester}', [SemesterController::class, 'destroy'])->name('admin.semesters.destroy');
         Route::put('/semesters/{semester}/activate', [SemesterController::class, 'setActive'])->name('admin.semesters.activate');
         
+        
         // Schools
         Route::get('schools', [SchoolController::class, 'index'])->name('admin.schools.index');
         Route::get('schools/create', [SchoolController::class, 'create'])->name('admin.schools.create');
@@ -143,12 +156,8 @@ Route::middleware(['auth'])->group(function () {
         
         
        
-    Route::resource('units', UnitController::class)->except(['show']);
-    Route::get('units/{unit}', [UnitController::class, 'show'])->name('units.show');
     
-    // API endpoint for getting units by program
-    Route::get('api/units/program/{program}', [UnitController::class, 'getUnitsByProgram'])
-        ->name('units.api.by-program');
+});
    
     });
     
@@ -196,7 +205,7 @@ Route::middleware(['auth'])->group(function () {
     });
 
     
-});
+
 
     
 

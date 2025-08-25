@@ -19,213 +19,215 @@ class UnitController extends Controller
     }
 
     /**
-     * Display units for a specific school and program.
+     * Display all units across all schools (Admin view).
+     * Fixed to handle NULL relationships gracefully.
      */
-    /**
- * Display all units across all schools (Admin view).
- */
-public function index(Request $request, $schoolCode = null)
-{
-    $user = auth()->user();
-    
-    // If schoolCode is provided, use school-specific logic
-    if ($schoolCode) {
-        // Your existing school-specific logic here
-        return $this->schoolSpecificIndex($request, $schoolCode);
-    }
-    
-    // Admin-level: Show all units across all schools
-    if (!$user->hasRole('Admin') && !$user->can('manage-units')) {
-        abort(403, "Unauthorized access to units management.");
-    }
-
-    try {
-        $query = Unit::with(['program.school', 'semester']);
-        
-        // Apply filters
-        $this->applyFilters($query, $request);
-
-        $units = $query->get()->map(function ($unit) {
-            return [
-                'id' => $unit->id,
-                'code' => $unit->code,
-                'name' => $unit->name,
-                'description' => $unit->description,
-                'credit_hours' => $unit->credit_hours,
-                'is_active' => $unit->is_active,
-                'program_id' => $unit->program_id,
-                'program_name' => $unit->program->name,
-                'program_code' => $unit->program->code,
-                'school_name' => $unit->program->school->name,
-                'school_code' => $unit->program->school->code,
-                'semester_id' => $unit->semester_id,
-                'semester_name' => $unit->semester ? $unit->semester->name : null,
-                'created_at' => $unit->created_at,
-                'updated_at' => $unit->updated_at,
-            ];
-        });
-
-        // Get all programs from all schools
-        $programs = Program::with('school')
-            ->where('is_active', true)
-            ->select('id', 'code', 'name', 'school_id')
-            ->orderBy('name')
-            ->get();
-
-        // Get all schools
-        $schools = School::where('is_active', true)
-            ->select('id', 'code', 'name')
-            ->orderBy('name')
-            ->get();
-
-        $semesters = Semester::where('is_active', true)
-            ->select('id', 'name')
-            ->orderBy('name')
-            ->get();
-
-        return Inertia::render("Admin/Units/Index", [
-            'units' => $units,
-            'programs' => $programs,
-            'schools' => $schools,
-            'semesters' => $semesters,
-            'can' => [
-                'create' => $user->can('manage-units') || $user->hasRole('Admin'),
-                'update' => $user->can('manage-units') || $user->hasRole('Admin'),
-                'delete' => $user->can('manage-units') || $user->hasRole('Admin'),
-            ],
-            'filters' => $request->only([
-                'search', 'program_id', 'school_id', 'semester_id', 'is_active', 
-                'sort_field', 'sort_direction'
-            ]),
-            'stats' => $this->getAllUnitsStats(),
-        ]);
-
-    } catch (\Exception $e) {
-        Log::error("Error fetching admin units", [
-            'user_id' => $user->id,
-            'error' => $e->getMessage(),
-        ]);
-
-        return Inertia::render("Admin/Units/Index", [
-            'units' => [],
-            'programs' => [],
-            'schools' => [],
-            'semesters' => [],
-            'error' => 'Unable to load units. Please try again.',
-        ]);
-    }
-}
-
-/**
- * Get statistics for all units across all schools.
- */
-private function getAllUnitsStats()
-{
-    return [
-        'total' => Unit::count(),
-        'active' => Unit::where('is_active', true)->count(),
-        'inactive' => Unit::where('is_active', false)->count(),
-        'assigned_to_semester' => Unit::whereNotNull('semester_id')->count(),
-        'unassigned' => Unit::whereNull('semester_id')->count(),
-    ];
-}
-
-    /**
-     * Show the form for creating a new unit.
-     */
-    public function create($schoolCode)
+    public function index(Request $request)
     {
         $user = auth()->user();
-        $schoolCode = strtoupper($schoolCode);
         
-        if (!$this->hasSchoolPermission($user, $schoolCode, 'create')) {
-            abort(403, "Unauthorized to create {$schoolCode} units.");
+        // Admin-level: Show all units across all schools
+        if (!$user->hasRole('Admin') && !$user->can('manage-units')) {
+            abort(403, "Unauthorized access to units management.");
         }
 
-        $school = School::where('code', $schoolCode)->first();
-        
-        if (!$school) {
-            return redirect()->route("schools.{$schoolCode}.units.index")
-                ->withErrors(['error' => "{$schoolCode} school not found."]);
+        try {
+            // Don't eager load relationships that might not exist - load them manually
+            $query = Unit::query();
+            
+            // Apply admin filters
+            $this->applyFilters($query, $request);
+
+            $units = $query->get()->map(function ($unit) {
+                // Safely load relationships with null checks
+                $program = $unit->program_id ? Program::find($unit->program_id) : null;
+                $school = ($program && $program->school_id) ? School::find($program->school_id) : null;
+                $semester = $unit->semester_id ? Semester::find($unit->semester_id) : null;
+                
+                return [
+                    'id' => $unit->id,
+                    'code' => $unit->code,
+                    'name' => $unit->name,
+                    'description' => $unit->description,
+                    'credit_hours' => $unit->credit_hours,
+                    'is_active' => $unit->is_active,
+                    'program_id' => $unit->program_id,
+                    'program_name' => $program?->name ?? 'No Program Assigned',
+                    'program_code' => $program?->code ?? 'N/A',
+                    'school_id' => $school?->id ?? null,
+                    'school_name' => $school?->name ?? 'No School Assigned',
+                    'school_code' => $school?->code ?? 'N/A',
+                    'semester_id' => $unit->semester_id,
+                    'semester_name' => $semester?->name ?? null,
+                    'created_at' => $unit->created_at->toISOString(),
+                    'updated_at' => $unit->updated_at->toISOString(),
+                ];
+            });
+
+            // Get all programs from all schools
+            $programs = Program::where('is_active', true)
+                ->select('id', 'code', 'name', 'school_id')
+                ->orderBy('name')
+                ->get();
+
+            // Get all schools
+            $schools = School::where('is_active', true)
+                ->select('id', 'code', 'name')
+                ->orderBy('name')
+                ->get();
+
+            $semesters = Semester::where('is_active', true)
+                ->select('id', 'name')
+                ->orderBy('name')
+                ->get();
+
+            return Inertia::render("Admin/Units/Index", [
+                'units' => $units,
+                'programs' => $programs,
+                'schools' => $schools,
+                'semesters' => $semesters,
+                'can' => [
+                    'create' => $user->can('manage-units') || $user->hasRole('Admin'),
+                    'update' => $user->can('manage-units') || $user->hasRole('Admin'),
+                    'delete' => $user->can('manage-units') || $user->hasRole('Admin'),
+                ],
+                'filters' => $request->only([
+                    'search', 'program_id', 'school_id', 'semester_id', 'is_active', 
+                    'sort_field', 'sort_direction'
+                ]),
+                'stats' => $this->getAllUnitsStats(),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error("Error fetching admin units", [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return Inertia::render("Admin/Units/Index", [
+                'units' => [],
+                'programs' => [],
+                'schools' => [],
+                'semesters' => [],
+                'can' => [
+                    'create' => false,
+                    'update' => false,
+                    'delete' => false,
+                ],
+                'filters' => [],
+                'stats' => [
+                    'total' => 0,
+                    'active' => 0,
+                    'inactive' => 0,
+                    'assigned_to_semester' => 0,
+                    'unassigned' => 0,
+                ],
+                'error' => 'Unable to load units. Please try again.',
+            ]);
         }
-
-        $programs = Program::where('school_id', $school->id)
-            ->where('is_active', true)
-            ->select('id', 'code', 'name')
-            ->orderBy('name')
-            ->get();
-
-        $semesters = Semester::where('is_active', true)
-            ->select('id', 'name')
-            ->orderBy('name')
-            ->get();
-
-        return Inertia::render("Schools/{$schoolCode}/Units/Create", [
-            'school' => [
-                'id' => $school->id,
-                'name' => $school->name,
-                'code' => $school->code,
-            ],
-            'programs' => $programs,
-            'semesters' => $semesters,
-        ]);
     }
 
     /**
-     * Store a newly created unit.
+     * Apply filters with safe relationship checks.
      */
-    public function store(Request $request, $schoolCode)
+    private function applyFilters($query, $request)
+    {
+        // Search functionality - updated to handle NULL relationships
+        if ($request->has('search') && $request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('code', 'like', "%{$search}%")
+                  ->orWhereHas('program', function($programQuery) use ($search) {
+                      $programQuery->where('name', 'like', "%{$search}%")
+                                   ->orWhere('code', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('program.school', function($schoolQuery) use ($search) {
+                      $schoolQuery->where('name', 'like', "%{$search}%")
+                                  ->orWhere('code', 'like', "%{$search}%");
+                  });
+            });
+        }
+        
+        // Filter by school - only apply if program relationship exists
+        if ($request->has('school_id') && $request->filled('school_id')) {
+            $query->whereHas('program', function($q) use ($request) {
+                $q->where('school_id', $request->input('school_id'));
+            });
+        }
+        
+        // Filter by active status
+        if ($request->has('is_active') && $request->filled('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+        }
+        
+        // Filter by program - only apply if not null
+        if ($request->has('program_id') && $request->filled('program_id')) {
+            $query->where('program_id', $request->input('program_id'));
+        }
+        
+        // Filter by semester - only apply if not null
+        if ($request->has('semester_id') && $request->filled('semester_id')) {
+            $query->where('semester_id', $request->input('semester_id'));
+        }
+        
+        // Sorting
+        $sortField = $request->input('sort_field', 'name');
+        $sortDirection = $request->input('sort_direction', 'asc');
+        $query->orderBy($sortField, $sortDirection);
+    }
+
+    /**
+     * Get statistics for all units across all schools.
+     */
+    private function getAllUnitsStats()
+    {
+        return [
+            'total' => Unit::count(),
+            'active' => Unit::where('is_active', true)->count(),
+            'inactive' => Unit::where('is_active', false)->count(),
+            'assigned_to_semester' => Unit::whereNotNull('semester_id')->count(),
+            'unassigned' => Unit::whereNull('semester_id')->count(),
+        ];
+    }
+
+    /**
+     * Store a newly created unit (Admin).
+     */
+    public function store(Request $request)
     {
         $user = auth()->user();
-        $schoolCode = strtoupper($schoolCode);
         
-        if (!$this->hasSchoolPermission($user, $schoolCode, 'create')) {
-            abort(403, "Unauthorized to create {$schoolCode} units.");
-        }
-
-        $school = School::where('code', $schoolCode)->first();
-        
-        if (!$school) {
-            return back()->withErrors(['error' => "{$schoolCode} school not found."]);
+        if (!$user->hasRole('Admin') && !$user->can('manage-units')) {
+            abort(403, "Unauthorized to create units.");
         }
 
         try {
             $validated = $request->validate([
-                'code' => [
-                    'required',
-                    'string',
-                    'max:20',
-                    'unique:units,code',
-                ],
+                'code' => 'required|string|max:20|unique:units,code',
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'credit_hours' => 'required|integer|min:1|max:6',
-                'program_id' => [
-                    'required',
-                    'exists:programs,id',
-                    // Ensure program belongs to this school
-                    Rule::exists('programs', 'id')->where('school_id', $school->id),
-                ],
+                'program_id' => 'required|exists:programs,id',
                 'semester_id' => 'nullable|exists:semesters,id',
                 'is_active' => 'boolean',
             ]);
 
             $unit = Unit::create($validated);
 
-            Log::info("{$schoolCode} Unit created", [
+            Log::info("Admin Unit created", [
                 'unit_id' => $unit->id,
                 'code' => $unit->code,
                 'name' => $unit->name,
-                'school_code' => $schoolCode,
                 'created_by' => $user->id
             ]);
 
-            return redirect()->route("schools.{$schoolCode}.units.index")
+            return redirect()->route('admin.units.index')
                 ->with('success', 'Unit created successfully.');
 
         } catch (\Exception $e) {
-            Log::error("Error creating {$schoolCode} unit", [
-                'school_code' => $schoolCode,
+            Log::error("Error creating admin unit", [
                 'data' => $request->all(),
                 'error' => $e->getMessage(),
                 'user_id' => $user->id
@@ -238,112 +240,14 @@ private function getAllUnitsStats()
     }
 
     /**
-     * Display the specified unit.
+     * Update a unit (Admin).
      */
-    public function show($schoolCode, Unit $unit)
+    public function update(Request $request, Unit $unit)
     {
         $user = auth()->user();
-        $schoolCode = strtoupper($schoolCode);
         
-        if (!$this->hasSchoolPermission($user, $schoolCode, 'view')) {
-            abort(403, "Unauthorized to view {$schoolCode} unit details.");
-        }
-
-        // Ensure unit belongs to the specified school
-        if ($unit->program->school->code !== $schoolCode) {
-            abort(404, "Unit not found in {$schoolCode}.");
-        }
-
-        return Inertia::render("Schools/{$schoolCode}/Units/Show", [
-            'unit' => [
-                'id' => $unit->id,
-                'code' => $unit->code,
-                'name' => $unit->name,
-                'description' => $unit->description,
-                'credit_hours' => $unit->credit_hours,
-                'is_active' => $unit->is_active,
-                'program_name' => $unit->program->name,
-                'program_code' => $unit->program->code,
-                'semester_name' => $unit->semester ? $unit->semester->name : null,
-                'created_at' => $unit->created_at,
-                'updated_at' => $unit->updated_at,
-            ],
-            'school' => [
-                'id' => $unit->program->school->id,
-                'name' => $unit->program->school->name,
-                'code' => $unit->program->school->code,
-            ],
-            'can' => [
-                'update' => $this->hasSchoolPermission($user, $schoolCode, 'edit'),
-                'delete' => $this->hasSchoolPermission($user, $schoolCode, 'delete'),
-            ],
-        ]);
-    }
-
-    /**
-     * Show the form for editing the specified unit.
-     */
-    public function edit($schoolCode, Unit $unit)
-    {
-        $user = auth()->user();
-        $schoolCode = strtoupper($schoolCode);
-        
-        if (!$this->hasSchoolPermission($user, $schoolCode, 'edit')) {
-            abort(403, "Unauthorized to edit {$schoolCode} units.");
-        }
-
-        // Ensure unit belongs to the specified school
-        if ($unit->program->school->code !== $schoolCode) {
-            abort(404, "Unit not found in {$schoolCode}.");
-        }
-
-        $programs = Program::where('school_id', $unit->program->school_id)
-            ->where('is_active', true)
-            ->select('id', 'code', 'name')
-            ->orderBy('name')
-            ->get();
-
-        $semesters = Semester::where('is_active', true)
-            ->select('id', 'name')
-            ->orderBy('name')
-            ->get();
-
-        return Inertia::render("Schools/{$schoolCode}/Units/Edit", [
-            'unit' => [
-                'id' => $unit->id,
-                'code' => $unit->code,
-                'name' => $unit->name,
-                'description' => $unit->description,
-                'credit_hours' => $unit->credit_hours,
-                'program_id' => $unit->program_id,
-                'semester_id' => $unit->semester_id,
-                'is_active' => $unit->is_active,
-            ],
-            'programs' => $programs,
-            'semesters' => $semesters,
-            'school' => [
-                'id' => $unit->program->school->id,
-                'name' => $unit->program->school->name,
-                'code' => $unit->program->school->code,
-            ],
-        ]);
-    }
-
-    /**
-     * Update the specified unit.
-     */
-    public function update(Request $request, $schoolCode, Unit $unit)
-    {
-        $user = auth()->user();
-        $schoolCode = strtoupper($schoolCode);
-        
-        if (!$this->hasSchoolPermission($user, $schoolCode, 'edit')) {
-            abort(403, "Unauthorized to update {$schoolCode} units.");
-        }
-
-        // Ensure unit belongs to the specified school
-        if ($unit->program->school->code !== $schoolCode) {
-            abort(404, "Unit not found in {$schoolCode}.");
+        if (!$user->hasRole('Admin') && !$user->can('manage-units')) {
+            abort(403, "Unauthorized to update units.");
         }
 
         try {
@@ -357,24 +261,17 @@ private function getAllUnitsStats()
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'credit_hours' => 'required|integer|min:1|max:6',
-                'program_id' => [
-                    'required',
-                    'exists:programs,id',
-                    // Ensure program belongs to this school
-                    Rule::exists('programs', 'id')->where('school_id', $unit->program->school_id),
-                ],
+                'program_id' => 'required|exists:programs,id',
                 'semester_id' => 'nullable|exists:semesters,id',
                 'is_active' => 'boolean',
             ]);
 
             $unit->update($validated);
 
-            Log::info("{$schoolCode} Unit updated", [
+            Log::info("Admin Unit updated", [
                 'unit_id' => $unit->id,
                 'code' => $unit->code,
                 'name' => $unit->name,
-                'school_code' => $schoolCode,
-                'updated_by' => $user->id,
                 'changes' => $unit->getChanges()
             ]);
 
@@ -395,10 +292,7 @@ private function getAllUnitsStats()
         }
     }
 
-    /**
-     * Remove the specified unit from storage.
-     */
-    public function destroy($schoolCode, Unit $unit)
+    public function schoolDestroy($schoolCode, Unit $unit)
     {
         $user = auth()->user();
         $schoolCode = strtoupper($schoolCode);
@@ -407,14 +301,15 @@ private function getAllUnitsStats()
             abort(403, "Unauthorized to delete {$schoolCode} units.");
         }
 
-        // Ensure unit belongs to the specified school
-        if ($unit->program->school->code !== $schoolCode) {
+        // Safely check if unit belongs to the specified school
+        $program = $unit->program;
+        if (!$program || !$program->school || $program->school->code !== $schoolCode) {
             abort(404, "Unit not found in {$schoolCode}.");
         }
 
         try {
             // Check if unit has enrollments
-            if ($unit->enrollments()->exists()) {
+            if (method_exists($unit, 'enrollments') && $unit->enrollments()->exists()) {
                 return back()->withErrors([
                     'error' => 'Cannot delete unit because it has associated enrollments.'
                 ]);
@@ -446,9 +341,6 @@ private function getAllUnitsStats()
         }
     }
 
-    /**
-     * Get units for a specific program (API endpoint).
-     */
     public function getUnitsByProgram($schoolCode, $programId)
     {
         $schoolCode = strtoupper($schoolCode);
@@ -484,9 +376,6 @@ private function getAllUnitsStats()
         }
     }
 
-    /**
-     * Check if user has permission for a specific school action.
-     */
     private function hasSchoolPermission($user, $schoolCode, $action)
     {
         if ($user->hasRole('Admin')) {
@@ -509,48 +398,6 @@ private function getAllUnitsStats()
         }
     }
 
-    /**
-     * Apply filters to the query.
-     */
-    private function applyFilters($query, $request)
-    {
-        // Search functionality
-        if ($request->has('search') && $request->filled('search')) {
-            $search = $request->input('search');
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhereHas('program', function($programQuery) use ($search) {
-                      $programQuery->where('name', 'like', "%{$search}%")
-                                   ->orWhere('code', 'like', "%{$search}%");
-                  });
-            });
-        }
-        
-        // Filter by active status
-        if ($request->has('is_active')) {
-            $query->where('is_active', $request->boolean('is_active'));
-        }
-        
-        // Filter by program
-        if ($request->has('program_id') && $request->filled('program_id')) {
-            $query->where('program_id', $request->input('program_id'));
-        }
-        
-        // Filter by semester
-        if ($request->has('semester_id') && $request->filled('semester_id')) {
-            $query->where('semester_id', $request->input('semester_id'));
-        }
-        
-        // Sorting
-        $sortField = $request->input('sort_field', 'name');
-        $sortDirection = $request->input('sort_direction', 'asc');
-        $query->orderBy($sortField, $sortDirection);
-    }
-
-    /**
-     * Get statistics for units in a school.
-     */
     private function getStats($schoolId)
     {
         $query = Unit::whereHas('program', function($q) use ($schoolId) {
