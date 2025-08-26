@@ -27,7 +27,7 @@ import {
 
 type Student = {
   id: number;
-  code: string; // user code
+  student_code: string;
   name: string;
   email: string;
   school_id: number;
@@ -119,6 +119,7 @@ type PageProps = {
   units: Unit[];
   schools: School[];
   programs: Program[];
+  groups: Group[];
   semesters: Semester[];
   stats?: Stats;
   can: Can;
@@ -133,9 +134,12 @@ type PageProps = {
 };
 
 type EnrollmentFormData = {
-  student_id: number | '';
-  unit_id: number | '';
+  student_code: string;
+  school_id: number | '';
+  program_id: number | '';
+  group_id: number | '';
   semester_id: number | '';
+  unit_ids: number[]; // Changed to array for multiple unit selection
   status: 'enrolled' | 'dropped' | 'completed';
 };
 
@@ -147,6 +151,7 @@ export default function EnrollmentsIndex() {
     units = [],
     schools = [], 
     programs = [], 
+    groups = [],
     semesters = [], 
     stats, 
     can = { create: false, update: false, delete: false }, 
@@ -166,12 +171,17 @@ export default function EnrollmentsIndex() {
 
   // Form state
   const [formData, setFormData] = useState<EnrollmentFormData>({
-    student_id: '',
-    unit_id: '',
+    student_code: '',
+    school_id: '',
+    program_id: '',
+    group_id: '',
     semester_id: '',
+    unit_ids: [],
     status: 'enrolled'
   });
 
+  // Remove student validation state - we'll only validate on submit
+  
   // Filter state
   const [searchTerm, setSearchTerm] = useState(filters?.search || '');
   const [selectedStudent, setSelectedStudent] = useState<string | number>(filters?.student_id || '');
@@ -183,19 +193,38 @@ export default function EnrollmentsIndex() {
   const [sortField, setSortField] = useState(filters?.sort_field || 'enrollment_date');
   const [sortDirection, setSortDirection] = useState(filters?.sort_direction || 'desc');
 
-  // Filtered data
-  const filteredStudents = students.filter(student => 
-    !formData.semester_id || 
-    units.some(unit => 
-      unit.semester_id == formData.semester_id && 
-      (unit.school_id === student.school_id || unit.program_id === student.program_id)
-    )
+  // Filtered data based on form selections
+  const filteredPrograms = programs.filter(program => 
+    !formData.school_id || program.school_id === formData.school_id
+  );
+
+  const filteredGroups = groups.filter(group => 
+    !formData.program_id || group.program_id === formData.program_id
   );
 
   const filteredUnits = units.filter(unit => 
     unit.is_active && 
     (!formData.semester_id || unit.semester_id == formData.semester_id)
   );
+
+  // Reset dependent fields when selections change
+  useEffect(() => {
+    if (formData.school_id) {
+      setFormData(prev => ({ ...prev, program_id: '', group_id: '' }));
+    }
+  }, [formData.school_id]);
+
+  useEffect(() => {
+    if (formData.program_id) {
+      setFormData(prev => ({ ...prev, group_id: '' }));
+    }
+  }, [formData.program_id]);
+
+  useEffect(() => {
+    if (formData.semester_id) {
+      setFormData(prev => ({ ...prev, unit_ids: [] }));
+    }
+  }, [formData.semester_id]);
 
   // Error handling
   useEffect(() => {
@@ -247,9 +276,12 @@ export default function EnrollmentsIndex() {
   // Form handlers
   const handleCreateEnrollment = () => {
     setFormData({
-      student_id: '',
-      unit_id: '',
+      student_code: '',
+      school_id: '',
+      program_id: '',
+      group_id: '',
       semester_id: '',
+      unit_ids: [],
       status: 'enrolled'
     });
     setIsCreateModalOpen(true);
@@ -258,12 +290,35 @@ export default function EnrollmentsIndex() {
   const handleEditEnrollment = (enrollment: Enrollment) => {
     setSelectedEnrollment(enrollment);
     setFormData({
-      student_id: enrollment.student_id,
-      unit_id: enrollment.unit_id,
+      student_code: enrollment.student.code,
+      school_id: enrollment.student.school_id,
+      program_id: enrollment.student.program_id,
+      group_id: '', // Would need to be fetched from enrollment data
       semester_id: enrollment.semester_id,
+      unit_ids: [enrollment.unit_id],
       status: enrollment.status
     });
     setIsEditModalOpen(true);
+  };
+
+  const handleUnitToggle = (unitId: number) => {
+    setFormData(prev => ({
+      ...prev,
+      unit_ids: prev.unit_ids.includes(unitId)
+        ? prev.unit_ids.filter(id => id !== unitId)
+        : [...prev.unit_ids, unitId]
+    }));
+  };
+
+  const handleSelectAllUnits = () => {
+    setFormData(prev => ({
+      ...prev,
+      unit_ids: filteredUnits.map(unit => unit.id)
+    }));
+  };
+
+  const handleClearAllUnits = () => {
+    setFormData(prev => ({ ...prev, unit_ids: [] }));
   };
 
   const handleViewEnrollment = (enrollment: Enrollment) => {
@@ -695,94 +750,217 @@ export default function EnrollmentsIndex() {
           {/* Create/Edit Modal */}
           {(isCreateModalOpen || isEditModalOpen) && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
                   <h3 className="text-xl font-semibold text-white">
                     {selectedEnrollment ? 'Edit Enrollment' : 'Create New Enrollment'}
                   </h3>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Semester *
-                      </label>
-                      <select
-                        value={formData.semester_id}
-                        onChange={(e) => setFormData(prev => ({ ...prev, semester_id: e.target.value ? parseInt(e.target.value) : '' }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        required
-                      >
-                        <option value="">Select Semester</option>
-                        {semesters.map(semester => (
-                          <option key={semester.id} value={semester.id}>
-                            {semester.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Status *
-                      </label>
-                      <select
-                        value={formData.status}
-                        onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'enrolled' | 'dropped' | 'completed' }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        required
-                      >
-                        <option value="enrolled">Enrolled</option>
-                        <option value="dropped">Dropped</option>
-                        <option value="completed">Completed</option>
-                      </select>
-                    </div>
-                  </div>
-
+                <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                  {/* Student Code Input */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Student *
+                      Student Number *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.student_code}
+                      onChange={(e) => setFormData(prev => ({ ...prev, student_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      placeholder="e.g., BBIT0003"
+                      required
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Student validation will occur when you submit the form
+                    </p>
+                  </div>
+
+                  {/* School Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      School *
                     </label>
                     <select
-                      value={formData.student_id}
-                      onChange={(e) => setFormData(prev => ({ ...prev, student_id: e.target.value ? parseInt(e.target.value) : '' }))}
+                      value={formData.school_id}
+                      onChange={(e) => setFormData(prev => ({ 
+                        ...prev, 
+                        school_id: e.target.value ? parseInt(e.target.value) : '',
+                        program_id: '',
+                        group_id: ''
+                      }))}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                       required
                     >
-                      <option value="">Select Student</option>
-                      {filteredStudents.map(student => (
-                        <option key={student.id} value={student.id}>
-                          {student.student_code} - {student.name} ({student.program_code})
+                      <option value="">Select School</option>
+                      {schools.map(school => (
+                        <option key={school.id} value={school.id}>
+                          {school.code} - {school.name}
                         </option>
                       ))}
                     </select>
                   </div>
 
+                  {/* Program Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Unit *
+                      Program *
                     </label>
                     <select
-                      value={formData.unit_id}
-                      onChange={(e) => setFormData(prev => ({ ...prev, unit_id: e.target.value ? parseInt(e.target.value) : '' }))}
+                      value={formData.program_id}
+                      onChange={(e) => setFormData(prev => ({ 
+                        ...prev, 
+                        program_id: e.target.value ? parseInt(e.target.value) : '',
+                        group_id: ''
+                      }))}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                       required
-                      disabled={!formData.semester_id}
+                      disabled={!formData.school_id}
                     >
-                      <option value="">Select Unit</option>
-                      {filteredUnits.map(unit => (
-                        <option key={unit.id} value={unit.id}>
-                          {unit.code} - {unit.name} ({unit.credit_hours} hrs)
+                      <option value="">Select Program</option>
+                      {filteredPrograms.map(program => (
+                        <option key={program.id} value={program.id}>
+                          {program.code} - {program.name}
                         </option>
                       ))}
                     </select>
-                    {!formData.semester_id && (
+                    {!formData.school_id && (
                       <p className="mt-1 text-xs text-gray-500">
-                        Select a semester first to see available units
+                        Select a school first to see programs
                       </p>
                     )}
                   </div>
 
+                  {/* Group Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Group *
+                    </label>
+                    <select
+                      value={formData.group_id}
+                      onChange={(e) => setFormData(prev => ({ ...prev, group_id: e.target.value ? parseInt(e.target.value) : '' }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      required
+                      disabled={!formData.program_id}
+                    >
+                      <option value="">Select Group</option>
+                      {filteredGroups.map(group => (
+                        <option key={group.id} value={group.id}>
+                          {group.name} (Capacity: {group.capacity})
+                        </option>
+                      ))}
+                    </select>
+                    {!formData.program_id && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Select a program first to see groups
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Semester Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Semester *
+                    </label>
+                    <select
+                      value={formData.semester_id}
+                      onChange={(e) => setFormData(prev => ({ 
+                        ...prev, 
+                        semester_id: e.target.value ? parseInt(e.target.value) : '',
+                        unit_ids: []
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      required
+                    >
+                      <option value="">Select Semester</option>
+                      {semesters.map(semester => (
+                        <option key={semester.id} value={semester.id}>
+                          {semester.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Units Selection */}
+                  {formData.semester_id && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Select Units to Enroll ({formData.unit_ids.length} selected)
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllUnits}
+                            className="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearAllUnits}
+                            className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
+                        {filteredUnits.length === 0 ? (
+                          <div className="p-4 text-center text-gray-500">
+                            No units available for this semester
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-gray-200">
+                            {filteredUnits.map(unit => (
+                              <div key={unit.id} className="p-3 hover:bg-gray-50">
+                                <label className="flex items-center cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={formData.unit_ids.includes(unit.id)}
+                                    onChange={() => handleUnitToggle(unit.id)}
+                                    className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500"
+                                  />
+                                  <div className="ml-3 flex-1">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <div className="text-sm font-medium text-gray-900">
+                                          {unit.code} - {unit.name}
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                          {unit.credit_hours} credit hours • {unit.school_code}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Status Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Status *
+                    </label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'enrolled' | 'dropped' | 'completed' }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      required
+                    >
+                      <option value="enrolled">Enrolled</option>
+                      <option value="dropped">Dropped</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+
+                  {/* Form Actions */}
                   <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                     <button
                       type="button"
@@ -797,10 +975,12 @@ export default function EnrollmentsIndex() {
                     </button>
                     <button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || formData.unit_ids.length === 0}
                       className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {loading ? 'Processing...' : selectedEnrollment ? 'Update Enrollment' : 'Create Enrollment'}
+                      {loading ? 'Processing...' : 
+                       selectedEnrollment ? 'Update Enrollment' : 
+                       `Enroll in ${formData.unit_ids.length} Unit${formData.unit_ids.length !== 1 ? 's' : ''}`}
                     </button>
                   </div>
                 </form>

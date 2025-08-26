@@ -122,4 +122,48 @@ class EnrollmentController extends Controller
             return back()->withErrors(['error' => 'Failed to delete enrollment']);
         }
     }
+    public function validateStudentCode($code)
+{
+    try {
+        // Find user by code with Student role
+        $student = User::where('code', $code)
+            ->role('Student') // Using Spatie's role method
+            ->with(['school', 'program'])
+            ->first();
+
+        if (!$student) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Student not found or user is not a student'
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'student' => [
+                'id' => $student->id,
+                'code' => $student->code,
+                'name' => $student->name,
+                'email' => $student->email,
+                'school_id' => $student->school_id,
+                'school_name' => $student->school ? $student->school->name : null,
+                'school_code' => $student->school ? $student->school->code : null,
+                'program_id' => $student->program_id,
+                'program_name' => $student->program ? $student->program->name : null,
+                'program_code' => $student->program ? $student->program->code : null,
+            ]
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Student validation error', [
+            'code' => $code,
+            'error' => $e->getMessage()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'error' => 'Failed to validate student code'
+        ], 500);
+    }
+}
 }

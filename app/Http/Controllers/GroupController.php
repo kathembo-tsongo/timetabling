@@ -12,7 +12,7 @@ class GroupController extends Controller
         $groups = Group::with('class')->paginate(10);
         $classes = ClassModel::all();
 
-        return inertia('Groups/Index', [
+        return inertia('Admin/Groups/Index', [
             'groups' => $groups,
             'classes' => $classes,
         ]);

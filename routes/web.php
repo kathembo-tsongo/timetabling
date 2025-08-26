@@ -10,6 +10,8 @@ use App\Http\Controllers\SchoolController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\GroupController;
+use App\Http\Controllers\ClassController;
 use App\Models\Program;
 use App\Models\Unit;
 use Illuminate\Support\Facades\Route;
@@ -157,15 +159,37 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('schools/{school}', [SchoolController::class, 'destroy'])->name('admin.schools.destroy');
         Route::get('schools-api/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
         
+        // Enrollment Routes
         Route::get('/enrollments', [EnrollmentController::class, 'index'])->name('admin.enrollments.index');
-    Route::post('/enrollments', [EnrollmentController::class, 'store'])->name('admin.enrollments.store');
-    Route::get('/enrollments/create', [EnrollmentController::class, 'create'])->name('admin.enrollments.create');
-    Route::get('/enrollments/{enrollment}', [EnrollmentController::class, 'show'])->name('admin.enrollments.show');
-    Route::get('/enrollments/{enrollment}/edit', [EnrollmentController::class, 'edit'])->name('admin.enrollments.edit');
-    Route::put('/enrollments/{enrollment}', [EnrollmentController::class, 'update'])->name('admin.enrollments.update');
-    Route::delete('/enrollments/{enrollment}', [EnrollmentController::class, 'destroy'])->name('admin.enrollments.destroy');
-       
-    
+        Route::post('/enrollments', [EnrollmentController::class, 'store'])->name('admin.enrollments.store');
+        Route::get('/enrollments/create', [EnrollmentController::class, 'create'])->name('admin.enrollments.create');
+        Route::get('/enrollments/{enrollment}', [EnrollmentController::class, 'show'])->name('admin.enrollments.show');
+        Route::get('/enrollments/{enrollment}/edit', [EnrollmentController::class, 'edit'])->name('admin.enrollments.edit');
+        Route::put('/enrollments/{enrollment}', [EnrollmentController::class, 'update'])->name('admin.enrollments.update');
+        Route::delete('/enrollments/{enrollment}', [EnrollmentController::class, 'destroy'])->name('admin.enrollments.destroy');
+        
+        
+        // Group Routes        
+        Route::get('/groups', [GroupController::class, 'index'])->name('admin.groups.index');
+        Route::post('/groups', [GroupController::class, 'store'])->name('admin.groups.store');
+        Route::get('/groups/create', [GroupController::class, 'create'])->name('admin.groups.create');
+        Route::get('/groups/{group}', [GroupController::class, 'show'])->name('admin.groups.show');
+        Route::get('/groups/{group}/edit', [GroupController::class, 'edit'])->name('admin.groups.edit');
+        Route::put('/groups/{group}', [GroupController::class, 'update'])->name('admin.groups.update');
+        Route::delete('/groups/{group}', [GroupController::class, 'destroy'])->name('admin.groups.destroy');
+        
+        // Class Routes
+        Route::get('/classes', [ClassController::class, 'index'])->name('admin.classes.index');
+        Route::post('/classes', [ClassController::class, 'store'])->name('admin.classes.store');
+        Route::post('/classes/bulk-store', [ClassController::class, 'bulkStore'])->name('admin.classes.bulk-store');
+        Route::get('/classes/create', [ClassController::class, 'create'])->name('admin.classes.create');
+        Route::get('/classes/{class}', [ClassController::class, 'show'])->name('admin.classes.show');
+        Route::get('/classes/{class}/edit', [ClassController::class, 'edit'])->name('admin.classes.edit');
+        Route::put('/classes/{class}', [ClassController::class, 'update'])->name('admin.classes.update');
+        Route::delete('/classes/{class}', [ClassController::class, 'destroy'])->name('admin.classes.destroy');
+        Route::get('/api/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
+Route::get('/api/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
+
 });
    
     });

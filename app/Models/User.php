@@ -22,8 +22,8 @@ class User extends Authenticatable
         'schools',
         'programs',
         'school_id',
-        'program_id', // ADD: For student program assignment
-        'name', // ✅ ADDED: Missing name field that's used in timetable
+        'program_id', 
+        'name', 
     ];
 
     protected $hidden = [

@@ -2,56 +2,74 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class ClassModel extends Model
 {
-    use HasFactory;
-
     protected $table = 'classes';
-    protected $primaryKey = 'id';
+    
     protected $fillable = [
         'name',
-        'school_id',
-        'semester_id',
-        'program_id', // Ensure this is fillable if you're using it in forms
+        'semester_id', 
+        'program_id',
+        'year_level',
+        'section',
+        'capacity',
+        'students_count',
+        'is_active'
     ];
 
-    // Add or update the school relationship in the ClassModel
-    public function school()
-    {
-        return $this->belongsTo(School::class);
-    }
+    protected $casts = [
+        'is_active' => 'boolean',
+        'capacity' => 'integer',
+        'students_count' => 'integer',
+        'year_level' => 'integer'
+    ];
 
-    // Add relationships for units and semesters through the semester_unit table
-    public function units()
-    {
-        return $this->belongsToMany(Unit::class, 'semester_unit', 'class_id', 'unit_id');
-    }
-
-    public function semesters()
-    {
-        return $this->belongsToMany(Semester::class, 'semester_unit', 'class_id', 'semester_id');
-    }
-
-    /**
-     * Define the relationship to the Semester model.
-     *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
-     */
+    // Relationships
     public function semester()
     {
-        return $this->belongsTo(Semester::class, 'semester_id');
+        return $this->belongsTo(Semester::class);
     }
 
-    /**
-     * Define the relationship to the Program model.
-     *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
-     */
     public function program()
     {
-        return $this->belongsTo(Program::class, 'program_id');
+        return $this->belongsTo(Program::class);
+    }
+
+    public function students()
+    {
+        return $this->hasMany(Student::class, 'class_id');
+    }
+
+    // Scopes for common queries
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeByProgram($query, $programId)
+    {
+        return $query->where('program_id', $programId);
+    }
+
+    public function scopeByYearLevel($query, $yearLevel)
+    {
+        return $query->where('year_level', $yearLevel);
+    }
+
+    public function scopeBySection($query, $section)
+    {
+        return $query->where('section', $section);
+    }
+
+    // Helper method to generate class code
+    public function generateClassCode()
+    {
+        if ($this->program && $this->year_level && $this->section) {
+            $sectionNumber = ord($this->section) - 64; // A=1, B=2, etc.
+            return "{$this->program->code} {$this->year_level}.{$sectionNumber}";
+        }
+        return $this->name;
     }
 }

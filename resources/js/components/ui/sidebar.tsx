@@ -376,6 +376,25 @@ export default function Sidebar() {
                   Enrollment
                 </Link>
               )}
+              {(hasPermission(user, "manage-groups") || hasRole(user, "Admin")) && (
+                <Link
+                  href="/admin/groups"
+                  className="flex items-center px-4 py-2 mt-1 text-sm font-medium rounded-md hover:bg-gray-700"
+                >
+                  <Calendar className="mr-3 h-5 w-5" />
+                  Groups
+                </Link>
+              )}
+              {(hasPermission(user, "manage-classes") || hasRole(user, "Admin")) && (
+                <Link
+                  href="/admin/classes"
+                  className="flex items-center px-4 py-2 mt-1 text-sm font-medium rounded-md hover:bg-gray-700"
+                >
+                  <Calendar className="mr-3 h-5 w-5" />
+                  Classes
+                </Link>
+              )}
+
 
               {(hasPermission(user, "manage-classrooms") || hasRole(user, "Admin")) && (
                 <Link
