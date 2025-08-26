@@ -102,8 +102,8 @@ type PageProps = {
 type UnitFormData = {
   code: string;
   name: string;
-  description: string;
   credit_hours: number;
+  school_id: number | '';
   program_id: number | '';
   semester_id: number | '';
   is_active: boolean;
@@ -136,11 +136,11 @@ export default function UnitsIndex() {
   const [formData, setFormData] = useState<UnitFormData>({
     code: '',
     name: '',
-    description: '',
     credit_hours: 3,
+    school_id: '',
     program_id: '',
     semester_id: '',
-    is_active: true
+    is_active: false
   });
 
   // Filter state
@@ -154,6 +154,11 @@ export default function UnitsIndex() {
   const [sortField, setSortField] = useState(filters?.sort_field || 'name');
   const [sortDirection, setSortDirection] = useState(filters?.sort_direction || 'asc');
 
+  // Filtered programs based on selected school in form
+  const filteredPrograms = programs.filter(program => 
+    !formData.school_id || program.school_id === formData.school_id
+  );
+
   // Error handling
   useEffect(() => {
     if (errors?.error) {
@@ -163,6 +168,23 @@ export default function UnitsIndex() {
       toast.success(flash.success);
     }
   }, [errors, flash]);
+
+  // Reset program when school changes
+  useEffect(() => {
+    if (formData.school_id && formData.program_id) {
+      const selectedProgram = programs.find(p => p.id === formData.program_id);
+      if (selectedProgram && selectedProgram.school_id !== formData.school_id) {
+        setFormData(prev => ({ ...prev, program_id: '' }));
+      }
+    }
+  }, [formData.school_id, formData.program_id, programs]);
+
+  // Auto-deactivate unit when semester is removed
+  useEffect(() => {
+    if (!formData.semester_id && formData.is_active) {
+      setFormData(prev => ({ ...prev, is_active: false }));
+    }
+  }, [formData.semester_id, formData.is_active]);
 
   // Filtered units
   const filteredUnits = units.filter(unit => {
@@ -202,11 +224,11 @@ export default function UnitsIndex() {
     setFormData({
       code: '',
       name: '',
-      description: '',
       credit_hours: 3,
+      school_id: '',
       program_id: '',
       semester_id: '',
-      is_active: true
+      is_active: false
     });
     setIsCreateModalOpen(true);
   };
@@ -216,8 +238,8 @@ export default function UnitsIndex() {
     setFormData({
       code: unit.code,
       name: unit.name,
-      description: unit.description || '',
       credit_hours: unit.credit_hours,
+      school_id: unit.school_id,
       program_id: unit.program_id,
       semester_id: unit.semester_id || '',
       is_active: unit.is_active
@@ -674,20 +696,29 @@ export default function UnitsIndex() {
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Description
-                    </label>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                      rows={3}
-                      placeholder="Brief description of the unit..."
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        School *
+                      </label>
+                      <select
+                        value={formData.school_id}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          school_id: e.target.value ? parseInt(e.target.value) : '',
+                          program_id: '' // Reset program when school changes
+                        }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        required
+                      >
+                        <option value="">Select School</option>
+                        {schools.map(school => (
+                          <option key={school.id} value={school.id}>
+                            {school.code} - {school.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Program *
@@ -697,9 +728,10 @@ export default function UnitsIndex() {
                         onChange={(e) => setFormData(prev => ({ ...prev, program_id: e.target.value ? parseInt(e.target.value) : '' }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         required
+                        disabled={!formData.school_id}
                       >
                         <option value="">Select Program</option>
-                        {programs.map(program => (
+                        {filteredPrograms.map(program => (
                           <option key={program.id} value={program.id}>
                             {program.code} - {program.name}
                           </option>
@@ -732,10 +764,16 @@ export default function UnitsIndex() {
                       checked={formData.is_active}
                       onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
                       className="w-4 h-4 text-emerald-600 bg-gray-100 border-gray-300 rounded focus:ring-emerald-500 focus:ring-2"
+                      disabled={!formData.semester_id}
                     />
                     <label htmlFor="is_active" className="ml-2 text-sm font-medium text-gray-700">
                       Unit is active
                     </label>
+                    {!formData.semester_id && (
+                      <p className="ml-2 text-xs text-gray-500">
+                        (Must assign to semester first)
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">

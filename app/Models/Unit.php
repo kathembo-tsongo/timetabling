@@ -10,15 +10,14 @@ class Unit extends Model
     use HasFactory;
 
     protected $fillable = [
-        'code',
-        'name',
-        'description',
-        'credit_hours',
-        'school_code',
-        'program_code',
-        'semester_id',
-        'is_active',
-    ];
+    'code',
+    'name', 
+    'credit_hours',
+    'school_id',      
+    'program_id',     
+    'semester_id',    
+    'is_active'
+];
 
     protected $casts = [
         'is_active' => 'boolean',
