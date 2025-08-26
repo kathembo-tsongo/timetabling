@@ -22,6 +22,7 @@ class User extends Authenticatable
         'schools',
         'programs',
         'school_id',
+        'program_id', // ADD: For student program assignment
         'name', // ✅ ADDED: Missing name field that's used in timetable
     ];
 
@@ -48,6 +49,36 @@ class User extends Authenticatable
         
         // Otherwise, construct from first_name and last_name
         return trim($this->first_name . ' ' . $this->last_name);
+    }
+
+    // ADD: Accessor for student code (using existing code field)
+    public function getStudentCodeAttribute()
+    {
+        return $this->code;
+    }
+
+    // ADD: Accessor for school name through relationship
+    public function getSchoolNameAttribute()
+    {
+        return $this->school ? $this->school->name : null;
+    }
+
+    // ADD: Accessor for school code through relationship  
+    public function getSchoolCodeAttribute()
+    {
+        return $this->school ? $this->school->code : null;
+    }
+
+    // ADD: Accessor for program name through relationship
+    public function getProgramNameAttribute()
+    {
+        return $this->program ? $this->program->name : null;
+    }
+
+    // ADD: Accessor for program code through relationship
+    public function getProgramCodeAttribute()
+    {
+        return $this->program ? $this->program->code : null;
     }
 
     // ✅ ADDED: Relationship with ClassTimetables as lecturer (by name)
@@ -85,6 +116,24 @@ class User extends Authenticatable
     public function studentEnrollments()
     {
         return $this->hasMany(Enrollment::class, 'student_code', 'code');
+    }
+
+    // ADD: Relationship for enrollments as student (by ID - for new enrollment system)
+    public function enrollments()
+    {
+        return $this->hasMany(Enrollment::class, 'student_id');
+    }
+
+    // ADD: Relationship with program
+    public function program()
+    {
+        return $this->belongsTo(Program::class);
+    }
+
+    // ADD: Relationship with school (alias for existing assignedSchool)
+    public function school()
+    {
+        return $this->belongsTo(School::class, 'school_id');
     }
 
     /**

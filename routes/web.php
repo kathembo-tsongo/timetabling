@@ -157,7 +157,13 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('schools/{school}', [SchoolController::class, 'destroy'])->name('admin.schools.destroy');
         Route::get('schools-api/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
         
-        
+        Route::get('/enrollments', [EnrollmentController::class, 'index'])->name('admin.enrollments.index');
+    Route::post('/enrollments', [EnrollmentController::class, 'store'])->name('admin.enrollments.store');
+    Route::get('/enrollments/create', [EnrollmentController::class, 'create'])->name('admin.enrollments.create');
+    Route::get('/enrollments/{enrollment}', [EnrollmentController::class, 'show'])->name('admin.enrollments.show');
+    Route::get('/enrollments/{enrollment}/edit', [EnrollmentController::class, 'edit'])->name('admin.enrollments.edit');
+    Route::put('/enrollments/{enrollment}', [EnrollmentController::class, 'update'])->name('admin.enrollments.update');
+    Route::delete('/enrollments/{enrollment}', [EnrollmentController::class, 'destroy'])->name('admin.enrollments.destroy');
        
     
 });

@@ -356,9 +356,7 @@ export default function Sidebar() {
             <div className="pt-4">
               <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Academic Infrastructure
-              </p>
-              
-              
+              </p>             
               {(hasPermission(user, "manage-semesters") || hasRole(user, "Admin")) && (
                 <Link
                   href="/admin/semesters"
@@ -366,6 +364,16 @@ export default function Sidebar() {
                 >
                   <Calendar className="mr-3 h-5 w-5" />
                   Semesters
+                </Link>
+              )}
+
+              {(hasPermission(user, "manage-enrollments") || hasRole(user, "Admin")) && (
+                <Link
+                  href="/admin/enrollments"
+                  className="flex items-center px-4 py-2 mt-1 text-sm font-medium rounded-md hover:bg-gray-700"
+                >
+                  <Calendar className="mr-3 h-5 w-5" />
+                  Enrollment
                 </Link>
               )}
 
