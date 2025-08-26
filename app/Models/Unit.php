@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,14 +9,14 @@ class Unit extends Model
     use HasFactory;
 
     protected $fillable = [
-    'code',
-    'name', 
-    'credit_hours',
-    'school_id',      
-    'program_id',     
-    'semester_id',    
-    'is_active'
-];
+        'code',
+        'name', 
+        'credit_hours',
+        'school_id',
+        'program_id',
+        'semester_id',
+        'is_active'
+    ];
 
     protected $casts = [
         'is_active' => 'boolean',
@@ -25,6 +24,16 @@ class Unit extends Model
     ];
 
     // Relationships
+    public function school()
+    {
+        return $this->belongsTo(School::class);
+    }
+
+    public function program()
+    {
+        return $this->belongsTo(Program::class);
+    }
+
     public function semester()
     {
         return $this->belongsTo(Semester::class);
@@ -35,21 +44,15 @@ class Unit extends Model
         return $this->hasMany(Enrollment::class);
     }
 
-    // Scopes for filtering by school/program
-    public function scopeForSchool($query, $schoolCode)
+    // Scopes for filtering
+    public function scopeForSchool($query, $schoolId)
     {
-        return $query->where('school_code', strtoupper($schoolCode));
+        return $query->where('school_id', $schoolId);
     }
 
-    public function scopeForProgram($query, $programCode)
+    public function scopeForProgram($query, $programId)
     {
-        return $query->where('program_code', strtoupper($programCode));
-    }
-
-    public function scopeForSchoolAndProgram($query, $schoolCode, $programCode)
-    {
-        return $query->where('school_code', strtoupper($schoolCode))
-                    ->where('program_code', strtoupper($programCode));
+        return $query->where('program_id', $programId);
     }
 
     public function scopeActive($query)
@@ -62,27 +65,40 @@ class Unit extends Model
         return $query->where('semester_id', $semesterId);
     }
 
-    // Accessors
+    public function scopeUnassigned($query)
+    {
+        return $query->whereNull('semester_id');
+    }
+
+    public function scopeAssigned($query)
+    {
+        return $query->whereNotNull('semester_id');
+    }
+
+    // Accessors for relationship data (these will work with eager loading)
     public function getSchoolNameAttribute()
     {
-        return match($this->school_code) {
-            'SCES' => 'School of Computing and Engineering Sciences',
-            'SBS' => 'School of Business Studies',
-            default => $this->school_code
-        };
+        return $this->school ? $this->school->name : null;
+    }
+
+    public function getSchoolCodeAttribute()
+    {
+        return $this->school ? $this->school->code : null;
     }
 
     public function getProgramNameAttribute()
     {
-        return match($this->program_code) {
-            'BBIT' => 'Bachelor of Business Information Technology',
-            'ICS' => 'Information Communication Systems',
-            'CS' => 'Computer Science',
-            'MBA' => 'Master of Business Administration',
-            'BBA' => 'Bachelor of Business Administration',
-            'BCOM' => 'Bachelor of Commerce',
-            default => $this->program_code
-        };
+        return $this->program ? $this->program->name : null;
+    }
+
+    public function getProgramCodeAttribute()
+    {
+        return $this->program ? $this->program->code : null;
+    }
+
+    public function getSemesterNameAttribute()
+    {
+        return $this->semester ? $this->semester->name : null;
     }
 
     // Helper methods
@@ -104,35 +120,21 @@ class Unit extends Model
         return !is_null($this->semester_id);
     }
 
-    // Static helper methods
-    public static function getSchoolOptions()
+    public function canBeActive()
     {
-        return [
-            'SCES' => 'School of Computing and Engineering Sciences',
-            'SBS' => 'School of Business Studies',
-        ];
+        return $this->isAssignedToSemester();
     }
 
-    public static function getProgramOptions($schoolCode = null)
+    // Auto-deactivate when removing from semester
+    protected static function boot()
     {
-        $programs = [
-            'SCES' => [
-                'BBIT' => 'Bachelor of Business Information Technology',
-                'ICS' => 'Information Communication Systems', 
-                'CS' => 'Computer Science',
-            ],
-            'SBS' => [
-                'MBA' => 'Master of Business Administration',
-                'BBA' => 'Bachelor of Business Administration',
-                'BCOM' => 'Bachelor of Commerce',
-            ],
-        ];
-
-        return $schoolCode ? ($programs[strtoupper($schoolCode)] ?? []) : $programs;
-    }
-
-    public static function getAllProgramCodes()
-    {
-        return ['BBIT', 'ICS', 'CS', 'MBA', 'BBA', 'BCOM'];
+        parent::boot();
+        
+        static::updating(function ($unit) {
+            // If semester_id is being set to null, also set is_active to false
+            if ($unit->isDirty('semester_id') && is_null($unit->semester_id)) {
+                $unit->is_active = false;
+            }
+        });
     }
 }

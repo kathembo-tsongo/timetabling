@@ -102,19 +102,22 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('admin')->middleware(['role:Admin'])->group(function () {
         Route::get('/', [DashboardController::class, 'adminDashboard'])
             ->name('admin.dashboard');
-        
-        // Units Management
-        // Add this route BEFORE your existing school-specific routes
 
-    // Admin Units Route (no school parameter)
+    // Admin Units Routes
     Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
     Route::post('/units', [UnitController::class, 'Store'])->name('admin.units.store');
     Route::get('/units/create', [UnitController::class, 'Create'])->name('admin.units.create');
+    
+    // Move these assignment routes BEFORE the {unit} parameter routes
+    Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('admin.units.assign-semesters');
+    Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('admin.units.assign-semester');
+    Route::post('/units/remove-semester', [UnitController::class, 'removeFromSemester'])->name('admin.units.remove-semester');
+    
+    // Keep parameter routes at the end
     Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
     Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
     Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
     Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
-
         // Users Management
         Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
         Route::post('/users', [UserController::class, 'store'])->name('admin.users.store');

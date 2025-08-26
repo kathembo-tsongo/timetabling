@@ -412,4 +412,69 @@ class UnitController extends Controller
             'unassigned' => $query->whereNull('semester_id')->count(),
         ];
     }
+
+    public function show(Unit $unit)
+{
+    return response()->json($unit->load(['school', 'program', 'semester']));
+}
+
+// Show assignment interface
+public function assignSemesters()
+{
+    $units = Unit::with(['school', 'program', 'semester'])->get();
+    $schools = School::orderBy('name')->get();
+    $programs = Program::with('school')->orderBy('name')->get();
+    $semesters = Semester::orderBy('name')->get();
+    
+    return Inertia::render('Admin/Units/AssignSemesters', [
+        'units' => $units,
+        'schools' => $schools,
+        'programs' => $programs,
+        'semesters' => $semesters
+    ]);
+}
+
+public function assignToSemester(Request $request)
+{
+    $validated = $request->validate([
+        'unit_ids' => 'required|array|min:1',
+        'unit_ids.*' => 'exists:units,id',
+        'semester_id' => 'required|exists:semesters,id'
+    ]);
+    
+    try {
+        Unit::whereIn('id', $validated['unit_ids'])
+            ->update([
+                'semester_id' => $validated['semester_id'],
+                'updated_at' => now()
+            ]);
+            
+        return back()->with('success', 'Units assigned to semester successfully!');
+    } catch (\Exception $e) {
+        return back()->withErrors(['error' => 'Failed to assign units to semester']);
+    }
+}
+
+public function removeFromSemester(Request $request)
+{
+    $validated = $request->validate([
+        'unit_ids' => 'required|array|min:1',
+        'unit_ids.*' => 'exists:units,id'
+    ]);
+    
+    try {
+        Unit::whereIn('id', $validated['unit_ids'])
+            ->update([
+                'semester_id' => null,
+                'is_active' => false,
+                'updated_at' => now()
+            ]);
+            
+        return back()->with('success', 'Units removed from semester successfully!');
+    } catch (\Exception $e) {
+        return back()->withErrors(['error' => 'Failed to remove units from semester']);
+    }
+}
+
+
 }
