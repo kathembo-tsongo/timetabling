@@ -427,15 +427,7 @@ export default function EnrollmentsIndex() {
                   )}
                 </div>
                 
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => {/* Handle bulk import */}}
-                    className="inline-flex items-center px-4 py-2 bg-gray-600 text-white font-medium rounded-lg shadow-md hover:bg-gray-700 transition-colors"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Import
-                  </button>
-                  
+                <div className="flex items-center gap-3">               
                   {can.create && (
                     <button
                       onClick={handleCreateEnrollment}
@@ -946,7 +938,7 @@ export default function EnrollmentsIndex() {
                   {/* Status Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Status *
+                      Default Status *
                     </label>
                     <select
                       value={formData.status}

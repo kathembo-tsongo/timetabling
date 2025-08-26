@@ -110,16 +110,17 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/units', [UnitController::class, 'Store'])->name('admin.units.store');
     Route::get('/units/create', [UnitController::class, 'Create'])->name('admin.units.create');
     
-    // Move these assignment routes BEFORE the {unit} parameter routes
-    Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('admin.units.assign-semesters');
-    Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('admin.units.assign-semester');
-    Route::post('/units/remove-semester', [UnitController::class, 'removeFromSemester'])->name('admin.units.remove-semester');
+        // Move these assignment routes BEFORE the {unit} parameter routes
+        Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('admin.units.assign-semesters');
+        Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('admin.units.assign-semester');
+        Route::post('/units/remove-semester', [UnitController::class, 'removeFromSemester'])->name('admin.units.remove-semester');
     
     // Keep parameter routes at the end
-    Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
-    Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
-    Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
-    Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
+        Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
+        Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
+        Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
+        Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
+        
         // Users Management
         Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
         Route::post('/users', [UserController::class, 'store'])->name('admin.users.store');
@@ -188,8 +189,39 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classes/{class}', [ClassController::class, 'update'])->name('admin.classes.update');
         Route::delete('/classes/{class}', [ClassController::class, 'destroy'])->name('admin.classes.destroy');
         Route::get('/api/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
-Route::get('/api/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
+        Route::get('/api/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
+        // Add this route to fetch classes dynamically
+Route::get('/api/classes/by-program-semester', function(Request $request) {
+    $request->validate([
+        'program_id' => 'required|exists:programs,id',
+        'semester_id' => 'required|exists:semesters,id',
+    ]);
 
+    try {
+        $classes = ClassModel::where('program_id', $request->program_id)
+            ->where('semester_id', $request->semester_id)
+            ->where('is_active', true)
+            ->select('id', 'name', 'section', 'year_level', 'capacity')
+            ->orderBy('name')
+            ->orderBy('section')
+            ->get()
+            ->map(function($class) {
+                return [
+                    'id' => $class->id,
+                    'name' => $class->name,
+                    'section' => $class->section,
+                    'display_name' => "{$class->name} Section {$class->section}",
+                    'year_level' => $class->year_level,
+                    'capacity' => $class->capacity,
+                ];
+            });
+
+        return response()->json($classes);
+    } catch (\Exception $e) {
+        Log::error('Error fetching classes: ' . $e->getMessage());
+        return response()->json(['error' => 'Failed to fetch classes'], 500);
+    }
+});
 });
    
     });

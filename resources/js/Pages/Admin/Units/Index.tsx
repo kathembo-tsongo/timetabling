@@ -601,12 +601,12 @@ export default function UnitsIndex() {
                                 </div>
                               </div>
 
-                              <div>
+                              {/* <div>
                                 <h4 className="font-medium text-gray-900 mb-3">Description</h4>
                                 <div className="text-sm text-gray-600">
                                   {unit.description || 'No description available'}
                                 </div>
-                              </div>
+                              </div> */}
                             </div>
                           </td>
                         </tr>

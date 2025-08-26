@@ -124,6 +124,11 @@ class Unit extends Model
     {
         return $this->isAssignedToSemester();
     }
+    // In your Unit model, add this relationship
+public function assignments()
+{
+    return $this->hasMany(UnitAssignment::class);
+}
 
     // Auto-deactivate when removing from semester
     protected static function boot()

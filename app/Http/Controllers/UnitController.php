@@ -6,6 +6,9 @@ use App\Models\Unit;
 use App\Models\Program;
 use App\Models\School;
 use App\Models\Semester;
+use App\Models\ClassModel;
+use App\Models\UnitAssignment;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
@@ -419,60 +422,184 @@ class UnitController extends Controller
 }
 
 // Show assignment interface
-public function assignSemesters()
+
+public function assignSemesters(Request $request)
 {
-    $units = Unit::with(['school', 'program', 'semester'])->get();
-    $schools = School::orderBy('name')->get();
-    $programs = Program::with('school')->orderBy('name')->get();
-    $semesters = Semester::orderBy('name')->get();
+    $search = $request->search ?? '';
+    $semesterId = $request->semester_id;
+    $programId = $request->program_id;
+    $classId = $request->class_id;
     
+    // Get unassigned units (units without any assignments)
+    $unassignedUnits = Unit::with(['program.school'])
+        ->whereDoesntHave('assignments')
+        ->when($search, function($q) use ($search) {
+            $q->where('name', 'like', '%' . $search . '%')
+              ->orWhere('code', 'like', '%' . $search . '%');
+        })
+        ->when($programId, function($q) use ($programId) {
+            $q->where('program_id', $programId);
+        })
+        ->orderBy('name')
+        ->get();
+
+    // Get assigned units with their assignments
+    $assignedUnitsQuery = UnitAssignment::with([
+        'unit.program.school', 
+        'semester', 
+        'class'
+    ])
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('semester_id', $semesterId);
+        })
+        ->when($programId, function($q) use ($programId) {
+            $q->whereHas('unit', function($uq) use ($programId) {
+                $uq->where('program_id', $programId);
+            });
+        })
+        ->when($classId, function($q) use ($classId) {
+            $q->where('class_id', $classId);
+        })
+        ->orderBy('created_at', 'desc');
+
+    $assignedUnits = $assignedUnitsQuery->get();
+
+    // Get dropdown data
+    $schools = School::select('id', 'name', 'code')->orderBy('name')->get();
+    $programs = Program::with('school')->select('id', 'name', 'code', 'school_id')->orderBy('name')->get();
+    $semesters = Semester::select('id', 'name', 'is_active')->orderBy('name')->get();
+    
+    // Get all classes for initial load, or filtered classes if parameters are provided
+    $classes = ClassModel::with(['semester:id,name', 'program:id,name,code'])
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('semester_id', $semesterId);
+        })
+        ->when($programId, function($q) use ($programId) {
+            $q->where('program_id', $programId);
+        })
+        ->where('is_active', true)
+        ->select('id', 'name', 'section', 'year_level', 'semester_id', 'program_id', 'capacity')
+        ->orderBy('name')
+        ->orderBy('section')
+        ->get()
+        ->map(function($class) {
+            return [
+                'id' => $class->id,
+                'name' => $class->name,
+                'section' => $class->section,
+                'display_name' => "{$class->name} Section {$class->section}",
+                'year_level' => $class->year_level,
+                'capacity' => $class->capacity,
+            ];
+        });
+
     return Inertia::render('Admin/Units/AssignSemesters', [
-        'units' => $units,
+        'unassigned_units' => $unassignedUnits,
+        'assigned_units' => $assignedUnits,
         'schools' => $schools,
         'programs' => $programs,
-        'semesters' => $semesters
+        'semesters' => $semesters,
+        'classes' => $classes,
+        'filters' => [
+            'search' => $search,
+            'semester_id' => $semesterId ? (int) $semesterId : null,
+            'program_id' => $programId ? (int) $programId : null,
+            'class_id' => $classId ? (int) $classId : null,
+        ],
+        'stats' => [
+            'total_units' => Unit::count(),
+            'unassigned_count' => $unassignedUnits->count(),
+            'assigned_count' => $assignedUnits->count(),
+        ],
+        'flash' => [
+            'success' => session('success'),
+            'error' => session('error'),
+        ]
     ]);
 }
 
 public function assignToSemester(Request $request)
 {
-    $validated = $request->validate([
-        'unit_ids' => 'required|array|min:1',
-        'unit_ids.*' => 'exists:units,id',
-        'semester_id' => 'required|exists:semesters,id'
-    ]);
-    
     try {
-        Unit::whereIn('id', $validated['unit_ids'])
-            ->update([
-                'semester_id' => $validated['semester_id'],
-                'updated_at' => now()
+        DB::beginTransaction();
+
+        $class = ClassModel::with('program')->find($request->class_id);
+        $semester = Semester::find($request->semester_id);
+        
+        $assignedCount = 0;
+        $skippedCount = 0;
+        $skippedUnits = [];
+
+        foreach ($request->unit_ids as $unitId) {
+            // Check if unit is already assigned to this class in this semester
+            $existingAssignment = UnitAssignment::where('unit_id', $unitId)
+                ->where('semester_id', $request->semester_id)
+                ->where('class_id', $request->class_id)
+                ->first();
+
+            if ($existingAssignment) {
+                $skippedCount++;
+                $unit = Unit::find($unitId);
+                $skippedUnits[] = $unit->name;
+                continue;
+            }
+
+            // Check if unit belongs to the same program as the class
+            $unit = Unit::find($unitId);
+            if ($unit->program_id !== $class->program_id) {
+                $skippedCount++;
+                $skippedUnits[] = $unit->name . ' (different program)';
+                continue;
+            }
+
+            UnitAssignment::create([
+                'unit_id' => $unitId,
+                'semester_id' => $request->semester_id,
+                'class_id' => $request->class_id,
+                'program_id' => $class->program_id,
+                'is_active' => true,
             ]);
-            
-        return back()->with('success', 'Units assigned to semester successfully!');
+
+            $assignedCount++;
+        }
+
+        DB::commit();
+
+        $message = "{$assignedCount} units assigned to {$class->name} Section {$class->section} for {$semester->name}.";
+        if ($skippedCount > 0) {
+            $message .= " {$skippedCount} units were skipped: " . implode(', ', $skippedUnits);
+        }
+
+        return redirect()->back()->with('success', $message);
+
     } catch (\Exception $e) {
-        return back()->withErrors(['error' => 'Failed to assign units to semester']);
+        DB::rollBack();
+        Log::error('Error assigning units to class: ' . $e->getMessage());
+        return redirect()->back()->with('error', 'Error assigning units to class. Please try again.');
     }
 }
 
 public function removeFromSemester(Request $request)
 {
-    $validated = $request->validate([
-        'unit_ids' => 'required|array|min:1',
-        'unit_ids.*' => 'exists:units,id'
+    $validator = Validator::make($request->all(), [
+        'assignment_ids' => 'required|array|min:1',
+        'assignment_ids.*' => 'exists:unit_assignments,id',
     ]);
-    
+
+    if ($validator->fails()) {
+        return redirect()->back()
+            ->withErrors($validator)
+            ->with('error', 'Invalid assignment selection.');
+    }
+
     try {
-        Unit::whereIn('id', $validated['unit_ids'])
-            ->update([
-                'semester_id' => null,
-                'is_active' => false,
-                'updated_at' => now()
-            ]);
-            
-        return back()->with('success', 'Units removed from semester successfully!');
+        $removed = UnitAssignment::whereIn('id', $request->assignment_ids)->delete();
+        
+        return redirect()->back()->with('success', "Successfully removed {$removed} unit assignments.");
+        
     } catch (\Exception $e) {
-        return back()->withErrors(['error' => 'Failed to remove units from semester']);
+        Log::error('Error removing unit assignments: ' . $e->getMessage());
+        return redirect()->back()->with('error', 'Error removing assignments. Please try again.');
     }
 }
 
