@@ -85,14 +85,12 @@ const Users = () => {
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        // FIXED: Changed from /users to /admin/users
         router.get('/admin/users', { search: searchQuery, per_page: itemsPerPage }, { preserveState: true });
     };
 
     const handlePerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newPerPage = parseInt(e.target.value);
         setItemsPerPage(newPerPage);
-        // FIXED: Changed from /users to /admin/users
         router.get('/admin/users', { search: searchQuery, per_page: newPerPage }, { preserveState: true });
     };
 
@@ -213,7 +211,7 @@ const Users = () => {
                                         type="text"
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        placeholder="Search users..."
+                                        placeholder="Search use by code"
                                         className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                 </div>
@@ -498,39 +496,7 @@ const Users = () => {
                                             />
                                             {errors.programs && <p className="mt-1 text-sm text-red-600">{errors.programs}</p>}
                                         </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold text-slate-700 mb-2">Role</label>
-                                        <select
-                                            value={currentUser?.roles && currentUser.roles.length > 0 ? currentUser.roles[0].name : ''}
-                                            onChange={(e) => {
-                                                console.log('Role changed to:', e.target.value);
-                                                setCurrentUser((prev) => ({
-                                                    ...prev!,
-                                                    roles: [{ name: e.target.value }],
-                                                }))
-                                            }}
-                                            className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                                            required
-                                        >
-                                            <option value="">Select a role</option>
-                                            <option value="Student">Student</option>
-                                            <option value="Admin">Admin</option>
-                                            <option value="Exam office">Exam Officer</option>
-                                            <option value="Lecturer">Lecturer</option>
-                                            <option value="Faculty Admin">Faculty Admin</option>
-                                        </select>
-                                        {errors.roles && <p className="mt-1 text-sm text-red-600">{errors.roles}</p>}
-                                        
-                                        {/* Debug info - remove in production */}
-                                        {process.env.NODE_ENV === 'development' && (
-                                            <div className="mt-2 text-xs text-gray-500">
-                                                Debug: Current roles: {JSON.stringify(currentUser?.roles)}
-                                            </div>
-                                        )}
-                                    </div>
-
+                                    </div>                                    
                                     {modalType === 'create' && (
                                         <div>
                                             <label className="block text-sm font-semibold text-slate-700 mb-2">Password</label>

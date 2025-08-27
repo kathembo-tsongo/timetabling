@@ -175,6 +175,22 @@ class EnrollmentController extends Controller
             return redirect()->back()->with('error', 'Error creating enrollment. Please try again.');
         }
     }
+    public function destroy($id)
+    {
+        $enrollment = Enrollment::find($id);
+
+        if (!$enrollment) {
+            return redirect()->back()->with('error', 'Enrollment not found.');
+        }
+
+        try {
+            $enrollment->delete();
+            return redirect()->back()->with('success', 'Enrollment deleted successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error deleting enrollment: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to delete enrollment.');
+        }
+    }
 
     // Add method to get units for a specific class
     public function getUnitsForClass(Request $request)

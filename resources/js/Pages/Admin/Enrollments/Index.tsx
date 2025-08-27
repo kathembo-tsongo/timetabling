@@ -66,6 +66,8 @@ type Enrollment = {
   unit: Unit;
   class: Class;
   semester_name: string;
+  first_name?: string;
+  last_name?: string;
   created_at: string;
   updated_at: string;
 };
@@ -300,6 +302,55 @@ export default function EnrollmentsIndex() {
       status: 'enrolled'
     });
     setIsCreateModalOpen(true);
+  };
+
+  const handleEditEnrollment = (enrollment: Enrollment) => {
+    setSelectedEnrollment(enrollment);
+    setFormData({
+      student_code: enrollment.student_code,
+      school_id: enrollment.unit?.school_id || '',
+      program_id: enrollment.class?.program_id || '',
+      class_id: enrollment.class_id,
+      semester_id: enrollment.semester_id,
+      unit_ids: [enrollment.unit_id],
+      status: enrollment.status
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteEnrollment = (enrollmentId: number) => {
+    if (confirm('Are you sure you want to delete this enrollment?')) {
+      router.delete(`/admin/enrollments/${enrollmentId}`, {
+        onSuccess: () => {
+          toast.success('Enrollment deleted successfully!');
+        },
+        onError: () => {
+          toast.error('Failed to delete enrollment');
+        }
+      });
+    }
+  };
+
+  const handleUpdateEnrollment = () => {
+    if (!selectedEnrollment) return;
+    
+    setLoading(true);
+    
+    router.put(`/admin/enrollments/${selectedEnrollment.id}`, {
+      status: formData.status
+    }, {
+      onSuccess: () => {
+        toast.success('Enrollment updated successfully!');
+        setIsEditModalOpen(false);
+        setSelectedEnrollment(null);
+      },
+      onError: (errors) => {
+        toast.error(errors.error || 'Failed to update enrollment');
+      },
+      onFinish: () => {
+        setLoading(false);
+      }
+    });
   };
 
   const handleUnitToggle = (unitId: number) => {
@@ -656,6 +707,240 @@ export default function EnrollmentsIndex() {
             </div>
           )}
 
+          {/* Edit Modal */}
+          {isEditModalOpen && selectedEnrollment && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 p-6 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-white">
+                Edit Enrollment - {selectedEnrollment.student_code}
+              </h3>
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className="text-white hover:text-gray-200 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              </div>
+            </div>
+
+            <form className="p-6 space-y-6" onSubmit={(e) => { e.preventDefault(); handleUpdateEnrollment(); }}>
+              {/* Student Code Input */}
+              <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Student Number *
+              </label>
+              <input
+                type="text"
+                value={formData.student_code}
+                onChange={(e) => setFormData(prev => ({ ...prev, student_code: e.target.value }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="e.g., BBIT0003"
+                required
+                disabled
+              />
+              </div>
+
+              {/* School Selection */}
+              <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                School *
+              </label>
+              <select
+                value={formData.school_id}
+                onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                school_id: e.target.value ? parseInt(e.target.value) : '',
+                program_id: '',
+                class_id: ''
+                }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+                disabled
+              >
+                <option value="">Select School</option>
+                {schools.map(school => (
+                <option key={school.id} value={school.id}>
+                  {school.code} - {school.name}
+                </option>
+                ))}
+              </select>
+              </div>
+
+              {/* Program Selection */}
+              <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Program *
+              </label>
+              <select
+                value={formData.program_id}
+                onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                program_id: e.target.value ? parseInt(e.target.value) : '',
+                class_id: ''
+                }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+                disabled={!formData.school_id}
+              >
+                <option value="">Select Program</option>
+                {filteredPrograms.map(program => (
+                <option key={program.id} value={program.id}>
+                  {program.code} - {program.name}
+                </option>
+                ))}
+              </select>
+              </div>
+
+                {/* Semester Selection */}
+                <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Semester *
+                </label>
+                <select
+                  value={formData.semester_id}
+                  onChange={(e) => setFormData(prev => ({ 
+                  ...prev, 
+                  semester_id: e.target.value ? parseInt(e.target.value) : '',
+                  class_id: '',
+                  unit_ids: []
+                  }))}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                  disabled={!formData.program_id}
+                >
+                  <option value="">Select Semester</option>
+                  {semesters.map(semester => (
+                  <option key={semester.id} value={semester.id}>
+                    {semester.name}
+                  </option>
+                  ))}
+                </select>
+                {!formData.program_id && (
+                  <p className="mt-1 text-xs text-gray-500">
+                  Select program first to see semesters
+                  </p>
+                )}
+                </div>
+
+              {/* Class Selection */}
+              <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Class *
+              </label>
+              <select
+                value={formData.class_id}
+                onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                class_id: e.target.value ? parseInt(e.target.value) : ''
+                }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+                disabled={!formData.program_id || !formData.semester_id}
+              >
+                <option value="">Select Class</option>
+                {availableClasses.map(cls => (
+                <option key={cls.id} value={cls.id}>
+                  {cls.display_name || `${cls.name} Section ${cls.section}`} (Capacity: {cls.capacity})
+                </option>
+                ))}
+              </select>
+              {(!formData.program_id || !formData.semester_id) && (
+                <p className="mt-1 text-xs text-gray-500">
+                Select program and semester first to see classes
+                </p>
+              )}
+              </div>
+
+              {/* Units Selection */}
+              {formData.class_id && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Units to Enroll *
+                </label>
+                <div className="flex flex-col gap-2">
+                {availableUnits.length > 0 ? (
+                  availableUnits.map(unit => (
+                  <label key={unit.id} className="flex items-center gap-2">
+                    <input
+                    type="checkbox"
+                    checked={formData.unit_ids.includes(unit.id)}
+                    onChange={() => handleUnitToggle(unit.id)}
+                    className="form-checkbox h-4 w-4 text-blue-600"
+                    />
+                    <span>
+                    {unit.code} - {unit.name} ({unit.credit_hours} credits)
+                    </span>
+                  </label>
+                  ))
+                ) : (
+                  <p className="mt-2 text-xs text-gray-500">
+                  No units available for this class, semester, and program.
+                  </p>
+                )}
+                </div>
+                {availableUnits.length > 1 && (
+                <div className="flex gap-2 mt-2">
+                  <button
+                  type="button"
+                  onClick={handleSelectAllUnits}
+                  className="px-2 py-1 text-xs bg-blue-100 rounded hover:bg-blue-200"
+                  >
+                  Select All
+                  </button>
+                  <button
+                  type="button"
+                  onClick={handleClearAllUnits}
+                  className="px-2 py-1 text-xs bg-gray-100 rounded hover:bg-gray-200"
+                  >
+                  Clear All
+                  </button>
+                </div>
+                )}
+              </div>
+              )}
+
+              {/* Status Selection */}
+              <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Status *
+              </label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'enrolled' | 'dropped' | 'completed' }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              >
+                <option value="enrolled">Enrolled</option>
+                <option value="dropped">Dropped</option>
+                <option value="completed">Completed</option>
+              </select>
+              </div>
+
+              {/* Form Actions */}
+              <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading || formData.unit_ids.length === 0 || !formData.class_id}
+                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Processing...' : 
+                `Update Enrollment (${formData.unit_ids.length} Unit${formData.unit_ids.length !== 1 ? 's' : ''})`}
+              </button>
+              </div>
+            </form>
+            </div>
+          </div>
+          )}
+
           {/* Enrollments Table */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200/50 overflow-hidden">
             <div className="p-8">
@@ -715,12 +1000,20 @@ export default function EnrollmentsIndex() {
                           <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <div className="flex space-x-2">
                               {can.update && (
-                                <button className="text-indigo-600 hover:text-indigo-900">
+                                <button 
+                                  onClick={() => handleEditEnrollment(enrollment)}
+                                  className="text-indigo-600 hover:text-indigo-900"
+                                  title="Edit Enrollment"
+                                >
                                   <Edit className="w-4 h-4" />
                                 </button>
                               )}
                               {can.delete && (
-                                <button className="text-red-600 hover:text-red-900">
+                                <button 
+                                  onClick={() => handleDeleteEnrollment(enrollment.id)}
+                                  className="text-red-600 hover:text-red-900"
+                                  title="Delete Enrollment"
+                                >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               )}
