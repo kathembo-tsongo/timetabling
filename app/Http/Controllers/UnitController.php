@@ -581,16 +581,7 @@ public function assignToSemester(Request $request)
 
 public function removeFromSemester(Request $request)
 {
-    $validator = Validator::make($request->all(), [
-        'assignment_ids' => 'required|array|min:1',
-        'assignment_ids.*' => 'exists:unit_assignments,id',
-    ]);
-
-    if ($validator->fails()) {
-        return redirect()->back()
-            ->withErrors($validator)
-            ->with('error', 'Invalid assignment selection.');
-    }
+    
 
     try {
         $removed = UnitAssignment::whereIn('id', $request->assignment_ids)->delete();
@@ -600,6 +591,32 @@ public function removeFromSemester(Request $request)
     } catch (\Exception $e) {
         Log::error('Error removing unit assignments: ' . $e->getMessage());
         return redirect()->back()->with('error', 'Error removing assignments. Please try again.');
+    }
+}
+public function getUnitsForClass(Request $request)
+{
+    $request->validate([
+        'class_id' => 'required|exists:classes,id',
+        'semester_id' => 'required|exists:semesters,id',
+    ]);
+
+    try {
+        // Get units that are assigned to this specific class
+        $units = Unit::whereHas('assignments', function($query) use ($request) {
+            $query->where('class_id', $request->class_id)
+                  ->where('semester_id', $request->semester_id)
+                  ->where('is_active', true);
+        })
+        ->with(['school', 'program', 'assignments' => function($query) use ($request) {
+            $query->where('class_id', $request->class_id)
+                  ->where('semester_id', $request->semester_id);
+        }])
+        ->get();
+
+        return response()->json($units);
+    } catch (\Exception $e) {
+        Log::error('Error fetching units for class: ' . $e->getMessage());
+        return response()->json(['error' => 'Failed to fetch units'], 500);
     }
 }
 

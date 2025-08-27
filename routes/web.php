@@ -12,8 +12,10 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\ClassController;
+use App\Models\ClassModel;
 use App\Models\Program;
 use App\Models\Unit;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -105,17 +107,13 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [DashboardController::class, 'adminDashboard'])
             ->name('admin.dashboard');
 
-    // Admin Units Routes
-    Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
-    Route::post('/units', [UnitController::class, 'Store'])->name('admin.units.store');
-    Route::get('/units/create', [UnitController::class, 'Create'])->name('admin.units.create');
-    
-        // Move these assignment routes BEFORE the {unit} parameter routes
+        // Admin Units Routes
+        Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
+        Route::post('/units', [UnitController::class, 'Store'])->name('admin.units.store');
+        Route::get('/units/create', [UnitController::class, 'Create'])->name('admin.units.create');
         Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('admin.units.assign-semesters');
         Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('admin.units.assign-semester');
         Route::post('/units/remove-semester', [UnitController::class, 'removeFromSemester'])->name('admin.units.remove-semester');
-    
-    // Keep parameter routes at the end
         Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
         Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
         Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
@@ -148,17 +146,24 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/semesters/{semester}', [SemesterController::class, 'destroy'])->name('admin.semesters.destroy');
         Route::put('/semesters/{semester}/activate', [SemesterController::class, 'setActive'])->name('admin.semesters.activate');
         
-        
         // Schools
-        Route::get('schools', [SchoolController::class, 'index'])->name('admin.schools.index');
-        Route::get('schools/create', [SchoolController::class, 'create'])->name('admin.schools.create');
-        Route::get('schools/{school}', [SchoolController::class, 'show'])->name('admin.schools.show');
-        Route::get('schools/{school}/edit', [SchoolController::class, 'edit'])->name('admin.schools.edit');
-        Route::post('schools', [SchoolController::class, 'store'])->name('admin.schools.store');
-        Route::put('schools/{school}', [SchoolController::class, 'update'])->name('admin.schools.update');
-        Route::patch('schools/{school}', [SchoolController::class, 'update'])->name('admin.schools.patch');
-        Route::delete('schools/{school}', [SchoolController::class, 'destroy'])->name('admin.schools.destroy');
-        Route::get('schools-api/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
+        Route::get('/schools', [SchoolController::class, 'index'])->name('admin.schools.index');
+        Route::get('/schools/create', [SchoolController::class, 'create'])->name('admin.schools.create');
+        Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('admin.schools.show');
+        Route::get('/schools/{school}/edit', [SchoolController::class, 'edit'])->name('admin.schools.edit');
+        Route::post('/schools', [SchoolController::class, 'store'])->name('admin.schools.store');
+        Route::put('/schools/{school}', [SchoolController::class, 'update'])->name('admin.schools.update');
+        Route::patch('/schools/{school}', [SchoolController::class, 'update'])->name('admin.schools.patch');
+        Route::delete('/schools/{school}', [SchoolController::class, 'destroy'])->name('admin.schools.destroy');
+        
+        // Programs
+        Route::get('/programs', [ProgramController::class, 'index'])->name('admin.programs.index');
+        Route::post('/programs', [ProgramController::class, 'store'])->name('admin.programs.store');
+        Route::get('/programs/create', [ProgramController::class, 'create'])->name('admin.programs.create');
+        Route::get('/programs/{program}', [ProgramController::class, 'show'])->name('admin.programs.show');
+        Route::get('/programs/{program}/edit', [ProgramController::class, 'edit'])->name('admin.programs.edit');
+        Route::put('/programs/{program}', [ProgramController::class, 'update'])->name('admin.programs.update');
+        Route::delete('/programs/{program}', [ProgramController::class, 'destroy'])->name('admin.programs.destroy');
         
         // Enrollment Routes
         Route::get('/enrollments', [EnrollmentController::class, 'index'])->name('admin.enrollments.index');
@@ -168,7 +173,6 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/enrollments/{enrollment}/edit', [EnrollmentController::class, 'edit'])->name('admin.enrollments.edit');
         Route::put('/enrollments/{enrollment}', [EnrollmentController::class, 'update'])->name('admin.enrollments.update');
         Route::delete('/enrollments/{enrollment}', [EnrollmentController::class, 'destroy'])->name('admin.enrollments.destroy');
-        
         
         // Group Routes        
         Route::get('/groups', [GroupController::class, 'index'])->name('admin.groups.index');
@@ -188,50 +192,52 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/classes/{class}/edit', [ClassController::class, 'edit'])->name('admin.classes.edit');
         Route::put('/classes/{class}', [ClassController::class, 'update'])->name('admin.classes.update');
         Route::delete('/classes/{class}', [ClassController::class, 'destroy'])->name('admin.classes.destroy');
-        Route::get('/api/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
-        Route::get('/api/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
-        // Add this route to fetch classes dynamically
-Route::get('/api/classes/by-program-semester', function(Request $request) {
-    $request->validate([
-        'program_id' => 'required|exists:programs,id',
-        'semester_id' => 'required|exists:semesters,id',
-    ]);
+        
+        // API Routes for AJAX calls
+        Route::prefix('api')->group(function () {
+            Route::get('/units/by-class', [EnrollmentController::class, 'getUnitsForClass']);
+            Route::get('/classes/by-program-semester', function(Request $request) {
+                $request->validate([
+                    'program_id' => 'required|exists:programs,id',
+                    'semester_id' => 'required|exists:semesters,id',
+                ]);
 
-    try {
-        $classes = ClassModel::where('program_id', $request->program_id)
-            ->where('semester_id', $request->semester_id)
-            ->where('is_active', true)
-            ->select('id', 'name', 'section', 'year_level', 'capacity')
-            ->orderBy('name')
-            ->orderBy('section')
-            ->get()
-            ->map(function($class) {
-                return [
-                    'id' => $class->id,
-                    'name' => $class->name,
-                    'section' => $class->section,
-                    'display_name' => "{$class->name} Section {$class->section}",
-                    'year_level' => $class->year_level,
-                    'capacity' => $class->capacity,
-                ];
+                try {
+                    $classes = ClassModel::where('program_id', $request->program_id)
+                        ->where('semester_id', $request->semester_id)
+                        ->where('is_active', true)
+                        ->select('id', 'name', 'section', 'year_level', 'capacity')
+                        ->orderBy('name')
+                        ->orderBy('section')
+                        ->get()
+                        ->map(function($class) {
+                            return [
+                                'id' => $class->id,
+                                'name' => $class->name,
+                                'section' => $class->section,
+                                'display_name' => "{$class->name} Section {$class->section}",
+                                'year_level' => $class->year_level,
+                                'capacity' => $class->capacity,
+                            ];
+                        });
+
+                    return response()->json($classes);
+                } catch (\Exception $e) {
+                    Log::error('Error fetching classes: ' . $e->getMessage());
+                    return response()->json(['error' => 'Failed to fetch classes'], 500);
+                }
             });
-
-        return response()->json($classes);
-    } catch (\Exception $e) {
-        Log::error('Error fetching classes: ' . $e->getMessage());
-        return response()->json(['error' => 'Failed to fetch classes'], 500);
-    }
-});
-});
-   
+            Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
+            Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
+            Route::get('/schools/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
+        });
     });
-    
+
     // ===============================================================
     // SCHOOL PROGRAMS MANAGEMENT
     // ===============================================================
 
-    // SCES Programs Routes
-    Route::prefix('schools/sces')->middleware(['auth'])->name('schools.sces.programs.')->group(function () {
+    Route::prefix('schools/sces')->name('schools.sces.programs.')->group(function () {
         Route::get('programs', function(Request $request) {
             return app(ProgramController::class)->index($request, 'SCES');
         })->name('index');
@@ -268,12 +274,7 @@ Route::get('/api/classes/by-program-semester', function(Request $request) {
             return app(ProgramController::class)->getAllPrograms('SCES');
         })->name('api.all');
     });
-
-    
-
-
-    
-
+});
 
 // ===============================================================
 // CATCH-ALL ROUTE

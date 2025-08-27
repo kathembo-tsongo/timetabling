@@ -85,6 +85,18 @@ type Class = {
   display_name: string;
   year_level: number;
   capacity: number;
+  program_id: number;
+  semester_id: number;
+};
+
+type EnrollmentFormData = {
+  student_code: string;
+  school_id: number | '';
+  program_id: number | '';
+  class_id: number | '';
+  semester_id: number | '';
+  unit_ids: number[];
+  status: 'enrolled' | 'dropped' | 'completed';
 };
 
 type PageProps = {
@@ -163,7 +175,7 @@ export default function UnitAssignments() {
 
   const fetchClasses = async () => {
     try {
-      const response = await fetch(`/api/classes/by-program-semester?program_id=${selectedProgram}&semester_id=${selectedSemester}`);
+      const response = await fetch(`/admin/api/classes/by-program-semester?program_id=${selectedProgram}&semester_id=${selectedSemester}`);
       const data = await response.json();
       setAvailableClasses(data);
     } catch (error) {
@@ -360,11 +372,12 @@ export default function UnitAssignments() {
                     value={selectedClass}
                     onChange={(e) => setSelectedClass(e.target.value ? parseInt(e.target.value) : '')}
                     className="px-4 py-2 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                    disabled={!selectedSemester || !selectedProgram}
                   >
                     <option value="">Select Class</option>
-                    {classes.map(cls => (
+                    {availableClasses.map(cls => (
                       <option key={cls.id} value={cls.id}>
-                        {cls.name} - {cls.section}
+                        {cls.display_name}
                       </option>
                     ))}
                   </select>
@@ -444,12 +457,12 @@ export default function UnitAssignments() {
                 ))}
               </select>
 
-              {/* <button
+              <button
                 onClick={applyFilters}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
               >
                 Apply Filters
-              </button> */}
+              </button>
             </div>
             
             {filteredUnassignedUnits.length > 0 && (

@@ -7,29 +7,50 @@ use App\Models\Unit;
 use App\Models\School;
 use App\Models\Program;
 use App\Models\Semester;
+use App\Models\ClassModel;
 use App\Models\User;
+use App\Models\UnitAssignment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class EnrollmentController extends Controller
 {
-    public function index()
+  public function index()
 {
-    $enrollments = Enrollment::with(['student', 'unit.school', 'unit.program', 'semester'])->get();
+    $enrollments = Enrollment::with([
+        'student.school',
+        'student.program',
+        'unit.school',
+        'unit.program',
+        'semester',
+        'class',
+        'program',
+        'school'
+    ])->get();
     
-    // Fix: Order by first_name instead of name, or use raw SQL to concat names
     $students = User::with(['school', 'program'])
         ->role('Student')
         ->orderByRaw("CONCAT(first_name, ' ', last_name)")
         ->get();
     
-    $units = Unit::with(['school', 'program', 'semester'])->where('is_active', true)->get();
+    // Get units that are assigned to classes
+    $units = Unit::with(['school', 'program'])
+        ->whereHas('assignments')
+        ->where('is_active', true)
+        ->get();
+        
     $schools = School::orderBy('name')->get();
-    $programs = Program::orderBy('name')->get();
+    $programs = Program::with('school')->orderBy('name')->get();
     $semesters = Semester::orderBy('name')->get();
+    $classes = ClassModel::with(['program', 'semester'])
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->orderBy('section')
+        ->get();
     
-    // Calculate stats
     $stats = [
         'total' => $enrollments->count(),
         'active' => $enrollments->where('status', 'enrolled')->count(),
@@ -44,6 +65,7 @@ class EnrollmentController extends Controller
         'schools' => $schools,
         'programs' => $programs,
         'semesters' => $semesters,
+        'classes' => $classes,
         'stats' => $stats,
         'can' => [
             'create' => auth()->user()->can('create-enrollments'),
@@ -52,118 +74,129 @@ class EnrollmentController extends Controller
         ]
     ]);
 }
+
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'student_id' => 'required|exists:users,id',
-            'unit_id' => 'required|exists:units,id',
+        $validator = Validator::make($request->all(), [
+            'student_code' => 'required|string',
+            'class_id' => 'required|exists:classes,id',
             'semester_id' => 'required|exists:semesters,id',
+            'unit_ids' => 'required|array|min:1',
+            'unit_ids.*' => 'exists:units,id',
             'status' => 'required|in:enrolled,dropped,completed'
         ]);
 
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->with('error', 'Please check the form for errors.');
+        }
+
         try {
-            // Verify the user has Student role using Spatie
-            $student = User::findOrFail($validated['student_id']);
-            if (!$student->hasRole('Student')) {
-                return back()->withErrors(['error' => 'Selected user is not a student.']);
+            DB::beginTransaction();
+
+            // Find student by code
+            $student = User::where('code', $request->student_code)
+                ->role('Student')
+                ->first();
+
+            if (!$student) {
+                return redirect()->back()
+                    ->with('error', 'Student with code "' . $request->student_code . '" not found.');
             }
 
-            // Check for existing enrollment
-            $existingEnrollment = Enrollment::where([
-                'student_id' => $validated['student_id'],
-                'unit_id' => $validated['unit_id'],
-                'semester_id' => $validated['semester_id']
-            ])->first();
+            $class = ClassModel::with('program')->find($request->class_id);
+            $semester = Semester::find($request->semester_id);
+            
+            $createdCount = 0;
+            $skippedCount = 0;
+            $skippedUnits = [];
 
-            if ($existingEnrollment) {
-                return back()->withErrors(['error' => 'Student is already enrolled in this unit for the selected semester.']);
+            foreach ($request->unit_ids as $unitId) {
+                // Check if student is already enrolled in this unit for this semester
+                // Updated to use student_code instead of student_id
+                $existingEnrollment = Enrollment::where('student_code', $request->student_code)
+                    ->where('unit_id', $unitId)
+                    ->where('semester_id', $request->semester_id)
+                    ->first();
+
+                if ($existingEnrollment) {
+                    $skippedCount++;
+                    $unit = Unit::find($unitId);
+                    $skippedUnits[] = $unit->name;
+                    continue;
+                }
+
+                // Verify unit is assigned to this class
+                $unitAssignment = UnitAssignment::where('unit_id', $unitId)
+                    ->where('class_id', $request->class_id)
+                    ->where('semester_id', $request->semester_id)
+                    ->first();
+
+                if (!$unitAssignment) {
+                    $skippedCount++;
+                    $unit = Unit::find($unitId);
+                    $skippedUnits[] = $unit->name . ' (not assigned to this class)';
+                    continue;
+                }
+
+                // Get unit details for additional fields
+                $unit = Unit::find($unitId);
+
+                // Create enrollment with correct database schema
+                Enrollment::create([
+                    'student_code' => $request->student_code,
+                    'lecturer_code' => '', // You'll need to determine how to get this
+                    'group_id' => '', // You'll need to determine how to get this  
+                    'unit_id' => $unitId,
+                    'class_id' => $request->class_id,
+                    'semester_id' => $request->semester_id,
+                    'program_id' => $class->program_id,
+                    'school_id' => $unit->school_id,
+                    'status' => $request->status,
+                    'enrollment_date' => now()
+                ]);
+
+                $createdCount++;
             }
 
-            Enrollment::create([
-                'student_id' => $validated['student_id'],
-                'unit_id' => $validated['unit_id'],
-                'semester_id' => $validated['semester_id'],
-                'status' => $validated['status'],
-                'enrollment_date' => now()
-            ]);
+            DB::commit();
 
-            return back()->with('success', 'Enrollment created successfully!');
+            $message = "{$createdCount} enrollments created for {$student->first_name} in {$class->name} Section {$class->section}.";
+            if ($skippedCount > 0) {
+                $message .= " {$skippedCount} units were skipped: " . implode(', ', $skippedUnits);
+            }
+
+            return redirect()->back()->with('success', $message);
+
         } catch (\Exception $e) {
-            Log::error('Error creating enrollment', ['error' => $e->getMessage()]);
-            return back()->withErrors(['error' => 'Failed to create enrollment']);
+            DB::rollBack();
+            Log::error('Error creating enrollment: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Error creating enrollment. Please try again.');
         }
     }
 
-    public function update(Request $request, Enrollment $enrollment)
+    // Add method to get units for a specific class
+    public function getUnitsForClass(Request $request)
     {
-        $validated = $request->validate([
-            'student_id' => 'required|exists:users,id',
-            'unit_id' => 'required|exists:units,id',
+        $request->validate([
+            'class_id' => 'required|exists:classes,id',
             'semester_id' => 'required|exists:semesters,id',
-            'status' => 'required|in:enrolled,dropped,completed'
         ]);
 
         try {
-            $enrollment->update($validated);
-            return back()->with('success', 'Enrollment updated successfully!');
-        } catch (\Exception $e) {
-            Log::error('Error updating enrollment', ['error' => $e->getMessage()]);
-            return back()->withErrors(['error' => 'Failed to update enrollment']);
-        }
-    }
-
-    public function destroy(Enrollment $enrollment)
-    {
-        try {
-            $enrollment->delete();
-            return back()->with('success', 'Enrollment deleted successfully!');
-        } catch (\Exception $e) {
-            Log::error('Error deleting enrollment', ['error' => $e->getMessage()]);
-            return back()->withErrors(['error' => 'Failed to delete enrollment']);
-        }
-    }
-    public function validateStudentCode($code)
-{
-    try {
-        // Find user by code with Student role
-        $student = User::where('code', $code)
-            ->role('Student') // Using Spatie's role method
+            $units = Unit::whereHas('assignments', function($query) use ($request) {
+                $query->where('class_id', $request->class_id)
+                      ->where('semester_id', $request->semester_id)
+                      ->where('is_active', true); // Only check if assignment is active
+            })
             ->with(['school', 'program'])
-            ->first();
+            ->get();
 
-        if (!$student) {
-            return response()->json([
-                'success' => false,
-                'error' => 'Student not found or user is not a student'
-            ]);
+            return response()->json($units);
+        } catch (\Exception $e) {
+            Log::error('Error fetching units for class: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch units'], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'student' => [
-                'id' => $student->id,
-                'code' => $student->code,
-                'name' => $student->name,
-                'email' => $student->email,
-                'school_id' => $student->school_id,
-                'school_name' => $student->school ? $student->school->name : null,
-                'school_code' => $student->school ? $student->school->code : null,
-                'program_id' => $student->program_id,
-                'program_name' => $student->program ? $student->program->name : null,
-                'program_code' => $student->program ? $student->program->code : null,
-            ]
-        ]);
-
-    } catch (\Exception $e) {
-        Log::error('Student validation error', [
-            'code' => $code,
-            'error' => $e->getMessage()
-        ]);
-
-        return response()->json([
-            'success' => false,
-            'error' => 'Failed to validate student code'
-        ], 500);
     }
-}
 }
