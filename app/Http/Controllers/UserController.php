@@ -28,10 +28,9 @@ class UserController extends Controller
                     ->orWhere('last_name', 'like', "%{$search}%")
                     ->orWhere('schools', 'like', "%{$search}%");
             })
-            ->with('roles') // Load roles with user using Spatie
-            ->paginate($perPage);
+            ->paginate($perPage); // Removed roles loading since we're not showing them
 
-        return Inertia::render('Admin/Users/Index', [ // CHANGED: Updated path
+        return Inertia::render('Admin/Users/Index', [
             'users' => $users,
             'perPage' => $perPage,
             'search' => $search,
@@ -46,7 +45,7 @@ class UserController extends Controller
         try {
             Log::info('Creating user with data:', $request->all());
 
-            // Validate request
+            // Validate request - removed roles validation
             $validated = $request->validate([
                 'first_name' => 'required|string|max:255',
                 'last_name' => 'required|string|max:255',
@@ -56,12 +55,6 @@ class UserController extends Controller
                 'password' => 'required|string|min:8',
                 'schools' => 'nullable|string|max:255',
                 'programs' => 'nullable|string|max:255',
-                'roles' => 'required|array|min:1',
-                'roles.*' => 'string|exists:roles,name',
-            ], [
-                'roles.required' => 'Please select a role for the user.',
-                'roles.min' => 'Please select at least one role.',
-                'roles.*.exists' => 'The selected role is invalid.',
             ]);
 
             // Create user
@@ -76,12 +69,12 @@ class UserController extends Controller
                 'programs' => $validated['programs'] ?? null,
             ]);
 
-            // Assign roles using Spatie
-            $user->syncRoles($validated['roles']);
+            // Optional: Assign a default role if you still want users to have roles in the background
+            // $user->assignRole('Student'); // Uncomment if you want to assign a default role
 
             Log::info('User created successfully:', ['user_id' => $user->id]);
 
-            return redirect()->route('admin.users.index') // CHANGED: Updated route name
+            return redirect()->route('admin.users.index')
                 ->with('success', 'User created successfully');
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -98,7 +91,7 @@ class UserController extends Controller
      */
     public function edit(User $user)
     {
-        return Inertia::render('Admin/Users/Edit', ['user' => $user->load('roles')]); // CHANGED: Updated path
+        return Inertia::render('Admin/Users/Edit', ['user' => $user]); // Removed roles loading
     }
 
     /**
@@ -112,7 +105,7 @@ class UserController extends Controller
                 'request_data' => $request->all()
             ]);
 
-            // Validate request
+            // Validate request - removed roles validation
             $validated = $request->validate([
                 'first_name' => 'required|string|max:255',
                 'last_name' => 'required|string|max:255',
@@ -121,13 +114,6 @@ class UserController extends Controller
                 'code' => 'required|string|max:255|unique:users,code,' . $user->id,
                 'schools' => 'nullable|string|max:255',
                 'programs' => 'nullable|string|max:255',
-                'roles' => 'required|array|min:1',
-                'roles.*' => 'required|string|exists:roles,name',
-            ], [
-                'roles.required' => 'Please select a role for the user.',
-                'roles.min' => 'Please select at least one role.',
-                'roles.*.required' => 'Role cannot be empty.',
-                'roles.*.exists' => 'The selected role is invalid.',
             ]);
 
             Log::info('Validation passed, updating user:', ['validated' => $validated]);
@@ -143,12 +129,11 @@ class UserController extends Controller
                 'programs' => $validated['programs'] ?? null,
             ]);
 
-            // Sync roles using Spatie
-            $user->syncRoles($validated['roles'] ?? []);
+            // Note: Roles are no longer updated here since the interface doesn't manage them
 
             Log::info('User updated successfully:', ['user_id' => $user->id]);
 
-            return redirect()->route('admin.users.index') // CHANGED: Updated route name
+            return redirect()->route('admin.users.index')
                 ->with('success', 'User updated successfully!');
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -180,7 +165,7 @@ class UserController extends Controller
 
             Log::info('User deleted successfully:', ['user_id' => $user->id]);
 
-            return redirect()->route('admin.users.index') // CHANGED: Updated route name
+            return redirect()->route('admin.users.index')
                 ->with('success', 'User deleted successfully!');
 
         } catch (\Exception $e) {
@@ -200,7 +185,7 @@ class UserController extends Controller
         $roles = Role::pluck('name');
         $currentRole = $user->roles->pluck('name')->first();
 
-        return Inertia::render('Admin/Users/EditRole', [ // CHANGED: Updated path
+        return Inertia::render('Admin/Users/EditRole', [
             'user' => $user,
             'roles' => $roles,
             'currentRole' => $currentRole,
@@ -219,7 +204,7 @@ class UserController extends Controller
 
             $user->syncRoles([$validated['role']]);
 
-            return redirect()->route('admin.users.index') // CHANGED: Updated route name
+            return redirect()->route('admin.users.index')
                 ->with('success', 'User role updated successfully!');
 
         } catch (\Exception $e) {

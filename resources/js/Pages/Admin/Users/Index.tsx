@@ -3,10 +3,6 @@ import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { toast } from 'react-hot-toast';
 
-interface Role {
-    name: string;
-}
-
 interface User {
     id: number;
     first_name: string;
@@ -16,7 +12,6 @@ interface User {
     code: string;
     schools: string | null;
     programs: string | null;
-    roles: Role[];
     password?: string;
 }
 
@@ -58,17 +53,10 @@ const Users = () => {
                 code: '', 
                 schools: '', 
                 programs: '', 
-                roles: [{ name: 'Student' }], // Default to Student role
                 password: '' 
             });
         } else if (user) {
-            // Ensure user has roles array with proper structure
-            const userWithRoles = {
-                ...user,
-                roles: user.roles && user.roles.length > 0 ? user.roles : [{ name: 'Student' }]
-            };
-            console.log('Opening modal with user:', userWithRoles);
-            setCurrentUser(userWithRoles);
+            setCurrentUser(user);
         }
         
         setErrors({});
@@ -110,7 +98,7 @@ const Users = () => {
             return;
         }
 
-        // Prepare payload with Spatie roles
+        // Prepare payload without roles
         const payload = {
             first_name: currentUser.first_name,
             last_name: currentUser.last_name,
@@ -119,16 +107,10 @@ const Users = () => {
             code: currentUser.code,
             schools: currentUser.schools || '',
             programs: currentUser.programs || '',
-            roles: currentUser.roles.map((role) => role.name).filter(name => name !== ''), // Array of role names
             ...(modalType === 'create' && { password: currentUser.password })
         };
 
-        // Debug logging
-        console.log('Submitting payload:', payload);
-        console.log('Current user roles:', currentUser.roles);
-
         if (modalType === 'create') {
-            // FIXED: Changed from /users to /admin/users
             router.post('/admin/users', payload, {
                 onSuccess: () => {
                     toast.success('User created successfully!');
@@ -142,7 +124,6 @@ const Users = () => {
                 onFinish: () => setIsLoading(false)
             });
         } else if (modalType === 'edit') {
-            // FIXED: Changed from /users to /admin/users
             router.put(`/admin/users/${currentUser.id}`, payload, {
                 onSuccess: () => {
                     toast.success('User updated successfully!');
@@ -156,7 +137,6 @@ const Users = () => {
                 onFinish: () => setIsLoading(false)
             });
         } else if (modalType === 'delete') {
-            // FIXED: Changed from /users to /admin/users
             router.delete(`/admin/users/${currentUser.id}`, {
                 onSuccess: () => {
                     toast.success('User deleted successfully!');
@@ -181,7 +161,7 @@ const Users = () => {
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                     <h1 className="text-4xl font-bold text-slate-800 mb-2">User Management</h1>
-                                    <p className="text-slate-600 text-lg">Manage system users and their permissions</p>
+                                    <p className="text-slate-600 text-lg">Manage system users and their information</p>
                                 </div>
                                 <button
                                     onClick={() => handleOpenModal('create')}
@@ -211,7 +191,7 @@ const Users = () => {
                                         type="text"
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        placeholder="Search use by code"
+                                        placeholder="Search user by code"
                                         className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                 </div>
@@ -256,7 +236,6 @@ const Users = () => {
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Phone</th>
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Schools</th>
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Programs</th>
-                                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Role</th>
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
                                     </tr>
                                 </thead>
@@ -292,11 +271,6 @@ const Users = () => {
                                                     <div className="text-sm text-slate-900">{user.programs || 'N/A'}</div>
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className="inline-flex px-3 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">
-                                                        {user.roles.map((role) => role.name).join(', ')}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex space-x-2">
                                                         <button
                                                             onClick={() => handleOpenModal('edit', user)}
@@ -322,7 +296,7 @@ const Users = () => {
                                         ))
                                     ) : (
                                         <tr>
-                                            <td colSpan={9} className="px-6 py-12 text-center">
+                                            <td colSpan={8} className="px-6 py-12 text-center">
                                                 <div className="flex flex-col items-center">
                                                     <svg className="w-16 h-16 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
