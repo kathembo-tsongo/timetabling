@@ -319,11 +319,9 @@ export default function UnitsIndex() {
 
   return (
     <AuthenticatedLayout>
-      <Head title="Units Management" />
-      
+      <Head title="Units Management" />      
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">          
           {/* Header */}
           <div className="mb-8">
             <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-slate-200/50 p-8">

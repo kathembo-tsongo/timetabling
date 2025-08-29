@@ -12,6 +12,9 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\ClassController;
+use App\Http\Controllers\RoleManagementController;
+use App\Http\Controllers\DynamicRoleController;
+use App\Http\Controllers\DynamicPermissionController;
 use App\Models\ClassModel;
 use App\Models\Program;
 use App\Models\Unit;
@@ -106,6 +109,27 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('admin')->middleware(['role:Admin'])->group(function () {
         Route::get('/', [DashboardController::class, 'adminDashboard'])
             ->name('admin.dashboard');
+    
+    // Dynamic Roles
+    Route::get('/roles/dynamic', [DynamicRoleController::class, 'index'])->name('roles.dynamic.index');
+    Route::get('/roles/create', [DynamicRoleController::class, 'create'])->name('roles.create');
+    Route::post('/roles', [DynamicRoleController::class, 'store'])->name('roles.store');
+    Route::get('/roles/{role}/edit', [DynamicRoleController::class, 'edit'])->name('roles.edit');
+    Route::put('/roles/{role}', [DynamicRoleController::class, 'update'])->name('roles.update');
+    Route::delete('/roles/{role}', [DynamicRoleController::class, 'destroy'])->name('roles.destroy');
+    Route::post('/roles/{role}/clone', [DynamicRoleController::class, 'clone'])->name('roles.clone');
+    
+    // Dynamic Permissions
+    Route::get('/permissions/dynamic', [DynamicPermissionController::class, 'index'])->name('permissions.dynamic.index');
+    Route::post('/permissions', [DynamicPermissionController::class, 'store'])->name('permissions.store');
+    Route::put('/permissions/{permission}', [DynamicPermissionController::class, 'update'])->name('permissions.update');
+    Route::delete('/permissions/{permission}', [DynamicPermissionController::class, 'destroy'])->name('permissions.destroy');
+    
+    // User Role Management - CHANGE THIS ROUTE
+    Route::get('/users/roles', [RoleManagementController::class, 'index'])->name('users.roles.index');
+    Route::put('/users/{user}/roles', [RoleManagementController::class, 'updateUserRole'])->name('users.roles.update');
+    Route::delete('/users/{user}/roles', [RoleManagementController::class, 'removeUserRole'])->name('users.roles.remove');
+    Route::post('/users/roles/bulk-assign', [RoleManagementController::class, 'bulkAssignRole'])->name('users.roles.bulk');
 
         // Admin Units Routes
         Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
@@ -119,18 +143,15 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
         Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
         
-        // Users Management
-        Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
-        Route::post('/users', [UserController::class, 'store'])->name('admin.users.store');
-        Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('admin.users.edit');
-        Route::put('/users/{user}', [UserController::class, 'update'])->name('admin.users.update');
-        Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('admin.users.destroy');
-        Route::get('/users/{user}/edit-role', [UserController::class, 'editRole'])->name('admin.users.edit-role');
-        Route::put('/users/{user}/role', [UserController::class, 'updateRole'])->name('admin.users.update-role');
-        Route::get('/users/roles-permissions', [UserController::class, 'getUserRolesAndPermissions'])->name('admin.users.roles-permissions');
-        Route::put('/users/{user}/roles-permissions', [UserController::class, 'updateUserRolesAndPermissions'])->name('admin.users.update-roles-permissions');
-        Route::get('/users/{user}/permissions', [UserController::class, 'getUserPermissions'])->name('admin.users.permissions');
         
+        // Users Management
+    Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
+    Route::get('/users/create',[UserController::class, 'create'])->name('admin.users.create');
+    Route::post('/users', [UserController::class, 'store'])->name('admin.users.store');
+    Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('admin.users.edit');
+    Route::put('/users/{user}', [UserController::class, 'update'])->name('admin.users.update');
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('admin.users.destroy');
+    Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete'])->name('admin.users.bulk-delete');
         // Roles Management
         Route::get('/roles', [RoleController::class, 'index'])->name('admin.roles.index');
         Route::post('/roles', [RoleController::class, 'store'])->name('admin.roles.store');

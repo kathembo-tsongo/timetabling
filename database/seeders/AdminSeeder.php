@@ -16,13 +16,14 @@ class AdminSeeder extends Seeder
     public function run()
     {
         User::create([
-            'code' => '112721',
-            'first_name' => 'Kathembo',
-            'last_name' => 'Tsongo',
-            'faculty' => 'SCES',
-            'email' => 'kathembo.dieudonne@strathmore.edu',
-            'phone' => '0706571995',       
-            'password' => Hash::make('password'), // Change 'password' to a secure password
+            'first_name' => 'KATHEMBO',
+            'last_name' => 'TSONGO',
+            'email' => 'admin@strathmore.edu',
+            'phone' => '0723456789',
+            'code' => 'ADM1',
+            'schools' => '-',
+            'programs' => null,
+            'password' => Hash::make('password')
         ]);
     }
 }
