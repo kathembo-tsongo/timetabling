@@ -230,6 +230,32 @@ class DynamicPermissionController extends Controller
         }
     }
 
+    public function bulkCreate(Request $request)
+{
+    $validated = $request->validate([
+        'permissions' => 'required|array',
+        'permissions.*.name' => 'required|string|unique:permissions,name|max:255',
+        'permissions.*.description' => 'nullable|string|max:500',
+        'permissions.*.category' => 'required|string|max:100'
+    ]);
+
+    $createdPermissions = [];
+
+    foreach ($validated['permissions'] as $permissionData) {
+        $permission = Permission::create([
+            'name' => $permissionData['name'],
+            'description' => $permissionData['description'] ?? null,
+            'category' => $permissionData['category'] ?? 'general',
+            'guard_name' => 'web',
+            'is_core' => false,
+        ]);
+
+        $createdPermissions[] = $permission;
+    }
+
+    return back()->with('success', count($createdPermissions) . ' permissions created successfully!');
+}
+
     public function bulkStore(Request $request)
     {
         try {

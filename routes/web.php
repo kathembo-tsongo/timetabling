@@ -108,20 +108,12 @@ Route::middleware(['auth'])->group(function () {
     
     Route::prefix('admin')->middleware(['role:Admin'])->group(function () {
         Route::get('/', [DashboardController::class, 'adminDashboard'])
-            ->name('admin.dashboard');
-    
-    // Dynamic Roles
-    Route::get('/roles/dynamic', [DynamicRoleController::class, 'index'])->name('roles.dynamic.index');
-    Route::get('/roles/create', [DynamicRoleController::class, 'create'])->name('roles.create');
-    Route::post('/roles', [DynamicRoleController::class, 'store'])->name('roles.store');
-    Route::get('/roles/{role}/edit', [DynamicRoleController::class, 'edit'])->name('roles.edit');
-    Route::put('/roles/{role}', [DynamicRoleController::class, 'update'])->name('roles.update');
-    Route::delete('/roles/{role}', [DynamicRoleController::class, 'destroy'])->name('roles.destroy');
-    Route::post('/roles/{role}/clone', [DynamicRoleController::class, 'clone'])->name('roles.clone');
+            ->name('admin.dashboard');   
     
     // Dynamic Permissions
     Route::get('/permissions/dynamic', [DynamicPermissionController::class, 'index'])->name('permissions.dynamic.index');
     Route::post('/permissions', [DynamicPermissionController::class, 'store'])->name('permissions.store');
+    Route::post('/permissions/bulk', [DynamicPermissionController::class, 'bulkCreate'])->name('permissions.bulk');
     Route::put('/permissions/{permission}', [DynamicPermissionController::class, 'update'])->name('permissions.update');
     Route::delete('/permissions/{permission}', [DynamicPermissionController::class, 'destroy'])->name('permissions.destroy');
     
@@ -152,13 +144,15 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/users/{user}', [UserController::class, 'update'])->name('admin.users.update');
     Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('admin.users.destroy');
     Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete'])->name('admin.users.bulk-delete');
-        // Roles Management
-        Route::get('/roles', [RoleController::class, 'index'])->name('admin.roles.index');
-        Route::post('/roles', [RoleController::class, 'store'])->name('admin.roles.store');
-        Route::put('/roles/{role}', [RoleController::class, 'update'])->name('admin.roles.update');
-        Route::delete('/roles/{role}', [RoleController::class, 'destroy'])->name('admin.roles.destroy');
-        Route::get('/roles/permissions/grouped', [RoleController::class, 'getGroupedPermissions'])->name('admin.roles.permissions.grouped');
-            
+        
+    Route::prefix('roles')->name('roles.')->group(function () {
+    Route::get('/dynamic', [DynamicRoleController::class, 'index'])->name('dynamic');
+    Route::post('/', [DynamicRoleController::class, 'store'])->name('store');
+    Route::post('/bulk-create', [DynamicRoleController::class, 'bulkCreate'])->name('bulk-create');
+    Route::put('/{role}', [DynamicRoleController::class, 'update'])->name('update');
+    Route::put('/{role}/permissions', [DynamicRoleController::class, 'updatePermissions'])->name('update-permissions');
+    Route::delete('/{role}', [DynamicRoleController::class, 'destroy'])->name('destroy');
+});
         // Semesters
         Route::get('/semesters', [SemesterController::class, 'index'])->name('admin.semesters.index');
         Route::post('/semesters', [SemesterController::class, 'store'])->name('admin.semesters.store');

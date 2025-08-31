@@ -650,7 +650,7 @@ export default function UsersIndex() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">User Code</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">User Code *</label>
             <input
               type="text"
               name="code"
@@ -663,7 +663,7 @@ export default function UsersIndex() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Email *</label>
             <input
               type="email"
               name="email"
@@ -676,7 +676,7 @@ export default function UsersIndex() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">First Name</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">First Name *</label>
             <input
               type="text"
               name="first_name"
@@ -689,7 +689,7 @@ export default function UsersIndex() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Last Name</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Last Name *</label>
             <input
               type="text"
               name="last_name"
@@ -702,7 +702,7 @@ export default function UsersIndex() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Phone (Optional)</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Phone *</label>
             <input
               type="text"
               name="phone"
@@ -715,7 +715,7 @@ export default function UsersIndex() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Password</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Password *</label>
             <div className="relative">
               <input
             type={showPassword ? 'text' : 'password'}
@@ -741,7 +741,7 @@ export default function UsersIndex() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Confirm Password</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Confirm Password *</label>
             <input
               type={showPassword ? 'text' : 'password'}
               name="password_confirmation"
@@ -1084,7 +1084,7 @@ export default function UsersIndex() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}}
+      {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && currentUser && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
