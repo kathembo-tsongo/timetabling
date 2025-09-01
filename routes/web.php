@@ -15,6 +15,7 @@ use App\Http\Controllers\ClassController;
 use App\Http\Controllers\RoleManagementController;
 use App\Http\Controllers\DynamicRoleController;
 use App\Http\Controllers\DynamicPermissionController;
+use App\Http\Controllers\SettingsController;
 use App\Models\ClassModel;
 use App\Models\Program;
 use App\Models\Unit;
@@ -110,18 +111,18 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [DashboardController::class, 'adminDashboard'])
             ->name('admin.dashboard');   
     
-    // Dynamic Permissions
-    Route::get('/permissions/dynamic', [DynamicPermissionController::class, 'index'])->name('permissions.dynamic.index');
-    Route::post('/permissions', [DynamicPermissionController::class, 'store'])->name('permissions.store');
-    Route::post('/permissions/bulk', [DynamicPermissionController::class, 'bulkCreate'])->name('permissions.bulk');
-    Route::put('/permissions/{permission}', [DynamicPermissionController::class, 'update'])->name('permissions.update');
-    Route::delete('/permissions/{permission}', [DynamicPermissionController::class, 'destroy'])->name('permissions.destroy');
+        // Dynamic Permissions
+        Route::get('/permissions/dynamic', [DynamicPermissionController::class, 'index'])->name('permissions.dynamic.index');
+        Route::post('/permissions', [DynamicPermissionController::class, 'store'])->name('permissions.store');
+        Route::post('/permissions/bulk', [DynamicPermissionController::class, 'bulkCreate'])->name('permissions.bulk');
+        Route::put('/permissions/{permission}', [DynamicPermissionController::class, 'update'])->name('permissions.update');
+        Route::delete('/permissions/{permission}', [DynamicPermissionController::class, 'destroy'])->name('permissions.destroy');
     
-    // User Role Management - CHANGE THIS ROUTE
-    Route::get('/users/roles', [RoleManagementController::class, 'index'])->name('users.roles.index');
-    Route::put('/users/{user}/roles', [RoleManagementController::class, 'updateUserRole'])->name('users.roles.update');
-    Route::delete('/users/{user}/roles', [RoleManagementController::class, 'removeUserRole'])->name('users.roles.remove');
-    Route::post('/users/roles/bulk-assign', [RoleManagementController::class, 'bulkAssignRole'])->name('users.roles.bulk');
+        // User Role Management - CHANGE THIS ROUTE
+        Route::get('/users/roles', [RoleManagementController::class, 'index'])->name('users.roles.index');
+        Route::put('/users/{user}/roles', [RoleManagementController::class, 'updateUserRole'])->name('users.roles.update');
+        Route::delete('/users/{user}/roles', [RoleManagementController::class, 'removeUserRole'])->name('users.roles.remove');
+        Route::post('/users/roles/bulk-assign', [RoleManagementController::class, 'bulkAssignRole'])->name('users.roles.bulk');
 
         // Admin Units Routes
         Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
@@ -208,6 +209,10 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classes/{class}', [ClassController::class, 'update'])->name('admin.classes.update');
         Route::delete('/classes/{class}', [ClassController::class, 'destroy'])->name('admin.classes.destroy');
         
+        // System Settings
+        Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
+        Route::put('/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
+            
         // API Routes for AJAX calls
         Route::prefix('api')->group(function () {
             Route::get('/units/by-class', [EnrollmentController::class, 'getUnitsForClass']);

@@ -417,7 +417,7 @@ export default function UnitsIndex() {
                 ))}
               </select>
 
-              <select
+              {/* <select
                 value={selectedSemester}
                 onChange={(e) => setSelectedSemester(e.target.value)}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -428,7 +428,7 @@ export default function UnitsIndex() {
                     {semester.name}
                   </option>
                 ))}
-              </select>
+              </select> */}
 
               <select
                 value={activeFilter}
@@ -737,7 +737,7 @@ export default function UnitsIndex() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {/* <label className="block text-sm font-medium text-gray-700 mb-2">
                         Semester
                       </label>
                       <select
@@ -751,11 +751,11 @@ export default function UnitsIndex() {
                             {semester.name}
                           </option>
                         ))}
-                      </select>
+                      </select> */}
                     </div>
                   </div>
 
-                  <div className="flex items-center">
+                  {/* <div className="flex items-center">
                     <input
                       type="checkbox"
                       id="is_active"
@@ -772,7 +772,7 @@ export default function UnitsIndex() {
                         (Must assign to semester first)
                       </p>
                     )}
-                  </div>
+                  </div> */}
 
                   <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                     <button

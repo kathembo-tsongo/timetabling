@@ -295,6 +295,51 @@ class UnitController extends Controller
         }
     }
 
+/**
+ * Destroy a unit (Admin).
+ */
+public function destroy(Unit $unit)
+{
+    $user = auth()->user();
+
+    if (!$user->hasRole('Admin') && !$user->can('manage-units')) {
+        abort(403, "Unauthorized to delete units.");
+    }
+
+    try {
+        // Check if unit has enrollments (if applicable)
+        if (method_exists($unit, 'enrollments') && $unit->enrollments()->exists()) {
+            return back()->withErrors([
+                'error' => 'Cannot delete unit because it has associated enrollments.'
+            ]);
+        }
+
+        $unitName = $unit->name;
+        $unit->delete();
+
+        \Log::info("Unit deleted", [
+            'unit_id' => $unit->id,
+            'unit_name' => $unitName,
+            'deleted_by' => $user->id
+        ]);
+
+        return redirect()->route('admin.units.index')
+            ->with('success', "Unit '{$unitName}' deleted successfully.");
+
+    } catch (\Exception $e) {
+        \Log::error("Error deleting unit", [
+            'unit_id' => $unit->id,
+            'error' => $e->getMessage(),
+            'user_id' => $user->id
+        ]);
+
+        return back()->withErrors([
+            'error' => 'Failed to delete unit. Please try again.'
+        ]);
+    }
+}
+
+
     public function schoolDestroy($schoolCode, Unit $unit)
     {
         $user = auth()->user();
@@ -619,6 +664,7 @@ public function getUnitsForClass(Request $request)
         return response()->json(['error' => 'Failed to fetch units'], 500);
     }
 }
+
 
 
 }

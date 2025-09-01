@@ -463,24 +463,8 @@ const SemesterManagement: React.FC = () => {
                       {expandedRows.has(semester.id) && (
                         <tr>
                           <td colSpan={5} className="px-6 py-4 bg-gray-50">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              {/* Units by School */}
-                              <div>
-                                <h4 className="font-medium text-gray-900 mb-3">Units by School</h4>
-                                {Object.entries(semester.stats.units_by_school).length > 0 ? (
-                                  <div className="space-y-2">
-                                    {Object.entries(semester.stats.units_by_school).map(([school, count]) => (
-                                      <div key={school} className="flex justify-between">
-                                        <span className="text-gray-600">{school}</span>
-                                        <span className="font-medium">{count}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-gray-500">No units assigned</p>
-                                )}
-                              </div>
-                              
+                            <div>
+                                                         
                               {/* Units by Program */}
                               <div>
                                 <h4 className="font-medium text-gray-900 mb-3">Units by Program</h4>

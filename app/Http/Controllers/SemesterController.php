@@ -454,42 +454,95 @@ class SemesterController extends Controller
     /**
      * Get semester statistics using unified tables and model relationships.
      */
-    private function getSemesterStats($semesterId)
-    {
-        try {
-            $semester = Semester::find($semesterId);
-            
-            if (!$semester) {
-                return $this->getEmptyStats();
-            }
-
-            return [
-                'units_count' => $semester->units()->count(),
-                'enrollments_count' => $semester->enrollments()->count(),
-                'class_timetables_count' => $semester->classTimetables()->count(),
-                'exam_timetables_count' => $semester->examTimetables()->count(),
-                'units_by_school' => $semester->units()
-                    ->selectRaw('school_code, count(*) as count')
-                    ->groupBy('school_code')
-                    ->pluck('count', 'school_code')
-                    ->toArray(),
-                'units_by_program' => $semester->units()
-                    ->selectRaw('program_code, count(*) as count')
-                    ->groupBy('program_code')
-                    ->pluck('count', 'program_code')
-                    ->toArray(),
-            ];
-
-        } catch (\Exception $e) {
-            Log::warning('Error getting semester stats', [
-                'semester_id' => $semesterId,
-                'error' => $e->getMessage()
-            ]);
-            
+   /**
+ * Get semester statistics using direct database queries
+ */
+/**
+ * Get semester statistics using Unit model relationships and static methods
+ */
+private function getSemesterStats($semesterId)
+{
+    try {
+        $semester = Semester::find($semesterId);
+        
+        if (!$semester) {
             return $this->getEmptyStats();
         }
-    }
 
+        // Use the Unit model's static method for statistics
+        $unitStats = Unit::getStatisticsBySemester($semesterId);
+
+        // Get other statistics using relationships
+        $enrollmentsCount = $semester->enrollments()->count();
+        $classTimetablesCount = $semester->classTimetables()->count();
+        $examTimetablesCount = $semester->examTimetables()->count();
+
+        Log::info('Semester stats calculated using relationships', [
+            'semester_id' => $semesterId,
+            'units_count' => $unitStats['units_count'],
+            'units_by_school' => $unitStats['units_by_school'],
+            'units_by_program' => $unitStats['units_by_program']
+        ]);
+
+        return [
+            'units_count' => $unitStats['units_count'],
+            'enrollments_count' => $enrollmentsCount,
+            'class_timetables_count' => $classTimetablesCount,
+            'exam_timetables_count' => $examTimetablesCount,
+            'units_by_school' => $unitStats['units_by_school'],
+            'units_by_program' => $unitStats['units_by_program'],
+        ];
+
+    } catch (\Exception $e) {
+        Log::error('Error getting semester stats with relationships', [
+            'semester_id' => $semesterId,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return $this->getEmptyStats();
+    }
+}
+
+/**
+ * Alternative method using collection methods
+ */
+private function getSemesterStatsWithCollection($semesterId)
+{
+    try {
+        // Get all units for the semester with relationships loaded
+        $units = Unit::withStatisticsData()
+            ->where('semester_id', $semesterId)
+            ->get();
+
+        // Use the custom collection methods
+        $unitsBySchool = $units->countBySchool();
+        $unitsByProgram = $units->countByProgram();
+
+        // Get other counts
+        $semester = Semester::find($semesterId);
+        $enrollmentsCount = $semester ? $semester->enrollments()->count() : 0;
+        $classTimetablesCount = $semester ? $semester->classTimetables()->count() : 0;
+        $examTimetablesCount = $semester ? $semester->examTimetables()->count() : 0;
+
+        return [
+            'units_count' => $units->count(),
+            'enrollments_count' => $enrollmentsCount,
+            'class_timetables_count' => $classTimetablesCount,
+            'exam_timetables_count' => $examTimetablesCount,
+            'units_by_school' => $unitsBySchool,
+            'units_by_program' => $unitsByProgram,
+        ];
+
+    } catch (\Exception $e) {
+        Log::error('Error getting semester stats with collection', [
+            'semester_id' => $semesterId,
+            'error' => $e->getMessage()
+        ]);
+        
+        return $this->getEmptyStats();
+    }
+}
     /**
      * Get semester status (current, upcoming, past, inactive).
      */
