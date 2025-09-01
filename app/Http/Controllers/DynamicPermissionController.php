@@ -55,11 +55,28 @@ class DynamicPermissionController extends Controller
         }
 
         // Get statistics and categories
+     
+        $allPermissions = Permission::all();
+        $totalPermissions = $allPermissions->count();
+        $coreCount = 0;
+        $dynamicCount = 0;
+
+        foreach ($allPermissions as $permission) {
+             $meta = PermissionMeta::where('permission_name', $permission->name)->first();
+             $isCore = $meta ? $meta->is_core : $this->isCore($permission->name);
+    
+                if ($isCore) {
+                    $coreCount++;
+                } else {
+                    $dynamicCount++;
+                }
+        }
+
         $stats = [
-            'total' => Permission::count(),
-            'core' => PermissionMeta::where('is_core', true)->count(),
-            'dynamic' => PermissionMeta::where('is_core', false)->count(),
-        ];
+            'total' => $totalPermissions,
+            'core' => $coreCount,
+            'dynamic' => $dynamicCount,
+        ];       
 
         $categories = PermissionMeta::distinct()
             ->whereNotNull('category')
