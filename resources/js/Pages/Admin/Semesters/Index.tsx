@@ -351,9 +351,9 @@ const SemesterManagement: React.FC = () => {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    {/* <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Statistics
-                    </th>
+                    </th> */}
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Actions
                     </th>
@@ -403,7 +403,7 @@ const SemesterManagement: React.FC = () => {
                         <td className="px-6 py-4">
                           <StatusBadge status={semester.status} isActive={semester.is_active} />
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-700">
+                        {/* <td className="px-6 py-4 text-sm text-slate-700">
                           <div className="flex gap-4">
                             <div className="flex items-center">
                               <BookOpen className="w-4 h-4 mr-1 text-blue-500" />
@@ -418,7 +418,7 @@ const SemesterManagement: React.FC = () => {
                               {semester.stats.class_timetables_count}
                             </div>
                           </div>
-                        </td>
+                        </td> */}
                         <td className="px-6 py-4 text-sm font-medium">
                           <div className="flex items-center space-x-2">
                             <button

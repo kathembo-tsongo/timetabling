@@ -755,7 +755,7 @@ export default function UnitsIndex() {
                     </div>
                   </div>
 
-                  {/* <div className="flex items-center">
+                   <div className="flex items-center">
                     <input
                       type="checkbox"
                       id="is_active"
@@ -772,7 +772,7 @@ export default function UnitsIndex() {
                         (Must assign to semester first)
                       </p>
                     )}
-                  </div> */}
+                  </div> 
 
                   <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                     <button

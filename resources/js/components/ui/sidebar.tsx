@@ -277,7 +277,7 @@ export default function Sidebar() {
         },
         {
           label: "Classrooms",
-          href: "/classrooms",
+          href: "admin/Classrooms",
           icon: Building,
           type: 'link',
           permissions: ["manage-classrooms"]
