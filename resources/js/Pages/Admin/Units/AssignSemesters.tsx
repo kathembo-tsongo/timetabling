@@ -47,6 +47,7 @@ type UnitAssignment = {
   class_id: number;
   program_id: number;
   is_active: boolean;
+  unit?: Unit;
   semester: {
     id: number;
     name: string;
@@ -87,16 +88,6 @@ type Class = {
   capacity: number;
   program_id: number;
   semester_id: number;
-};
-
-type EnrollmentFormData = {
-  student_code: string;
-  school_id: number | '';
-  program_id: number | '';
-  class_id: number | '';
-  semester_id: number | '';
-  unit_ids: number[];
-  status: 'enrolled' | 'dropped' | 'completed';
 };
 
 type PageProps = {
@@ -145,7 +136,7 @@ export default function UnitAssignments() {
   const [selectedUnits, setSelectedUnits] = useState<Set<number>>(new Set());
   const [selectedSemester, setSelectedSemester] = useState<number | ''>(filters.semester_id || '');
   const [selectedProgram, setSelectedProgram] = useState<number | ''>(filters.program_id || '');
-  const [selectedClass, setSelectedClass] = useState<number | ''>(filters.class_id || '');
+  const [selectedClasses, setSelectedClasses] = useState<number[]>([]); // Changed to array for multiple selection
   const [availableClasses, setAvailableClasses] = useState<Class[]>(classes);
   const [loading, setLoading] = useState(false);
   
@@ -169,7 +160,7 @@ export default function UnitAssignments() {
       fetchClasses();
     } else {
       setAvailableClasses([]);
-      setSelectedClass('');
+      setSelectedClasses([]); // Clear selected classes
     }
   }, [selectedSemester, selectedProgram]);
 
@@ -204,7 +195,7 @@ export default function UnitAssignments() {
     
     const matchesSemester = !selectedSemester || assignment.semester_id == selectedSemester;
     const matchesProgram = !selectedProgram || assignment.program_id == selectedProgram;
-    const matchesClass = !selectedClass || assignment.class_id == selectedClass;
+    const matchesClass = !selectedClasses.length || selectedClasses.includes(assignment.class_id);
     
     return matchesSearch && matchesSemester && matchesProgram && matchesClass;
   });
@@ -228,9 +219,10 @@ export default function UnitAssignments() {
   // Clear selection
   const clearSelection = () => {
     setSelectedUnits(new Set());
+    setSelectedClasses([]);
   };
 
-  // Assign units to class
+  // Assign units to multiple classes - FIXED
   const handleAssignToClass = () => {
     if (selectedUnits.size === 0) {
       toast.error('Please select at least one unit');
@@ -242,8 +234,8 @@ export default function UnitAssignments() {
       return;
     }
 
-    if (!selectedClass) {
-      toast.error('Please select a class');
+    if (selectedClasses.length === 0) {
+      toast.error('Please select at least one class');
       return;
     }
 
@@ -251,15 +243,15 @@ export default function UnitAssignments() {
     router.post(route('admin.units.assign-semester'), {
       unit_ids: Array.from(selectedUnits),
       semester_id: selectedSemester,
-      class_id: selectedClass
+      class_ids: selectedClasses // Send array of class IDs
     }, {
       onSuccess: () => {
         setSelectedUnits(new Set());
-        // Refresh the page to see updated data
+        setSelectedClasses([]);
         router.reload();
       },
       onError: (errors) => {
-        toast.error(errors.error || 'Failed to assign units to class');
+        toast.error(errors.error || 'Failed to assign units to classes');
       },
       onFinish: () => setLoading(false)
     });
@@ -285,13 +277,15 @@ export default function UnitAssignments() {
     }
   };
 
-  // Apply filters
+  // Apply filters - FIXED
   const applyFilters = () => {
     const params = new URLSearchParams();
     if (searchTerm) params.append('search', searchTerm);
     if (selectedSemester) params.append('semester_id', selectedSemester.toString());
     if (selectedProgram) params.append('program_id', selectedProgram.toString());
-    if (selectedClass) params.append('class_id', selectedClass.toString());
+    if (selectedClasses.length > 0) {
+      selectedClasses.forEach(classId => params.append('class_id[]', classId.toString()));
+    }
     
     router.get(`/admin/unit-assignments?${params.toString()}`);
   };
@@ -330,7 +324,7 @@ export default function UnitAssignments() {
             </div>
           </div>
 
-          {/* Assignment Panel */}
+          {/* Assignment Panel - FIXED */}
           {selectedUnits.size > 0 && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 mb-6">
               <div className="flex flex-col gap-4">
@@ -339,6 +333,11 @@ export default function UnitAssignments() {
                   <span className="text-emerald-800 font-medium">
                     {selectedUnits.size} unit(s) selected for assignment
                   </span>
+                  {selectedClasses.length > 0 && (
+                    <span className="ml-4 text-emerald-700 text-sm">
+                      → {selectedClasses.length} class(es) selected
+                    </span>
+                  )}
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -370,16 +369,15 @@ export default function UnitAssignments() {
 
                   <select
                     multiple
-                    value={Array.isArray(selectedClass) ? selectedClass.map(String) : selectedClass ? [String(selectedClass)] : []}
+                    value={selectedClasses.map(String)}
                     onChange={(e) => {
                       const selectedOptions = Array.from(e.target.selectedOptions).map(opt => parseInt(opt.value));
-                      setSelectedClass(selectedOptions.length === 0 ? '' : selectedOptions);
+                      setSelectedClasses(selectedOptions);
                     }}
                     className="px-4 py-2 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
                     disabled={!selectedSemester || !selectedProgram}
                     style={{ minHeight: '3.5rem' }}
                   >
-                    <option value="">Select Class</option>
                     {availableClasses.map(cls => (
                       <option key={cls.id} value={cls.id}>
                         {cls.display_name}
@@ -390,10 +388,10 @@ export default function UnitAssignments() {
                   <div className="flex gap-2">
                     <button
                       onClick={handleAssignToClass}
-                      disabled={loading || !selectedSemester || !selectedClass}
+                      disabled={loading || !selectedSemester || selectedClasses.length === 0}
                       className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                     >
-                      {loading ? 'Assigning...' : 'Assign to Class'}
+                      {loading ? 'Assigning...' : `Assign to ${selectedClasses.length} Class${selectedClasses.length !== 1 ? 'es' : ''}`}
                     </button>
                     <button
                       onClick={clearSelection}

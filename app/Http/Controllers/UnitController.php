@@ -565,68 +565,57 @@ public function assignSemesters(Request $request)
 
 public function assignToSemester(Request $request)
 {
+    $validated = $request->validate([
+        'unit_ids' => 'required|array',
+        'unit_ids.*' => 'exists:units,id',
+        'semester_id' => 'required|exists:semesters,id',
+        'class_ids' => 'required|array', // Changed from 'class_id'
+        'class_ids.*' => 'exists:classes,id' // Validate each class ID
+    ]);
+
     try {
-        DB::beginTransaction();
-
-        $class = ClassModel::with('program')->find($request->class_id);
-        $semester = Semester::find($request->semester_id);
+        $createdAssignments = 0;
         
-        $assignedCount = 0;
-        $skippedCount = 0;
-        $skippedUnits = [];
-
-        foreach ($request->unit_ids as $unitId) {
-            // Check if unit is already assigned to this class in this semester
-            $existingAssignment = UnitAssignment::where('unit_id', $unitId)
-                ->where('semester_id', $request->semester_id)
-                ->where('class_id', $request->class_id)
-                ->first();
-
-            if ($existingAssignment) {
-                $skippedCount++;
+        foreach ($validated['unit_ids'] as $unitId) {
+            foreach ($validated['class_ids'] as $classId) {
+                // Get the program_id from the unit
                 $unit = Unit::find($unitId);
-                $skippedUnits[] = $unit->name;
-                continue;
+                
+                // Check if assignment already exists
+                $existingAssignment = UnitAssignment::where([
+                    'unit_id' => $unitId,
+                    'semester_id' => $validated['semester_id'],
+                    'class_id' => $classId,
+                ])->first();
+                
+                if (!$existingAssignment) {
+                    UnitAssignment::create([
+                        'unit_id' => $unitId,
+                        'semester_id' => $validated['semester_id'],
+                        'class_id' => $classId,
+                        'program_id' => $unit->program_id,
+                        'is_active' => true
+                    ]);
+                    $createdAssignments++;
+                }
             }
-
-            // Check if unit belongs to the same program as the class
-            $unit = Unit::find($unitId);
-            if ($unit->program_id !== $class->program_id) {
-                $skippedCount++;
-                $skippedUnits[] = $unit->name . ' (different program)';
-                continue;
-            }
-
-            UnitAssignment::create([
-                'unit_id' => $unitId,
-                'semester_id' => $request->semester_id,
-                'class_id' => $request->class_id,
-                'program_id' => $class->program_id,
-                'is_active' => true,
-            ]);
-
-            $assignedCount++;
         }
 
-        DB::commit();
-
-        $message = "{$assignedCount} units assigned to {$class->name} Section {$class->section} for {$semester->name}.";
-        if ($skippedCount > 0) {
-            $message .= " {$skippedCount} units were skipped: " . implode(', ', $skippedUnits);
-        }
-
+        $message = "Successfully assigned units to {$createdAssignments} class-unit combinations";
         return redirect()->back()->with('success', $message);
-
+        
     } catch (\Exception $e) {
-        DB::rollBack();
-        Log::error('Error assigning units to class: ' . $e->getMessage());
-        return redirect()->back()->with('error', 'Error assigning units to class. Please try again.');
+        \Log::error('Error assigning units to classes: ' . $e->getMessage());
+        return redirect()->back()->with('error', 'Error assigning units to classes. Please try again.');
     }
 }
 
 public function removeFromSemester(Request $request)
 {
-    
+    $request->validate([
+        'assignment_ids' => 'required|array',
+        'assignment_ids.*' => 'exists:unit_assignments,id',
+    ]);
 
     try {
         $removed = UnitAssignment::whereIn('id', $request->assignment_ids)->delete();
