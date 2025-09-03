@@ -369,10 +369,15 @@ export default function UnitAssignments() {
                   </select>
 
                   <select
-                    value={selectedClass}
-                    onChange={(e) => setSelectedClass(e.target.value ? parseInt(e.target.value) : '')}
+                    multiple
+                    value={Array.isArray(selectedClass) ? selectedClass.map(String) : selectedClass ? [String(selectedClass)] : []}
+                    onChange={(e) => {
+                      const selectedOptions = Array.from(e.target.selectedOptions).map(opt => parseInt(opt.value));
+                      setSelectedClass(selectedOptions.length === 0 ? '' : selectedOptions);
+                    }}
                     className="px-4 py-2 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
                     disabled={!selectedSemester || !selectedProgram}
+                    style={{ minHeight: '3.5rem' }}
                   >
                     <option value="">Select Class</option>
                     {availableClasses.map(cls => (
