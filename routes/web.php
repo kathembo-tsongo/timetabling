@@ -253,6 +253,8 @@ Route::middleware(['auth'])->group(function () {
                     return response()->json(['error' => 'Failed to fetch classes'], 500);
                 }
             });
+            // NEW: Class capacity information route
+            Route::get('/class-capacity', [EnrollmentController::class, 'getClassCapacityInfo']);
             Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
             Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
             Route::get('/schools/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');

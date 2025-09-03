@@ -424,6 +424,33 @@ class ClassController extends Controller
         }
     }
 
+
+/**
+ * Get classes by program and semester
+ */
+public function getByProgramAndSemester(Request $request)
+{
+    $request->validate([
+        'program_id' => 'required|exists:programs,id',
+        'semester_id' => 'required|exists:semesters,id',
+    ]);
+
+    try {
+        $classes = ClassModel::with(['program', 'semester'])
+            ->where('program_id', $request->program_id)
+            ->where('semester_id', $request->semester_id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->orderBy('section')
+            ->get();
+
+        return response()->json($classes);
+    } catch (\Exception $e) {
+        Log::error('Error fetching classes by program and semester: ' . $e->getMessage());
+        return response()->json(['error' => 'Failed to fetch classes'], 500);
+    }
+}
+
     public function getProgramsBySchool($schoolId)
     {
         try {

@@ -18,9 +18,10 @@ use Inertia\Inertia;
 
 class EnrollmentController extends Controller
 {
-  public function index()
+    public function index(Request $request)
 {
-    $enrollments = Enrollment::with([
+    // Start with base query
+    $query = Enrollment::with([
         'student.school',
         'student.program',
         'unit.school',
@@ -29,7 +30,56 @@ class EnrollmentController extends Controller
         'class',
         'program',
         'school'
-    ])->get();
+    ]);
+
+    // Apply filters if provided
+    if ($request->filled('search')) {
+        $search = $request->search;
+        $query->where(function($q) use ($search) {
+            $q->where('student_code', 'like', '%' . $search . '%')
+              ->orWhereHas('unit', function($unitQuery) use ($search) {
+                  $unitQuery->where('code', 'like', '%' . $search . '%')
+                           ->orWhere('name', 'like', '%' . $search . '%');
+              })
+              ->orWhereHas('class', function($classQuery) use ($search) {
+                  $classQuery->where('name', 'like', '%' . $search . '%');
+              });
+        });
+    }
+
+    if ($request->filled('semester_id')) {
+        $query->where('semester_id', $request->semester_id);
+    }
+
+    if ($request->filled('school_id')) {
+        $query->where('school_id', $request->school_id);
+    }
+
+    if ($request->filled('program_id')) {
+        $query->where('program_id', $request->program_id);
+    }
+
+    if ($request->filled('class_id')) {
+        $query->where('class_id', $request->class_id);
+    }
+
+    if ($request->filled('status') && $request->status !== 'all') {
+        $query->where('status', $request->status);
+    }
+
+    if ($request->filled('student_code')) {
+        $query->where('student_code', $request->student_code);
+    }
+
+    if ($request->filled('unit_id')) {
+        $query->where('unit_id', $request->unit_id);
+    }
+
+    // Order by latest enrollments first
+    $query->orderBy('created_at', 'desc');
+
+    // Paginate results (15 per page)
+    $enrollments = $query->paginate(10)->withQueryString();
     
     $students = User::with(['school', 'program'])
         ->role('Student')
@@ -51,15 +101,20 @@ class EnrollmentController extends Controller
         ->orderBy('section')
         ->get();
     
+    // Calculate statistics based on ALL enrollments (not just paginated ones)
+    $allEnrollments = Enrollment::all();
     $stats = [
-        'total' => $enrollments->count(),
-        'active' => $enrollments->where('status', 'enrolled')->count(),
-        'dropped' => $enrollments->where('status', 'dropped')->count(),
-        'completed' => $enrollments->where('status', 'completed')->count(),
+        'total' => $allEnrollments->pluck('student_code')->unique()->count(), // Unique students enrolled
+        'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(), // Unique active students
+        'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(), // Unique dropped students
+        'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(), // Unique completed students
+        // Optional: Add total enrollment records for reference
+        'total_enrollments' => $allEnrollments->count(), // Total enrollment records
+        'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(), // Total active enrollment records
     ];
     
     return Inertia::render('Admin/Enrollments/Index', [
-        'enrollments' => $enrollments,
+        'enrollments' => $enrollments, // Now paginated
         'students' => $students,
         'units' => $units,
         'schools' => $schools,
@@ -67,6 +122,7 @@ class EnrollmentController extends Controller
         'semesters' => $semesters,
         'classes' => $classes,
         'stats' => $stats,
+        'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
         'can' => [
             'create' => auth()->user()->can('create-enrollments'),
             'update' => auth()->user()->can('edit-enrollments'),
@@ -96,7 +152,7 @@ class EnrollmentController extends Controller
             DB::beginTransaction();
 
             // Find student by code
-            $student = User::where('code', $request->student_code)
+            $student = User::with(['school', 'program'])->where('code', $request->student_code)
                 ->role('Student')
                 ->first();
 
@@ -105,8 +161,35 @@ class EnrollmentController extends Controller
                     ->with('error', 'Student with code "' . $request->student_code . '" not found.');
             }
 
-            $class = ClassModel::with('program')->find($request->class_id);
+            $class = ClassModel::with(['program.school'])->find($request->class_id);
             $semester = Semester::find($request->semester_id);
+            
+            // **FIX 2: CHECK CLASS CAPACITY**
+            // Count current enrolled students in this class for this semester
+            $currentEnrollments = Enrollment::where('class_id', $request->class_id)
+                ->where('semester_id', $request->semester_id)
+                ->where('status', 'enrolled')
+                ->distinct('student_code')
+                ->count();
+
+            // Check if adding this student would exceed capacity
+            if ($currentEnrollments >= $class->capacity) {
+                DB::rollBack();
+                return redirect()->back()
+                    ->with('error', "Cannot enroll student. Class \"{$class->name} Section {$class->section}\" has reached its capacity of {$class->capacity} students. Currently enrolled: {$currentEnrollments} students.");
+            }
+
+            // Check if student is already enrolled in this class for this semester
+            $existingClassEnrollment = Enrollment::where('student_code', $request->student_code)
+                ->where('class_id', $request->class_id)
+                ->where('semester_id', $request->semester_id)
+                ->exists();
+
+            if ($existingClassEnrollment) {
+                DB::rollBack();
+                return redirect()->back()
+                    ->with('error', 'Student is already enrolled in this class for the selected semester.');
+            }
             
             $createdCount = 0;
             $skippedCount = 0;
@@ -114,7 +197,6 @@ class EnrollmentController extends Controller
 
             foreach ($request->unit_ids as $unitId) {
                 // Check if student is already enrolled in this unit for this semester
-                // Updated to use student_code instead of student_id
                 $existingEnrollment = Enrollment::where('student_code', $request->student_code)
                     ->where('unit_id', $unitId)
                     ->where('semester_id', $request->semester_id)
@@ -143,6 +225,10 @@ class EnrollmentController extends Controller
                 // Get unit details for additional fields
                 $unit = Unit::find($unitId);
 
+                // **FIX 1: PROPER school_id ASSIGNMENT**
+                // Priority order: student's school_id > class program's school_id > unit's school_id
+                $schoolId = $student->school_id ?? $class->program->school_id ?? $unit->school_id;
+
                 // Create enrollment with correct database schema
                 Enrollment::create([
                     'student_code' => $request->student_code,
@@ -152,7 +238,7 @@ class EnrollmentController extends Controller
                     'class_id' => $request->class_id,
                     'semester_id' => $request->semester_id,
                     'program_id' => $class->program_id,
-                    'school_id' => $unit->school_id,
+                    'school_id' => $schoolId, // Fixed: Now properly assigns school_id
                     'status' => $request->status,
                     'enrollment_date' => now()
                 ]);
@@ -162,9 +248,22 @@ class EnrollmentController extends Controller
 
             DB::commit();
 
+            if ($createdCount === 0) {
+                return redirect()->back()
+                    ->with('error', 'No enrollments were created. All selected units were either already enrolled or not available.');
+            }
+
             $message = "{$createdCount} enrollments created for {$student->first_name} in {$class->name} Section {$class->section}.";
             if ($skippedCount > 0) {
                 $message .= " {$skippedCount} units were skipped: " . implode(', ', $skippedUnits);
+            }
+
+            // Add capacity warning if getting close to limit
+            $newTotalEnrollments = $currentEnrollments + 1; // +1 for this student
+            $remainingCapacity = $class->capacity - $newTotalEnrollments;
+            
+            if ($remainingCapacity <= 2 && $remainingCapacity > 0) {
+                $message .= " Warning: Only {$remainingCapacity} spots remaining in this class.";
             }
 
             return redirect()->back()->with('success', $message);
@@ -175,6 +274,37 @@ class EnrollmentController extends Controller
             return redirect()->back()->with('error', 'Error creating enrollment. Please try again.');
         }
     }
+
+    public function update(Request $request, $id)
+    {
+        $enrollment = Enrollment::find($id);
+
+        if (!$enrollment) {
+            return redirect()->back()->with('error', 'Enrollment not found.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'status' => 'required|in:enrolled,dropped,completed'
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->with('error', 'Invalid status provided.');
+        }
+
+        try {
+            $enrollment->update([
+                'status' => $request->status
+            ]);
+
+            return redirect()->back()->with('success', 'Enrollment status updated successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error updating enrollment: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to update enrollment.');
+        }
+    }
+
     public function destroy($id)
     {
         $enrollment = Enrollment::find($id);
@@ -213,6 +343,34 @@ class EnrollmentController extends Controller
         } catch (\Exception $e) {
             Log::error('Error fetching units for class: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to fetch units'], 500);
+        }
+    }
+
+    // Add method to get class capacity info
+    public function getClassCapacityInfo(Request $request)
+    {
+        $request->validate([
+            'class_id' => 'required|exists:classes,id',
+            'semester_id' => 'required|exists:semesters,id',
+        ]);
+
+        try {
+            $class = ClassModel::find($request->class_id);
+            $currentEnrollments = Enrollment::where('class_id', $request->class_id)
+                ->where('semester_id', $request->semester_id)
+                ->where('status', 'enrolled')
+                ->distinct('student_code')
+                ->count();
+
+            return response()->json([
+                'capacity' => $class->capacity,
+                'current_enrollments' => $currentEnrollments,
+                'available_spots' => $class->capacity - $currentEnrollments,
+                'is_full' => $currentEnrollments >= $class->capacity
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching class capacity info: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch capacity info'], 500);
         }
     }
 }
