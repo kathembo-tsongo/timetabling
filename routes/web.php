@@ -12,6 +12,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\ClassController;
+use App\Http\Controllers\LecturerAssignmentController;
 use App\Http\Controllers\ClassTimetableController;
 use App\Http\Controllers\ClassroomController;
 use App\Http\Controllers\RoleManagementController;
@@ -226,6 +227,14 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
         Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
 
+        // Lecturer Assignment to units
+        // Lecturer Assignments (add this in your admin routes group)
+Route::get('/lecturerassignment', [LecturerAssignmentController::class, 'index'])->name('admin.lecturer-assignments.index');
+Route::post('/lecturerassignment', [LecturerAssignmentController::class, 'store'])->name('admin.lecturer-assignments.store');
+Route::put('/lecturerassignment/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('admin.lecturer-assignments.update');
+Route::delete('/lecturerassignment/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('admin.lecturer-assignments.destroy');
+Route::post('/lecturerassignment/bulk', [LecturerAssignmentController::class, 'bulkAssign'])->name('admin.lecturer-assignments.bulk');
+
         // System Settings
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
         Route::put('/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
@@ -269,6 +278,9 @@ Route::middleware(['auth'])->group(function () {
             Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
             Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
             Route::get('/schools/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
+            Route::get('/lecturerassignments/lecturers', [LecturerAssignmentController::class, 'getAvailableLecturers']);
+            Route::get('/lecturerassignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
+            });
         });
     });
 
@@ -313,7 +325,7 @@ Route::middleware(['auth'])->group(function () {
             return app(ProgramController::class)->getAllPrograms('SCES');
         })->name('api.all');
     });
-});
+
 
 // ===============================================================
 // CATCH-ALL ROUTE
