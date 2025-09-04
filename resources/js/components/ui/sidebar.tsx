@@ -438,12 +438,12 @@ export default function Sidebar() {
               icon: Calendar,
               type: 'link'
             },
-            {
-              label: "Bulk Operations",
-              href: "/admin/units/bulk-operations",
-              icon: Layers,
-              type: 'link'
-            }
+            // {
+            //   label: "Bulk Operations",
+            //   href: "/admin/units/bulk-operations",
+            //   icon: Layers,
+            //   type: 'link'
+            // }
           ]
         }
       ],
