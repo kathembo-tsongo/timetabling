@@ -12,6 +12,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\ClassController;
+use App\Http\Controllers\ClassTimetableController;
 use App\Http\Controllers\ClassroomController;
 use App\Http\Controllers\RoleManagementController;
 use App\Http\Controllers\DynamicRoleController;
@@ -215,6 +216,16 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/classrooms/{classroom}', [ClassroomController::class, 'show'])->name('admin.classrooms.show');
         Route::put('/classrooms/{classroom}', [ClassroomController::class, 'update'])->name('admin.classrooms.update');
         Route::delete('/classrooms/{classroom}', [ClassroomController::class, 'destroy'])->name('admin.classrooms.destroy');
+
+        // classtimetables
+        Route::get('/classtimetable', [ClassTimetableController::class, 'index'])->name('admin.classtimetable.index');
+        Route::post('/classtimetable', [ClassTimetableController::class, 'store'])->name('admin.classtimetable.store');
+        Route::get('/classtimetable/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetable.create');
+        Route::get('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'show'])->name('admin.classtimetable.show');
+        Route::get('/classtimetable/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetable.edit');
+        Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
+        Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
+
         // System Settings
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
         Route::put('/settings', [SettingsController::class, 'update'])->name('admin.settings.update');

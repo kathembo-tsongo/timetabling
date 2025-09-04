@@ -114,7 +114,7 @@ class ClassTimetableController extends Controller
         $programs = DB::table('programs')->select('id', 'code', 'name')->get();
         $schools = DB::table('schools')->select('id', 'name', 'code')->get();
 
-        return Inertia::render('ClassTimetables/Index', [
+        return Inertia::render('Admin/Classtimetable/Index', [
             'classTimetables' => $classTimetables,
             'lecturers' => $lecturers,
             'perPage' => $perPage,

@@ -459,7 +459,7 @@ export default function Sidebar() {
       items: [
         {
           label: "Class Timetables",
-          href: "/classtimetables",
+          href: "/admin/classtimetable",
           icon: Calendar,
           type: 'link',
           permissions: ["manage-class-timetables"]
