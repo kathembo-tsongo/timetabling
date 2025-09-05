@@ -2,512 +2,496 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Controller;
+use App\Models\LecturerAssignment;
 use App\Models\Unit;
-use App\Models\User;
 use App\Models\Semester;
 use App\Models\School;
 use App\Models\Program;
-use App\Models\Enrollment;
-use App\Models\UnitAssignment;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class LecturerAssignmentController extends Controller
 {
-    public function __construct()
-    {
-        $this->middleware('auth');
-    }
-
     /**
-     * Display lecturer assignments for units in semesters
+     * Display a listing of lecturer assignments.
      */
     public function index(Request $request)
     {
-        $user = auth()->user();
+        $query = Unit::with(['school', 'program', 'semester'])
+            ->where('is_active', true);
 
-        // Check permissions
-        if (!$user->can('manage-lecturer-assignments') && !$user->hasRole('Admin')) {
-            abort(403, 'Unauthorized to manage lecturer assignments.');
+        // Apply filters
+        if ($request->semester_id) {
+            // For lecturer assignments, we want to show all units and their lecturer assignment status
+            // for the selected semester, regardless of the unit's semester_id
+            $query->withLecturerForSemester($request->semester_id);
         }
 
-        try {
-            // Get filters
-            $semesterId = $request->input('semester_id');
-            $schoolId = $request->input('school_id');
-            $programId = $request->input('program_id');
-            $search = $request->input('search', '');
+        if ($request->school_id) {
+            $query->where('school_id', $request->school_id);
+        }
 
-            // Build query for unit assignments with lecturer information
-            $query = Unit::with(['school', 'program', 'semester'])
-                ->leftJoin('enrollments', function($join) use ($semesterId) {
-                    $join->on('units.id', '=', 'enrollments.unit_id')
-                         ->where('enrollments.lecturer_code', '!=', '')
-                         ->whereNotNull('enrollments.lecturer_code');
-                    if ($semesterId) {
-                        $join->where('enrollments.semester_id', $semesterId);
-                    }
-                })
-                ->leftJoin('users', 'users.code', '=', 'enrollments.lecturer_code')
-                ->select(
-                    'units.*',
-                    'enrollments.lecturer_code',
-                    'enrollments.semester_id as assigned_semester_id',
-                    DB::raw("CONCAT(users.first_name, ' ', users.last_name) as lecturer_name"),
-                    'users.email as lecturer_email'
-                )
-                ->where('units.is_active', true);
+        if ($request->program_id) {
+            $query->where('program_id', $request->program_id);
+        }
 
-            // Apply filters
-            if ($semesterId) {
-                $query->where(function($q) use ($semesterId) {
-                    $q->where('enrollments.semester_id', $semesterId)
-                      ->orWhereNull('enrollments.semester_id');
-                });
+        if ($request->search) {
+            $query->where(function ($q) use ($request) {
+                $q->where('code', 'like', '%' . $request->search . '%')
+                  ->orWhere('name', 'like', '%' . $request->search . '%');
+            });
+        }
+
+        $units = $query->paginate(15);
+
+        // Transform units to include lecturer assignment information
+        $units->through(function ($unit) use ($request) {
+            $lecturerAssignment = null;
+            if ($request->semester_id) {
+                $lecturerAssignment = $unit->getLecturerAssignmentForSemester($request->semester_id);
             }
 
-            if ($schoolId) {
-                $query->where('units.school_id', $schoolId);
-            }
+            return [
+                'id' => $unit->id,
+                'code' => $unit->code,
+                'name' => $unit->name,
+                'credit_hours' => $unit->credit_hours,
+                'school_id' => $unit->school_id,
+                'program_id' => $unit->program_id,
+                'lecturer_code' => $lecturerAssignment->lecturer_code ?? null,
+                'lecturer_name' => $lecturerAssignment->lecturer_name ?? null,
+                'lecturer_email' => $lecturerAssignment->lecturer_email ?? null,
+                'assigned_semester_id' => $lecturerAssignment->semester_id ?? null,
+                'school' => $unit->school,
+                'program' => $unit->program,
+                'semester' => $unit->semester,
+            ];
+        });
 
-            if ($programId) {
-                $query->where('units.program_id', $programId);
-            }
+        // Get statistics - Fixed to use Spatie roles properly
+        if ($request->semester_id) {
+            $stats = Unit::getLecturerAssignmentStatistics($request->semester_id);
+        } else {
+            // Count lecturers using Spatie role system
+            $lecturerCount = User::whereHas('roles', function ($query) {
+                $query->where('name', 'lecturer');
+            })->count();
 
-            if ($search) {
-                $query->where(function($q) use ($search) {
-                    $q->where('units.code', 'like', "%{$search}%")
-                      ->orWhere('units.name', 'like', "%{$search}%")
-                      ->orWhere(DB::raw("CONCAT(users.first_name, ' ', users.last_name)"), 'like', "%{$search}%");
-                });
-            }
-
-            $assignments = $query->orderBy('units.code')->paginate(15)->withQueryString();
-
-            // Get dropdown data
-            $semesters = Semester::orderBy('name')->get();
-            $schools = School::orderBy('name')->get();
-            $programs = Program::with('school')->orderBy('name')->get();
-            $lecturers = User::role('Lecturer')
-                ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email')
-                ->orderBy('first_name')
-                ->orderBy('last_name')
-                ->get();
-
-            // Get statistics
             $stats = [
                 'total_units' => Unit::where('is_active', true)->count(),
-                'assigned_units' => Unit::whereHas('enrollments', function($q) use ($semesterId) {
-                    $q->whereNotNull('lecturer_code')->where('lecturer_code', '!=', '');
-                    if ($semesterId) {
-                        $q->where('semester_id', $semesterId);
-                    }
-                })->count(),
-                'unassigned_units' => Unit::whereDoesntHave('enrollments', function($q) use ($semesterId) {
-                    $q->whereNotNull('lecturer_code')->where('lecturer_code', '!=', '');
-                    if ($semesterId) {
-                        $q->where('semester_id', $semesterId);
-                    }
-                })->where('is_active', true)->count(),
-                'total_lecturers' => User::role('Lecturer')->count(),
+                'assigned_units' => 0,
+                'unassigned_units' => 0,
+                'total_lecturers' => $lecturerCount,
             ];
-
-            return Inertia::render('Admin/LecturerAssignment/Index', [
-                'assignments' => $assignments,
-                'semesters' => $semesters,
-                'schools' => $schools,
-                'programs' => $programs,
-                'lecturers' => $lecturers,
-                'stats' => $stats,
-                'filters' => $request->only(['semester_id', 'school_id', 'program_id', 'search']),
-                'can' => [
-                    'create' => $user->can('create-lecturer-assignments') || $user->hasRole('Admin'),
-                    'update' => $user->can('update-lecturer-assignments') || $user->hasRole('Admin'),
-                    'delete' => $user->can('delete-lecturer-assignments') || $user->hasRole('Admin'),
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Error loading lecturer assignments: ' . $e->getMessage(), [
-                'user_id' => $user->id,
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return back()->withErrors(['error' => 'Failed to load lecturer assignments. Please try again.']);
         }
+
+        // FIXED: Corrected the lecturers query - removed incorrect 'first_name', 'last_name' from whereHas
+        $lecturers = User::whereHas('roles', function ($query) {
+            $query->where('name', 'lecturer');
+        })->get(['id', 'code', 'first_name', 'last_name', 'email']);
+
+        return Inertia::render('Admin/LecturerAssignment/Index', [
+            'assignments' => $units,
+            'semesters' => Semester::where('is_active', true)->get(),
+            'schools' => School::where('is_active', true)->get(),
+            'programs' => Program::with('school')->where('is_active', true)->get(),
+            'lecturers' => $lecturers,
+            'stats' => $stats,
+            'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id']),
+            'can' => [
+                'create' => auth()->user()->can('manage-faculty-lecturers-sces') || 
+                           auth()->user()->can('manage-faculty-lecturers-sbs') ||
+                           auth()->user()->can('create-faculty-lecturers-sces') ||
+                           auth()->user()->can('create-faculty-lecturers-sbs') ||
+                           auth()->user()->hasRole('Admin'),
+                'update' => auth()->user()->can('manage-faculty-lecturers-sces') || 
+                           auth()->user()->can('manage-faculty-lecturers-sbs') ||
+                           auth()->user()->can('edit-faculty-lecturers-sces') ||
+                           auth()->user()->can('edit-faculty-lecturers-sbs') ||
+                           auth()->user()->hasRole('Admin'),
+                'delete' => auth()->user()->can('manage-faculty-lecturers-sces') || 
+                           auth()->user()->can('manage-faculty-lecturers-sbs') ||
+                           auth()->user()->can('delete-faculty-lecturers-sces') ||
+                           auth()->user()->can('delete-faculty-lecturers-sbs') ||
+                           auth()->user()->hasRole('Admin'),
+            ],
+        ]);
     }
 
     /**
-     * Store or update lecturer assignment for a unit in a semester
+     * Store a newly created lecturer assignment.
      */
     public function store(Request $request)
     {
-        $user = auth()->user();
-
-        if (!$user->can('create-lecturer-assignments') && !$user->hasRole('Admin')) {
-            abort(403, 'Unauthorized to create lecturer assignments.');
-        }
-
-        $validator = \Validator::make($request->all(), [
+        $request->validate([
             'unit_id' => 'required|exists:units,id',
             'semester_id' => 'required|exists:semesters,id',
-            'lecturer_code' => 'required|exists:users,code',
+            'lecturer_code' => 'required|string',
         ]);
-
-        if ($validator->fails()) {
-            return back()->withErrors($validator)->with('error', 'Please check the form for errors.');
-        }
 
         try {
             DB::beginTransaction();
 
-            $unit = Unit::findOrFail($request->unit_id);
-            $semester = Semester::findOrFail($request->semester_id);
-            $lecturer = User::where('code', $request->lecturer_code)->firstOrFail();
+            // Get unit and lecturer information using Spatie roles
+            $unit = Unit::with(['school', 'program'])->findOrFail($request->unit_id);
+            
+            $lecturer = User::whereHas('roles', function ($query) {
+                $query->where('name', 'lecturer');
+            })->where('code', $request->lecturer_code)->firstOrFail();
 
-            // Check if lecturer has the 'Lecturer' role
-            if (!$lecturer->hasRole('Lecturer')) {
-                return back()->with('error', 'Selected user is not a lecturer.');
-            }
-
-            // Check for existing assignment
-            $existingAssignment = Enrollment::where('unit_id', $request->unit_id)
+            // Check if assignment already exists
+            $existingAssignment = LecturerAssignment::where('unit_id', $request->unit_id)
                 ->where('semester_id', $request->semester_id)
-                ->whereNotNull('lecturer_code')
-                ->where('lecturer_code', '!=', '')
+                ->where('is_active', true)
                 ->first();
 
-            if ($existingAssignment && $existingAssignment->lecturer_code !== $request->lecturer_code) {
-                return back()->with('error', 'This unit is already assigned to another lecturer for this semester.');
+            if ($existingAssignment) {
+                return back()->withErrors(['error' => 'This unit is already assigned to a lecturer for this semester.']);
             }
 
-            // Update or create enrollments with lecturer assignment
-            $affected = Enrollment::where('unit_id', $request->unit_id)
-                ->where('semester_id', $request->semester_id)
-                ->update(['lecturer_code' => $request->lecturer_code]);
+            // FIXED: Use proper name concatenation
+            $lecturerFullName = trim($lecturer->first_name . ' ' . $lecturer->last_name);
 
-            // If no enrollments exist yet, we'll track this assignment for future enrollments
-            if ($affected === 0) {
-                // Create a placeholder assignment record (you might want to create a separate table for this)
-                // For now, we'll just log it
-                Log::info('Lecturer assigned to unit with no current enrollments', [
-                    'unit_id' => $request->unit_id,
-                    'unit_code' => $unit->code,
-                    'semester_id' => $request->semester_id,
-                    'lecturer_code' => $request->lecturer_code,
-                    'lecturer_name' => $lecturer->first_name . ' ' . $lecturer->last_name,
-                    'assigned_by' => $user->id
-                ]);
-            }
+            // Create the assignment
+            LecturerAssignment::create([
+                'unit_id' => $request->unit_id,
+                'semester_id' => $request->semester_id,
+                'lecturer_code' => $lecturer->code,
+                'lecturer_name' => $lecturerFullName,
+                'lecturer_email' => $lecturer->email,
+                'school_id' => $unit->school_id,
+                'program_id' => $unit->program_id,
+                'credit_hours' => $unit->credit_hours,
+                'assigned_by' => auth()->id(),
+                'is_active' => true, // FIXED: Explicitly set is_active
+            ]);
 
             DB::commit();
 
-            $message = "Lecturer {$lecturer->first_name} {$lecturer->last_name} assigned to {$unit->code} - {$unit->name} for {$semester->name}.";
-            if ($affected > 0) {
-                $message .= " Updated {$affected} existing enrollment(s).";
-            }
-
-            return back()->with('success', $message);
+            return back()->with('success', 'Lecturer assigned successfully!');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error creating lecturer assignment: ' . $e->getMessage(), [
-                'data' => $request->all(),
-                'user_id' => $user->id
-            ]);
-
-            return back()->with('error', 'Failed to assign lecturer. Please try again.');
+            return back()->withErrors(['error' => 'Failed to assign lecturer: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Update lecturer assignment
+     * Update the specified lecturer assignment.
      */
     public function update(Request $request, $unitId, $semesterId)
     {
-        $user = auth()->user();
-
-        if (!$user->can('update-lecturer-assignments') && !$user->hasRole('Admin') && !$user->hasRole('Admin')) {
-            abort(403, 'Unauthorized to update lecturer assignments.');
-        }
-
-        $validator = \Validator::make($request->all(), [
-            'lecturer_code' => 'required|exists:users,code',
+        $request->validate([
+            'lecturer_code' => 'required|string',
         ]);
-
-        if ($validator->fails()) {
-            return back()->withErrors($validator)->with('error', 'Please check the form for errors.');
-        }
 
         try {
             DB::beginTransaction();
 
             $unit = Unit::findOrFail($unitId);
-            $semester = Semester::findOrFail($semesterId);
-            $lecturer = User::where('code', $request->lecturer_code)->firstOrFail();
+            
+            // FIXED: Find assignment directly instead of using unit method that may not exist
+            $assignment = LecturerAssignment::where('unit_id', $unitId)
+                ->where('semester_id', $semesterId)
+                ->where('is_active', true)
+                ->first();
 
-            // Check if lecturer has the 'Lecturer' role
-            if (!$lecturer->hasRole('Lecturer')) {
-                return back()->with('error', 'Selected user is not a lecturer.');
+            if (!$assignment) {
+                return back()->withErrors(['error' => 'No assignment found for this unit and semester.']);
             }
 
-            // Update all enrollments for this unit in this semester
-            $affected = Enrollment::where('unit_id', $unitId)
-                ->where('semester_id', $semesterId)
-                ->update(['lecturer_code' => $request->lecturer_code]);
+            $lecturer = User::whereHas('roles', function ($query) {
+                $query->where('name', 'lecturer');
+            })->where('code', $request->lecturer_code)->firstOrFail();
+
+            // FIXED: Use proper name concatenation
+            $lecturerFullName = trim($lecturer->first_name . ' ' . $lecturer->last_name);
+
+            $assignment->update([
+                'lecturer_code' => $lecturer->code,
+                'lecturer_name' => $lecturerFullName,
+                'lecturer_email' => $lecturer->email,
+                'assigned_by' => auth()->id(),
+            ]);
 
             DB::commit();
 
-            Log::info('Lecturer assignment updated', [
-                'unit_id' => $unitId,
-                'unit_code' => $unit->code,
-                'semester_id' => $semesterId,
-                'old_lecturer' => request()->input('old_lecturer_code'),
-                'new_lecturer_code' => $request->lecturer_code,
-                'affected_enrollments' => $affected,
-                'updated_by' => $user->id
-            ]);
-
-            return back()->with('success', "Lecturer updated for {$unit->code} - {$unit->name}. {$affected} enrollment(s) updated.");
+            return back()->with('success', 'Lecturer assignment updated successfully!');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error updating lecturer assignment: ' . $e->getMessage(), [
-                'unit_id' => $unitId,
-                'semester_id' => $semesterId,
-                'data' => $request->all(),
-                'user_id' => $user->id
-            ]);
-
-            return back()->with('error', 'Failed to update lecturer assignment. Please try again.');
+            return back()->withErrors(['error' => 'Failed to update assignment: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Remove lecturer assignment
+     * Remove the specified lecturer assignment.
      */
     public function destroy($unitId, $semesterId)
     {
-        $user = auth()->user();
-
-        if (!$user->can('delete-lecturer-assignments') && !$user->hasRole('Admin')) {
-            abort(403, 'Unauthorized to delete lecturer assignments.');
-        }
-
         try {
-            DB::beginTransaction();
-
-            $unit = Unit::findOrFail($unitId);
-            $semester = Semester::findOrFail($semesterId);
-
-            // Remove lecturer from all enrollments for this unit in this semester
-            $affected = Enrollment::where('unit_id', $unitId)
+            // FIXED: Find assignment directly
+            $assignment = LecturerAssignment::where('unit_id', $unitId)
                 ->where('semester_id', $semesterId)
-                ->update(['lecturer_code' => null]);
+                ->where('is_active', true)
+                ->first();
 
-            DB::commit();
+            if (!$assignment) {
+                return back()->withErrors(['error' => 'No assignment found for this unit and semester.']);
+            }
 
-            Log::info('Lecturer assignment removed', [
-                'unit_id' => $unitId,
-                'unit_code' => $unit->code,
-                'semester_id' => $semesterId,
-                'affected_enrollments' => $affected,
-                'removed_by' => $user->id
-            ]);
+            $assignment->delete();
 
-            return back()->with('success', "Lecturer removed from {$unit->code} - {$unit->name}. {$affected} enrollment(s) updated.");
+            return back()->with('success', 'Lecturer assignment removed successfully!');
 
         } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Error removing lecturer assignment: ' . $e->getMessage(), [
-                'unit_id' => $unitId,
-                'semester_id' => $semesterId,
-                'user_id' => $user->id
-            ]);
-
-            return back()->with('error', 'Failed to remove lecturer assignment. Please try again.');
+            return back()->withErrors(['error' => 'Failed to remove assignment: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Get available lecturers for assignment
+     * Bulk assign lecturer to multiple units.
      */
-    public function getAvailableLecturers(Request $request)
+    public function bulkStore(Request $request)
     {
-        try {
-            $semesterId = $request->input('semester_id');
-            $schoolId = $request->input('school_id');
-
-            $query = User::role('Lecturer')
-                ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"), 'email', 'school_id');
-
-            // Filter by school if provided
-            if ($schoolId) {
-                $query->where('school_id', $schoolId);
-            }
-
-            $lecturers = $query->orderBy('first_name')->orderBy('last_name')->get();
-
-            // Add workload information for each lecturer
-            $lecturersWithWorkload = $lecturers->map(function($lecturer) use ($semesterId) {
-                $workload = 0;
-                if ($semesterId) {
-                    $workload = Enrollment::where('lecturer_code', $lecturer->code)
-                        ->where('semester_id', $semesterId)
-                        ->distinct('unit_id')
-                        ->count();
-                }
-
-                return [
-                    'id' => $lecturer->id,
-                    'code' => $lecturer->code,
-                    'name' => $lecturer->name,
-                    'email' => $lecturer->email,
-                    'school_id' => $lecturer->school_id,
-                    'current_workload' => $workload
-                ];
-            });
-
-            return response()->json($lecturersWithWorkload);
-
-        } catch (\Exception $e) {
-            Log::error('Error fetching available lecturers: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch lecturers'], 500);
-        }
-    }
-
-    /**
-     * Get lecturer workload summary
-     */
-    public function getLecturerWorkload(Request $request)
-    {
-        try {
-            $semesterId = $request->input('semester_id');
-            $lecturerCode = $request->input('lecturer_code');
-
-            if (!$semesterId || !$lecturerCode) {
-                return response()->json(['error' => 'Semester ID and Lecturer Code are required'], 400);
-            }
-
-            $lecturer = User::where('code', $lecturerCode)->first();
-            if (!$lecturer) {
-                return response()->json(['error' => 'Lecturer not found'], 404);
-            }
-
-            // Get assigned units
-            $assignedUnits = Unit::whereHas('enrollments', function($q) use ($lecturerCode, $semesterId) {
-                $q->where('lecturer_code', $lecturerCode)
-                  ->where('semester_id', $semesterId);
-            })->with(['school', 'program'])->get();
-
-            // Get total students taught
-            $totalStudents = Enrollment::where('lecturer_code', $lecturerCode)
-                ->where('semester_id', $semesterId)
-                ->count();
-
-            // Get total credit hours
-            $totalCreditHours = $assignedUnits->sum('credit_hours');
-
-            return response()->json([
-                'lecturer' => [
-                    'code' => $lecturer->code,
-                    'name' => $lecturer->first_name . ' ' . $lecturer->last_name,
-                    'email' => $lecturer->email
-                ],
-                'assigned_units' => $assignedUnits,
-                'statistics' => [
-                    'total_units' => $assignedUnits->count(),
-                    'total_students' => $totalStudents,
-                    'total_credit_hours' => $totalCreditHours
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Error fetching lecturer workload: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch workload'], 500);
-        }
-    }
-
-    /**
-     * Bulk assign lecturer to multiple units
-     */
-    public function bulkAssign(Request $request)
-    {
-        $user = auth()->user();
-
-        if (!$user->can('create-lecturer-assignments') && !$user->hasRole('Admin')) {
-            abort(403, 'Unauthorized to create lecturer assignments.');
-        }
-
-        $validator = \Validator::make($request->all(), [
+        $request->validate([
             'unit_ids' => 'required|array|min:1',
             'unit_ids.*' => 'exists:units,id',
             'semester_id' => 'required|exists:semesters,id',
-            'lecturer_code' => 'required|exists:users,code',
+            'lecturer_code' => 'required|string',
         ]);
-
-        if ($validator->fails()) {
-            return back()->withErrors($validator)->with('error', 'Please check the form for errors.');
-        }
 
         try {
             DB::beginTransaction();
 
-            $semester = Semester::findOrFail($request->semester_id);
-            $lecturer = User::where('code', $request->lecturer_code)->firstOrFail();
-
-            if (!$lecturer->hasRole('Lecturer')) {
-                return back()->with('error', 'Selected user is not a lecturer.');
-            }
+            $lecturer = User::whereHas('roles', function ($query) {
+                $query->where('name', 'lecturer');
+            })->where('code', $request->lecturer_code)->firstOrFail();
 
             $successCount = 0;
-            $errors = [];
+            $skippedCount = 0;
+
+            // FIXED: Use proper name concatenation
+            $lecturerFullName = trim($lecturer->first_name . ' ' . $lecturer->last_name);
 
             foreach ($request->unit_ids as $unitId) {
-                $unit = Unit::find($unitId);
-                if (!$unit) continue;
-
-                // Check for existing assignment
-                $existingAssignment = Enrollment::where('unit_id', $unitId)
+                $unit = Unit::with(['school', 'program'])->findOrFail($unitId);
+                
+                // Check if assignment already exists
+                $existingAssignment = LecturerAssignment::where('unit_id', $unitId)
                     ->where('semester_id', $request->semester_id)
-                    ->whereNotNull('lecturer_code')
-                    ->where('lecturer_code', '!=', '')
-                    ->where('lecturer_code', '!=', $request->lecturer_code)
-                    ->exists();
+                    ->where('is_active', true)
+                    ->first();
 
                 if ($existingAssignment) {
-                    $errors[] = "{$unit->code} is already assigned to another lecturer";
+                    $skippedCount++;
                     continue;
                 }
 
-                // Update enrollments
-                Enrollment::where('unit_id', $unitId)
-                    ->where('semester_id', $request->semester_id)
-                    ->update(['lecturer_code' => $request->lecturer_code]);
+                LecturerAssignment::create([
+                    'unit_id' => $unitId,
+                    'semester_id' => $request->semester_id,
+                    'lecturer_code' => $lecturer->code,
+                    'lecturer_name' => $lecturerFullName,
+                    'lecturer_email' => $lecturer->email,
+                    'school_id' => $unit->school_id,
+                    'program_id' => $unit->program_id,
+                    'credit_hours' => $unit->credit_hours,
+                    'assigned_by' => auth()->id(),
+                    'is_active' => true, // FIXED: Explicitly set is_active
+                ]);
 
                 $successCount++;
             }
 
             DB::commit();
 
-            $message = "Successfully assigned {$lecturer->first_name} {$lecturer->last_name} to {$successCount} units.";
-            if (!empty($errors)) {
-                $message .= " Issues: " . implode(', ', $errors);
+            $message = "Successfully assigned {$successCount} units.";
+            if ($skippedCount > 0) {
+                $message .= " {$skippedCount} units were skipped (already assigned).";
             }
 
             return back()->with('success', $message);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error in bulk lecturer assignment: ' . $e->getMessage(), [
-                'data' => $request->all(),
-                'user_id' => $user->id
-            ]);
-
-            return back()->with('error', 'Failed to assign lecturers. Please try again.');
+            return back()->withErrors(['error' => 'Failed to complete bulk assignment: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Get available units for bulk assignment.
+     */
+    public function getAvailableUnits(Request $request)
+    {
+        // Enhanced debugging
+        \Log::info('=== getAvailableUnits Debug Start ===');
+        \Log::info('Request parameters:', $request->all());
+        \Log::info('User ID:', auth()->id());
+        
+        try {
+            // Check if basic tables exist and have data
+            $totalUnits = Unit::count();
+            $activeUnits = Unit::where('is_active', true)->count();
+            $totalSchools = School::count();
+            $totalPrograms = Program::count();
+            
+            \Log::info('Database counts:', [
+                'total_units' => $totalUnits,
+                'active_units' => $activeUnits,
+                'total_schools' => $totalSchools,
+                'total_programs' => $totalPrograms
+            ]);
+            
+            if ($activeUnits === 0) {
+                \Log::warning('No active units found in database');
+                return response()->json([
+                    'units' => [],
+                    'error' => 'No active units found in database',
+                    'debug' => ['active_units' => $activeUnits]
+                ]);
+            }
+            
+            // Build query step by step
+            $query = Unit::with(['school', 'program'])->where('is_active', true);
+            
+            // Apply filters and log each step
+            if ($request->school_id) {
+                \Log::info('Filtering by school_id:', $request->school_id);
+                $query->where('school_id', $request->school_id);
+            }
+            
+            if ($request->program_id) {
+                \Log::info('Filtering by program_id:', $request->program_id);
+                $query->where('program_id', $request->program_id);
+            }
+            
+            // Get raw SQL for debugging
+            $sql = $query->toSql();
+            $bindings = $query->getBindings();
+            \Log::info('Query SQL:', ['sql' => $sql, 'bindings' => $bindings]);
+            
+            // Execute query
+            $allUnits = $query->get();
+            \Log::info('Units after filters:', ['count' => $allUnits->count()]);
+            
+            if ($allUnits->count() === 0) {
+                \Log::warning('No units found after applying filters');
+                return response()->json([
+                    'units' => [],
+                    'error' => 'No units found matching the selected criteria',
+                    'debug' => [
+                        'school_id' => $request->school_id,
+                        'program_id' => $request->program_id,
+                        'semester_id' => $request->semester_id
+                    ]
+                ]);
+            }
+            
+            // Process each unit
+            $units = $allUnits->map(function ($unit) use ($request) {
+                $lecturerAssignment = null;
+                $isAssigned = false;
+                
+                // Check for lecturer assignment if semester is provided
+                if ($request->semester_id) {
+                    $lecturerAssignment = LecturerAssignment::where('unit_id', $unit->id)
+                        ->where('semester_id', $request->semester_id)
+                        ->where('is_active', true)
+                        ->first();
+                    $isAssigned = $lecturerAssignment !== null;
+                    
+                    \Log::debug("Unit {$unit->code} assignment check:", [
+                        'unit_id' => $unit->id,
+                        'semester_id' => $request->semester_id,
+                        'is_assigned' => $isAssigned
+                    ]);
+                }
+                
+                return [
+                    'id' => $unit->id,
+                    'code' => $unit->code,
+                    'name' => $unit->name,
+                    'credit_hours' => $unit->credit_hours,
+                    'school' => $unit->school ? [
+                        'id' => $unit->school->id,
+                        'name' => $unit->school->name,
+                        'code' => $unit->school->code ?? null
+                    ] : null,
+                    'program' => $unit->program ? [
+                        'id' => $unit->program->id,
+                        'name' => $unit->program->name,
+                        'code' => $unit->program->code ?? null
+                    ] : null,
+                    'is_assigned' => $isAssigned,
+                    'assignment' => $lecturerAssignment ? [
+                        'lecturer_name' => $lecturerAssignment->lecturer_name,
+                        'lecturer_code' => $lecturerAssignment->lecturer_code,
+                        'lecturer_email' => $lecturerAssignment->lecturer_email,
+                    ] : null
+                ];
+            });
+            
+            \Log::info('Final units processed:', ['count' => $units->count()]);
+            \Log::info('=== getAvailableUnits Debug End ===');
+            
+            return response()->json([
+                'success' => true,
+                'units' => $units,
+                'total_count' => $units->count(),
+                'debug_info' => [
+                    'request_params' => $request->all(),
+                    'total_active_units' => $activeUnits,
+                    'filtered_units' => $allUnits->count(),
+                    'final_units' => $units->count()
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            \Log::error('Error in getAvailableUnits:', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'error' => 'Server error occurred',
+                'message' => $e->getMessage(),
+                'units' => []
+            ], 500);
+        }
+    }
+
+    /**
+     * Get lecturer workload for a specific semester.
+     */
+    public function getLecturerWorkload(Request $request)
+    {
+        $lecturerCode = $request->lecturer_code;
+        $semesterId = $request->semester_id;
+
+        if (!$lecturerCode || !$semesterId) {
+            return response()->json(['error' => 'Lecturer code and semester ID are required'], 400);
+        }
+
+        $assignments = LecturerAssignment::where('lecturer_code', $lecturerCode)
+            ->where('semester_id', $semesterId)
+            ->where('is_active', true)
+            ->with(['unit', 'school', 'program'])
+            ->get();
+
+        $statistics = [
+            'total_units' => $assignments->count(),
+            'total_credit_hours' => $assignments->sum('credit_hours'),
+            'total_students' => 0, // You can calculate this based on your enrollment data
+        ];
+
+        return response()->json([
+            'assignments' => $assignments,
+            'statistics' => $statistics,
+        ]);
     }
 }

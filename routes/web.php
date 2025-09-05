@@ -227,13 +227,20 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
         Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
 
-        // Lecturer Assignment to units
-        // Lecturer Assignments (add this in your admin routes group)
-Route::get('/lecturerassignment', [LecturerAssignmentController::class, 'index'])->name('admin.lecturer-assignments.index');
-Route::post('/lecturerassignment', [LecturerAssignmentController::class, 'store'])->name('admin.lecturer-assignments.store');
-Route::put('/lecturerassignment/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('admin.lecturer-assignments.update');
-Route::delete('/lecturerassignment/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('admin.lecturer-assignments.destroy');
-Route::post('/lecturerassignment/bulk', [LecturerAssignmentController::class, 'bulkAssign'])->name('admin.lecturer-assignments.bulk');
+            // Lecturer Assignment routes
+    Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
+        Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
+        Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
+        Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
+        Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
+        
+        // Bulk assignment
+        Route::post('/bulk', [LecturerAssignmentController::class, 'bulkStore'])->name('bulk-store');
+        
+        // API endpoints for AJAX calls
+        Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
+        Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
+    });
 
         // System Settings
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
@@ -278,11 +285,13 @@ Route::post('/lecturerassignment/bulk', [LecturerAssignmentController::class, 'b
             Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
             Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
             Route::get('/schools/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
-            Route::get('/lecturerassignments/lecturers', [LecturerAssignmentController::class, 'getAvailableLecturers']);
-            Route::get('/lecturerassignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
-            });
+            Route::get('/lecturer-assignments/lecturers', [LecturerAssignmentController::class, 'getAvailableLecturers']);
+            Route::get('/lecturer-assignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
+            Route::get('/lecturer-assignments/units', [LecturerAssignmentController::class, 'getFilteredUnits']);
+            Route::get('/lecturer-assignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
         });
     });
+});
 
     // ===============================================================
     // SCHOOL PROGRAMS MANAGEMENT

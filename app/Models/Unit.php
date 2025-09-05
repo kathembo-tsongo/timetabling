@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Unit extends Model
 {
@@ -27,33 +29,34 @@ class Unit extends Model
     // Add this to always eager load relationships when needed
     protected $with = [];
 
-    // Relationships
-    public function school()
+    // Existing Relationships
+    public function school(): BelongsTo
     {
         return $this->belongsTo(School::class);
     }
 
-    public function program()
+    public function program(): BelongsTo
     {
         return $this->belongsTo(Program::class);
     }
 
-    public function semester()
+    public function semester(): BelongsTo
     {
         return $this->belongsTo(Semester::class);
     }
 
-    public function enrollments()
+    public function enrollments(): HasMany
     {
         return $this->hasMany(Enrollment::class);
     }
 
-    public function assignments()
+    public function assignments(): HasMany
     {
         return $this->hasMany(UnitAssignment::class);
     }
 
-    // Scopes for filtering
+    
+    // Existing Scopes
     public function scopeForSchool($query, $schoolId)
     {
         return $query->where('school_id', $schoolId);
@@ -90,7 +93,19 @@ class Unit extends Model
         return $query->with(['school:id,code,name', 'program:id,code,name', 'semester:id,name']);
     }
 
-    // Accessors for relationship data
+    // NEW: Lecturer assignment related scopes
+    public function scopeWithLecturerAssignments($query, $semesterId = null)
+    {
+        $relationQuery = ['lecturerAssignments'];
+        if ($semesterId) {
+            $relationQuery = ['lecturerAssignments' => function ($query) use ($semesterId) {
+                $query->where('semester_id', $semesterId)->where('is_active', true);
+            }];
+        }
+        return $query->with($relationQuery);
+    }
+
+        // Existing Accessors
     public function getSchoolNameAttribute()
     {
         return $this->school ? $this->school->name : null;
@@ -116,7 +131,53 @@ class Unit extends Model
         return $this->semester ? $this->semester->name : null;
     }
 
-    // Static methods for statistics (this is what you'll use in the controller)
+    
+    /**
+     * Check if unit has a lecturer assigned for a specific semester.
+     */
+    public function hasLecturerAssignedForSemester($semesterId)
+    {
+        return $this->lecturerAssignments()
+            ->where('semester_id', $semesterId)
+            ->where('is_active', true)
+            ->exists();
+    }
+
+    /**
+     * Get the current lecturer for a specific semester.
+     */
+    public function getCurrentLecturerForSemester($semesterId)
+    {
+        $assignment = $this->getLecturerAssignmentForSemester($semesterId);
+        return $assignment ? [
+            'code' => $assignment->lecturer_code,
+            'name' => $assignment->lecturer_name,
+            'email' => $assignment->lecturer_email,
+        ] : null;
+    }
+
+    /**
+     * Get lecturer information as attributes (for compatibility with existing code)
+     */
+    public function getLecturerNameForSemester($semesterId)
+    {
+        $assignment = $this->getLecturerAssignmentForSemester($semesterId);
+        return $assignment ? $assignment->lecturer_name : null;
+    }
+
+    public function getLecturerCodeForSemester($semesterId)
+    {
+        $assignment = $this->getLecturerAssignmentForSemester($semesterId);
+        return $assignment ? $assignment->lecturer_code : null;
+    }
+
+    public function getLecturerEmailForSemester($semesterId)
+    {
+        $assignment = $this->getLecturerAssignmentForSemester($semesterId);
+        return $assignment ? $assignment->lecturer_email : null;
+    }
+
+    // Existing Static Methods for Statistics
     public static function getStatisticsBySemester($semesterId)
     {
         $units = static::withStatisticsData()
@@ -187,7 +248,7 @@ class Unit extends Model
             });
     }
 
-    // Helper methods
+       // Existing Helper Methods
     public function getEnrollmentCount()
     {
         return $this->enrollments()->count();
@@ -211,7 +272,7 @@ class Unit extends Model
         return $this->isAssignedToSemester();
     }
 
-    // Auto-deactivate when removing from semester
+    // Existing Boot Method
     protected static function boot()
     {
         parent::boot();
@@ -229,4 +290,57 @@ class Unit extends Model
     {
         return new UnitCollection($models);
     }
+
+
+/**
+ * Get lecturer assignment for a specific semester
+ */
+public function getLecturerAssignmentForSemester($semesterId)
+{
+    return LecturerAssignment::where('unit_id', $this->id)
+        ->where('semester_id', $semesterId)
+        ->where('is_active', true)
+        ->first();
+}
+
+/**
+ * Scope to include lecturer information for a specific semester
+ */
+public function scopeWithLecturerForSemester($query, $semesterId)
+{
+    return $query->with(['lecturerAssignments' => function ($q) use ($semesterId) {
+        $q->where('semester_id', $semesterId)->where('is_active', true);
+    }]);
+}
+
+/**
+ * Get lecturer assignments for this unit
+ */
+public function lecturerAssignments()
+{
+    return $this->hasMany(LecturerAssignment::class);
+}
+
+/**
+ * Get lecturer assignment statistics for a semester
+ */
+public static function getLecturerAssignmentStatistics($semesterId)
+{
+    $totalUnits = self::where('is_active', true)->count();
+    $assignedUnits = LecturerAssignment::where('semester_id', $semesterId)
+        ->where('is_active', true)
+        ->distinct('unit_id')
+        ->count();
+    
+    $totalLecturers = User::whereHas('roles', function ($query) {
+        $query->where('name', 'lecturer');
+    })->count();
+
+    return [
+        'total_units' => $totalUnits,
+        'assigned_units' => $assignedUnits,
+        'unassigned_units' => $totalUnits - $assignedUnits,
+        'total_lecturers' => $totalLecturers,
+    ];
+}
 }

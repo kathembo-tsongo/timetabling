@@ -42,6 +42,11 @@ type Unit = {
   program_id: number;
   semester_id: number;
   is_active: boolean;
+  is_assigned?: boolean;
+  assignment?: {
+    lecturer_name: string;
+    lecturer_code: string;
+  };
   school: {
     id: number;
     name: string;
@@ -161,7 +166,7 @@ type PageProps = {
   };
 };
 
-export default function LecturerAssignmentsIndex() {
+export default function LecturerAssignmentIndex() {
   const { props } = usePage<PageProps>();
   const { 
     assignments, 
@@ -209,6 +214,10 @@ export default function LecturerAssignmentsIndex() {
   const [lecturerWorkload, setLecturerWorkload] = useState<any>(null);
   const [loadingWorkload, setLoadingWorkload] = useState(false);
 
+  // Bulk assignment specific state
+  const [availableUnits, setAvailableUnits] = useState<Unit[]>([]);
+  const [loadingUnits, setLoadingUnits] = useState(false);
+
   // Handle flash messages
   useEffect(() => {
     if (flash?.success) {
@@ -236,6 +245,38 @@ export default function LecturerAssignmentsIndex() {
     }
   }, [selectedSchool, lecturers]);
 
+  // Fetch available units for bulk assignment
+  const fetchAvailableUnits = async (semesterId: string | number) => {
+    if (!semesterId) {
+      setAvailableUnits([]);
+      return;
+    }
+    
+    setLoadingUnits(true);
+    try {
+      const params = new URLSearchParams({
+        semester_id: semesterId.toString(),
+        ...(selectedSchool && { school_id: selectedSchool.toString() }),
+        ...(selectedProgram && { program_id: selectedProgram.toString() })
+      });
+      
+      const response = await fetch(`/admin/lecturer-assignments/available-units?${params}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableUnits(data.units || []);
+      } else {
+        console.error('Failed to fetch units');
+        setAvailableUnits([]);
+      }
+    } catch (error) {
+      console.error('Error fetching units:', error);
+      setAvailableUnits([]);
+      toast.error('Failed to load units');
+    } finally {
+      setLoadingUnits(false);
+    }
+  };
+
   // Fetch lecturer workload when lecturer is selected
   const fetchLecturerWorkload = async (lecturerCode: string, semesterId: string | number) => {
     if (!lecturerCode || !semesterId) return;
@@ -243,8 +284,12 @@ export default function LecturerAssignmentsIndex() {
     setLoadingWorkload(true);
     try {
       const response = await fetch(`/admin/lecturer-assignments/workload?lecturer_code=${lecturerCode}&semester_id=${semesterId}`);
-      const data = await response.json();
-      setLecturerWorkload(data);
+      if (response.ok) {
+        const data = await response.json();
+        setLecturerWorkload(data);
+      } else {
+        setLecturerWorkload(null);
+      }
     } catch (error) {
       console.error('Failed to fetch lecturer workload:', error);
       setLecturerWorkload(null);
@@ -295,6 +340,10 @@ export default function LecturerAssignmentsIndex() {
       lecturer_code: ''
     });
     setIsBulkAssignModalOpen(true);
+    // Fetch available units when opening bulk assign modal
+    if (selectedSemester) {
+      fetchAvailableUnits(selectedSemester);
+    }
   };
 
   const handleViewAssignment = (assignment: Assignment) => {
@@ -390,11 +439,23 @@ export default function LecturerAssignmentsIndex() {
   };
 
   const selectAllUnassigned = () => {
-    const unassignedUnits = assignments.data
-      .filter(assignment => !assignment.lecturer_code)
-      .map(assignment => assignment.id);
+    const unassignedUnits = availableUnits
+      .filter(unit => !unit.is_assigned)
+      .map(unit => unit.id);
     setBulkAssignmentForm(prev => ({ ...prev, unit_ids: unassignedUnits }));
   };
+
+  const selectAllUnits = () => {
+    const allUnitIds = availableUnits.map(unit => unit.id);
+    setBulkAssignmentForm(prev => ({ ...prev, unit_ids: allUnitIds }));
+  };
+
+  // Watch for semester changes in bulk assignment
+  useEffect(() => {
+    if (isBulkAssignModalOpen && bulkAssignmentForm.semester_id) {
+      fetchAvailableUnits(bulkAssignmentForm.semester_id);
+    }
+  }, [bulkAssignmentForm.semester_id, isBulkAssignModalOpen]);
 
   // Status badge component
   const StatusBadge: React.FC<{ assignment: Assignment }> = ({ assignment }) => {
@@ -991,6 +1052,13 @@ export default function LecturerAssignmentsIndex() {
                         </button>
                         <button
                           type="button"
+                          onClick={selectAllUnits}
+                          className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setBulkAssignmentForm(prev => ({ ...prev, unit_ids: [] }))}
                           className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                         >
@@ -998,39 +1066,68 @@ export default function LecturerAssignmentsIndex() {
                         </button>
                       </div>
                     </div>
-                    <div className="max-h-60 overflow-y-auto border border-gray-300 rounded-lg">
-                      {assignments.data.map(assignment => (
-                        <label
-                          key={assignment.id}
-                          className={`flex items-center p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer ${
-                            assignment.lecturer_code ? 'opacity-50' : ''
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={bulkAssignmentForm.unit_ids.includes(assignment.id)}
-                            onChange={() => handleUnitToggle(assignment.id)}
-                            className="form-checkbox h-4 w-4 text-blue-600 mr-3"
-                            disabled={!!assignment.lecturer_code}
-                          />
-                          <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">
-                              {assignment.code} - {assignment.name}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {assignment.school?.code} | {assignment.program?.code} | {assignment.credit_hours} credits
-                            </div>
-                            {assignment.lecturer_code && (
-                              <div className="text-xs text-green-600 mt-1">
-                                Already assigned to {assignment.lecturer_name}
+
+                    {/* Loading State */}
+                    {loadingUnits && (
+                      <div className="flex items-center justify-center p-8 border border-gray-300 rounded-lg">
+                        <div className="flex items-center space-x-2">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                          <span className="text-gray-600">Loading units...</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Units List */}
+                    {!loadingUnits && (
+                      <div className="max-h-60 overflow-y-auto border border-gray-300 rounded-lg">
+                        {availableUnits.length > 0 ? (
+                          availableUnits.map(unit => (
+                            <label
+                              key={unit.id}
+                              className={`flex items-center p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer ${
+                                unit.is_assigned ? 'bg-yellow-50' : ''
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={bulkAssignmentForm.unit_ids.includes(unit.id)}
+                                onChange={() => handleUnitToggle(unit.id)}
+                                className="form-checkbox h-4 w-4 text-blue-600 mr-3"
+                              />
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-gray-900">
+                                  {unit.code} - {unit.name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {unit.school?.code} | {unit.program?.code} | {unit.credit_hours} credits
+                                </div>
+                                {unit.is_assigned && unit.assignment && (
+                                  <div className="text-xs text-yellow-600 mt-1 flex items-center">
+                                    <AlertTriangle className="w-3 h-3 mr-1" />
+                                    Already assigned to {unit.assignment.lecturer_name}
+                                  </div>
+                                )}
                               </div>
-                            )}
+                            </label>
+                          ))
+                        ) : (
+                          <div className="p-8 text-center text-gray-500">
+                            {bulkAssignmentForm.semester_id ? 
+                              'No units found for the selected criteria' : 
+                              'Please select a semester to load units'
+                            }
                           </div>
-                        </label>
-                      ))}
-                    </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="text-sm text-gray-600 mt-2">
                       {bulkAssignmentForm.unit_ids.length} units selected
+                      {availableUnits.length > 0 && (
+                        <span className="ml-2">
+                          ({availableUnits.filter(u => !u.is_assigned).length} unassigned, {availableUnits.filter(u => u.is_assigned).length} already assigned)
+                        </span>
+                      )}
                     </div>
                   </div>
 

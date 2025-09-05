@@ -11,10 +11,10 @@ class LecturerSeeder extends Seeder
     public function run(): void
     {
         $programs = [
-            'BSICS' => 'SCES',
+            // 'BSICS' => 'SCES',
             'BBIT' => 'SCES',
-            'BSEEE' => 'SCES',
-            'BSCNCS' => 'SCES',
+            // 'BSEEE' => 'SCES',
+            // 'BSCNCS' => 'SCES',
         ];
 
         foreach ($programs as $program => $school) {
