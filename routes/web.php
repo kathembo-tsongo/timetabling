@@ -228,19 +228,21 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
 
             // Lecturer Assignment routes
-    Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
-        Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
-        Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
-        Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
-        Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
-        
-        // Bulk assignment
-        Route::post('/bulk', [LecturerAssignmentController::class, 'bulkStore'])->name('bulk-store');
-        
-        // API endpoints for AJAX calls
-        Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
-        Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
-    });
+   // Lecturer Assignment routes (single assignment only)
+// Lecturer Assignment routes (single assignment only)
+Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
+    Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
+    Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
+    Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
+    Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
+    
+    // API endpoints for filtering
+    Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
+    Route::get('/programs-by-school', [LecturerAssignmentController::class, 'getProgramsBySchool'])->name('programs-by-school');
+    Route::get('/classes-by-program-semester', [LecturerAssignmentController::class, 'getClassesByProgramSemester'])->name('classes-by-program-semester');
+    Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
+});
+
 
         // System Settings
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');

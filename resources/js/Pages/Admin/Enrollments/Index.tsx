@@ -57,6 +57,19 @@ type Unit = {
   semester_id: number;
   semester_name: string;
   is_active: boolean;
+  lecturer_code?: string;
+  lecturer_name?: string;
+};
+
+type Lecturer = {
+  id: number;
+  code: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  display_name: string;
+  school_id?: number;
+  current_workload?: number;
 };
 
 type Enrollment = {
@@ -144,6 +157,7 @@ type PageProps = {
   enrollments: PaginationData;
   students: Student[];
   units: Unit[];
+  lecturers?: Lecturer[];
   schools: School[];
   programs: Program[];
   classes: Class[];
@@ -180,12 +194,163 @@ type PageProps = {
   };
 };
 
+// Status Badge Component
+const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
+  const statusConfig = {
+    enrolled: { color: 'bg-green-500', icon: Check, text: 'Enrolled' },
+    dropped: { color: 'bg-red-500', icon: X, text: 'Dropped' },
+    completed: { color: 'bg-blue-500', icon: UserCheck, text: 'Completed' }
+  };
+
+  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.enrolled;
+  const Icon = config.icon;
+
+  return (
+    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${config.color}`}>
+      <Icon className="w-3 h-3 mr-1" />
+      {config.text}
+    </span>
+  );
+};
+
+// Capacity Warning Component
+const CapacityWarning: React.FC<{ capacityInfo: CapacityInfo; loadingCapacity: boolean }> = ({ 
+  capacityInfo, 
+  loadingCapacity 
+}) => {
+  if (loadingCapacity) {
+    return (
+      <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <Info className="w-4 h-4 text-blue-600" />
+        <span className="text-sm text-blue-700">Loading capacity information...</span>
+      </div>
+    );
+  }
+
+  if (!capacityInfo) return null;
+
+  const { capacity, current_enrollments, available_spots, is_full } = capacityInfo;
+
+  if (is_full) {
+    return (
+      <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+        <AlertTriangle className="w-4 h-4 text-red-600" />
+        <div className="text-sm">
+          <span className="font-medium text-red-800">Class is Full!</span>
+          <span className="text-red-700 ml-1">
+            ({current_enrollments}/{capacity} students enrolled)
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (available_spots <= 2) {
+    return (
+      <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <AlertTriangle className="w-4 h-4 text-yellow-600" />
+        <div className="text-sm">
+          <span className="font-medium text-yellow-800">Limited Space!</span>
+          <span className="text-yellow-700 ml-1">
+            Only {available_spots} spots remaining ({current_enrollments}/{capacity} enrolled)
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+      <Check className="w-4 h-4 text-green-600" />
+      <div className="text-sm">
+        <span className="font-medium text-green-800">Space Available</span>
+        <span className="text-green-700 ml-1">
+          {available_spots} spots remaining ({current_enrollments}/{capacity} enrolled)
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// Pagination Component
+const Pagination: React.FC<{ paginationData: PaginationData; onPageClick: (url: string | null) => void }> = ({ 
+  paginationData, 
+  onPageClick 
+}) => {
+  const { current_page, last_page, from, to, total, links } = paginationData;
+
+  if (last_page <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-200">
+      <div className="text-sm text-gray-700">
+        Showing <span className="font-medium">{from}</span> to <span className="font-medium">{to}</span> of{' '}
+        <span className="font-medium">{total}</span> results
+      </div>
+      
+      <div className="flex items-center space-x-1">
+        {links.map((link, index) => {
+          if (link.label === '&laquo; Previous') {
+            return (
+              <button
+                key={index}
+                onClick={() => onPageClick(link.url)}
+                disabled={!link.url}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            );
+          }
+          
+          if (link.label === 'Next &raquo;') {
+            return (
+              <button
+                key={index}
+                onClick={() => onPageClick(link.url)}
+                disabled={!link.url}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            );
+          }
+          
+          if (link.label === '...') {
+            return (
+              <span key={index} className="px-3 py-2 text-sm font-medium text-gray-700">
+                <MoreHorizontal className="w-4 h-4" />
+              </span>
+            );
+          }
+          
+          return (
+            <button
+              key={index}
+              onClick={() => onPageClick(link.url)}
+              className={`px-3 py-2 text-sm font-medium border rounded-md ${
+                link.active
+                  ? 'z-10 bg-emerald-50 border-emerald-500 text-emerald-600'
+                  : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              {link.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// Main Component
 export default function EnrollmentsIndex() {
   const { props } = usePage<PageProps>();
   const { 
     enrollments, 
     students = [], 
     units = [],
+    lecturers = [],
     schools = [], 
     programs = [], 
     classes = [],
@@ -200,6 +365,7 @@ export default function EnrollmentsIndex() {
   // State management
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isLecturerAssignModalOpen, setIsLecturerAssignModalOpen] = useState(false);
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -215,11 +381,27 @@ export default function EnrollmentsIndex() {
     status: 'enrolled'
   });
 
-  // Available classes and units for selection
+  // Lecturer assignment form state
+  const [lecturerAssignmentForm, setLecturerAssignmentForm] = useState({
+    semester_id: '',
+    school_id: '',
+    program_id: '',
+    class_id: '',
+    unit_id: '',
+    lecturer_code: ''
+  });
+
+  // Available data for enrollment
   const [availableClasses, setAvailableClasses] = useState<Class[]>([]);
   const [availableUnits, setAvailableUnits] = useState<Unit[]>([]);
   const [capacityInfo, setCapacityInfo] = useState<CapacityInfo | null>(null);
   const [loadingCapacity, setLoadingCapacity] = useState(false);
+
+  // Available data for lecturer assignment
+  const [availableClassesForAssignment, setAvailableClassesForAssignment] = useState<Class[]>([]);
+  const [availableUnitsForAssignment, setAvailableUnitsForAssignment] = useState<Unit[]>([]);
+  const [loadingClassesForAssignment, setLoadingClassesForAssignment] = useState(false);
+  const [loadingUnitsForAssignment, setLoadingUnitsForAssignment] = useState(false);
 
   // Filter state
   const [searchTerm, setSearchTerm] = useState(filters?.search || '');
@@ -231,25 +413,17 @@ export default function EnrollmentsIndex() {
   const [selectedUnit, setSelectedUnit] = useState<string | number>(filters?.unit_id || '');
   const [statusFilter, setStatusFilter] = useState<string>(filters?.status || 'all');
 
-  // Load classes when program and semester change
+  // Flash messages
   useEffect(() => {
-    if (formData.program_id && formData.semester_id) {
-      fetchClasses();
-    } else {
-      setAvailableClasses([]);
-      setFormData(prev => ({ ...prev, class_id: '' }));
+    if (flash?.success) {
+      toast.success(flash.success);
     }
-  }, [formData.program_id, formData.semester_id]);
-
-  // Load capacity info when class and semester change
-  useEffect(() => {
-    if (formData.class_id && formData.semester_id) {
-      fetchCapacityInfo();
-    } else {
-      setCapacityInfo(null);
+    if (flash?.error) {
+      toast.error(flash.error);
     }
-  }, [formData.class_id, formData.semester_id]);
+  }, [flash]);
 
+  // API calls for enrollment
   const fetchClasses = async () => {
     try {
       const response = await fetch(`/admin/api/classes/by-program-semester?program_id=${formData.program_id}&semester_id=${formData.semester_id}`);
@@ -288,28 +462,58 @@ export default function EnrollmentsIndex() {
     }
   };
 
-  // Filtered programs based on school selection
-  const filteredPrograms = programs.filter(program => 
-    !formData.school_id || program.school_id === formData.school_id
-  );
-
-  // Filter programs for filter dropdown
-  const filterPrograms = programs.filter(program => 
-    !selectedSchool || program.school_id === selectedSchool
-  );
-
-  // Reset dependent fields when selections change
-  useEffect(() => {
-    if (formData.school_id) {
-      setFormData(prev => ({ ...prev, program_id: '', class_id: '' }));
+  // API calls for lecturer assignment
+  const fetchClassesForLecturerAssignment = async () => {
+    if (!lecturerAssignmentForm.program_id || !lecturerAssignmentForm.semester_id) return;
+    
+    setLoadingClassesForAssignment(true);
+    try {
+      const response = await fetch(`/admin/api/classes/by-program-semester?program_id=${lecturerAssignmentForm.program_id}&semester_id=${lecturerAssignmentForm.semester_id}`);
+      const data = await response.json();
+      setAvailableClassesForAssignment(data);
+    } catch (error) {
+      console.error('Failed to fetch classes for assignment:', error);
+      setAvailableClassesForAssignment([]);
+      toast.error('Failed to load classes');
+    } finally {
+      setLoadingClassesForAssignment(false);
     }
-  }, [formData.school_id]);
+  };
 
+  const fetchUnitsForLecturerAssignment = async () => {
+    if (!lecturerAssignmentForm.class_id || !lecturerAssignmentForm.semester_id) return;
+    
+    setLoadingUnitsForAssignment(true);
+    try {
+      const response = await fetch(`/admin/api/units/by-class?class_id=${lecturerAssignmentForm.class_id}&semester_id=${lecturerAssignmentForm.semester_id}`);
+      const data = await response.json();
+      setAvailableUnitsForAssignment(data);
+    } catch (error) {
+      console.error('Failed to fetch units for assignment:', error);
+      setAvailableUnitsForAssignment([]);
+      toast.error('Failed to load units');
+    } finally {
+      setLoadingUnitsForAssignment(false);
+    }
+  };
+
+  // Effects for enrollment form
   useEffect(() => {
-    if (formData.program_id) {
+    if (formData.program_id && formData.semester_id) {
+      fetchClasses();
+    } else {
+      setAvailableClasses([]);
       setFormData(prev => ({ ...prev, class_id: '' }));
     }
-  }, [formData.program_id]);
+  }, [formData.program_id, formData.semester_id]);
+
+  useEffect(() => {
+    if (formData.class_id && formData.semester_id) {
+      fetchCapacityInfo();
+    } else {
+      setCapacityInfo(null);
+    }
+  }, [formData.class_id, formData.semester_id]);
 
   useEffect(() => {
     if (formData.class_id) {
@@ -320,17 +524,41 @@ export default function EnrollmentsIndex() {
     }
   }, [formData.class_id]);
 
-  // Handle flash messages
+  // Effects for lecturer assignment form
   useEffect(() => {
-    if (flash?.success) {
-      toast.success(flash.success);
+    if (lecturerAssignmentForm.program_id && lecturerAssignmentForm.semester_id) {
+      fetchClassesForLecturerAssignment();
+    } else {
+      setAvailableClassesForAssignment([]);
     }
-    if (flash?.error) {
-      toast.error(flash.error);
-    }
-  }, [flash]);
+  }, [lecturerAssignmentForm.program_id, lecturerAssignmentForm.semester_id]);
 
-  // Pagination and Filter Functions
+  useEffect(() => {
+    if (lecturerAssignmentForm.class_id && lecturerAssignmentForm.semester_id) {
+      fetchUnitsForLecturerAssignment();
+    } else {
+      setAvailableUnitsForAssignment([]);
+    }
+  }, [lecturerAssignmentForm.class_id, lecturerAssignmentForm.semester_id]);
+
+  // Computed values
+  const filteredPrograms = programs.filter(program => 
+    !formData.school_id || program.school_id === formData.school_id
+  );
+
+  const filterPrograms = programs.filter(program => 
+    !selectedSchool || program.school_id === selectedSchool
+  );
+
+  const availableLecturers = lecturers.filter(lecturer => 
+    !lecturerAssignmentForm.school_id || lecturer.school_id === parseInt(lecturerAssignmentForm.school_id)
+  );
+
+  const lecturerAssignmentPrograms = programs.filter(program => 
+    !lecturerAssignmentForm.school_id || program.school_id === parseInt(lecturerAssignmentForm.school_id)
+  );
+
+  // Event handlers
   const handleSearch = () => {
     router.get('/admin/enrollments', {
       search: searchTerm,
@@ -371,153 +599,6 @@ export default function EnrollmentsIndex() {
     }
   };
 
-  // Capacity Warning Component
-  const CapacityWarning: React.FC<{ capacityInfo: CapacityInfo; loadingCapacity: boolean }> = ({ 
-    capacityInfo, 
-    loadingCapacity 
-  }) => {
-    if (loadingCapacity) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <Info className="w-4 h-4 text-blue-600" />
-          <span className="text-sm text-blue-700">Loading capacity information...</span>
-        </div>
-      );
-    }
-
-    if (!capacityInfo) return null;
-
-    const { capacity, current_enrollments, available_spots, is_full } = capacityInfo;
-
-    if (is_full) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <AlertTriangle className="w-4 h-4 text-red-600" />
-          <div className="text-sm">
-            <span className="font-medium text-red-800">Class is Full!</span>
-            <span className="text-red-700 ml-1">
-              ({current_enrollments}/{capacity} students enrolled)
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (available_spots <= 2) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <AlertTriangle className="w-4 h-4 text-yellow-600" />
-          <div className="text-sm">
-            <span className="font-medium text-yellow-800">Limited Space!</span>
-            <span className="text-yellow-700 ml-1">
-              Only {available_spots} spots remaining ({current_enrollments}/{capacity} enrolled)
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-        <Check className="w-4 h-4 text-green-600" />
-        <div className="text-sm">
-          <span className="font-medium text-green-800">Space Available</span>
-          <span className="text-green-700 ml-1">
-            {available_spots} spots remaining ({current_enrollments}/{capacity} enrolled)
-          </span>
-        </div>
-      </div>
-    );
-  };
-
-  // Status badge component
-  const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-    const statusConfig = {
-      enrolled: { color: 'bg-green-500', icon: Check, text: 'Enrolled' },
-      dropped: { color: 'bg-red-500', icon: X, text: 'Dropped' },
-      completed: { color: 'bg-blue-500', icon: UserCheck, text: 'Completed' }
-    };
-
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.enrolled;
-    const Icon = config.icon;
-
-    return (
-      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${config.color}`}>
-        <Icon className="w-3 h-3 mr-1" />
-        {config.text}
-      </span>
-    );
-  };
-
-  // Pagination Component
-  const Pagination: React.FC<{ paginationData: PaginationData }> = ({ paginationData }) => {
-    const { current_page, last_page, from, to, total, links } = paginationData;
-
-    if (last_page <= 1) return null;
-
-    return (
-      <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-200">
-        <div className="text-sm text-gray-700">
-          Showing <span className="font-medium">{from}</span> to <span className="font-medium">{to}</span> of{' '}
-          <span className="font-medium">{total}</span> results
-        </div>
-        
-        <div className="flex items-center space-x-1">
-          {links.map((link, index) => {
-            if (link.label === '&laquo; Previous') {
-              return (
-                <button
-                  key={index}
-                  onClick={() => handlePaginationClick(link.url)}
-                  disabled={!link.url}
-                  className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-              );
-            }
-            
-            if (link.label === 'Next &raquo;') {
-              return (
-                <button
-                  key={index}
-                  onClick={() => handlePaginationClick(link.url)}
-                  disabled={!link.url}
-                  className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              );
-            }
-            
-            if (link.label === '...') {
-              return (
-                <span key={index} className="px-3 py-2 text-sm font-medium text-gray-700">
-                  <MoreHorizontal className="w-4 h-4" />
-                </span>
-              );
-            }
-            
-            return (
-              <button
-                key={index}
-                onClick={() => handlePaginationClick(link.url)}
-                className={`px-3 py-2 text-sm font-medium border rounded-md ${
-                  link.active
-                    ? 'z-10 bg-emerald-50 border-emerald-500 text-emerald-600'
-                    : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                }`}
-              >
-                {link.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  // Form handlers
   const handleCreateEnrollment = () => {
     setFormData({
       student_code: '',
@@ -557,6 +638,20 @@ export default function EnrollmentsIndex() {
         }
       });
     }
+  };
+
+  const handleLecturerAssignment = () => {
+    setLecturerAssignmentForm({
+      semester_id: '',
+      school_id: '',
+      program_id: '',
+      class_id: '',
+      unit_id: '',
+      lecturer_code: ''
+    });
+    setAvailableClassesForAssignment([]);
+    setAvailableUnitsForAssignment([]);
+    setIsLecturerAssignModalOpen(true);
   };
 
   const handleUpdateEnrollment = () => {
@@ -645,6 +740,42 @@ export default function EnrollmentsIndex() {
     });
   };
 
+  const submitLecturerAssignment = () => {
+    if (!lecturerAssignmentForm.unit_id || !lecturerAssignmentForm.lecturer_code || !lecturerAssignmentForm.semester_id) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setLoading(true);
+
+    router.post('/admin/lecturer-assignments', {
+      unit_id: lecturerAssignmentForm.unit_id,
+      lecturer_code: lecturerAssignmentForm.lecturer_code,
+      semester_id: lecturerAssignmentForm.semester_id
+    }, {
+      onSuccess: () => {
+        toast.success('Lecturer assigned successfully!');
+        setIsLecturerAssignModalOpen(false);
+        setLecturerAssignmentForm({
+          semester_id: '',
+          school_id: '',
+          program_id: '',
+          class_id: '',
+          unit_id: '',
+          lecturer_code: ''
+        });
+        setAvailableClassesForAssignment([]);
+        setAvailableUnitsForAssignment([]);
+      },
+      onError: (errors) => {
+        toast.error(errors.error || 'Failed to assign lecturer');
+      },
+      onFinish: () => {
+        setLoading(false);
+      }
+    });
+  };
+
   return (
     <AuthenticatedLayout user={auth.user}>
       <Head title="Enrollments Management" />
@@ -696,16 +827,25 @@ export default function EnrollmentsIndex() {
                       New Enrollment
                     </button>
                   )}
+                  
+                  {auth.user.roles?.includes('Admin') && (
+                    <button
+                      onClick={handleLecturerAssignment}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-blue-600 hover:via-blue-700 hover:to-indigo-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <UserCheck className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
+                      Lecturer Assignments
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Search and Filters Section */}
+ {/* Search and Filters */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 mb-8 overflow-hidden">
             <div className="p-6">
               <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-                {/* Search Bar */}
                 <div className="flex-1 max-w-md">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -720,7 +860,6 @@ export default function EnrollmentsIndex() {
                   </div>
                 </div>
 
-                {/* Filter Toggle Button */}
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setShowFilters(!showFilters)}
@@ -741,11 +880,9 @@ export default function EnrollmentsIndex() {
                 </div>
               </div>
 
-              {/* Advanced Filters */}
               {showFilters && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* Student Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Student</label>
                       <input
@@ -757,14 +894,13 @@ export default function EnrollmentsIndex() {
                       />
                     </div>
 
-                    {/* School Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">School</label>
                       <select
                         value={selectedSchool}
                         onChange={(e) => {
                           setSelectedSchool(e.target.value);
-                          setSelectedProgram(''); // Reset program when school changes
+                          setSelectedProgram('');
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
                       >
@@ -777,7 +913,6 @@ export default function EnrollmentsIndex() {
                       </select>
                     </div>
 
-                    {/* Program Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Program</label>
                       <select
@@ -795,7 +930,6 @@ export default function EnrollmentsIndex() {
                       </select>
                     </div>
 
-                    {/* Class Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
                       <select
@@ -812,7 +946,6 @@ export default function EnrollmentsIndex() {
                       </select>
                     </div>
 
-                    {/* Semester Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
                       <select
@@ -829,7 +962,6 @@ export default function EnrollmentsIndex() {
                       </select>
                     </div>
 
-                    {/* Unit Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
                       <select
@@ -846,7 +978,6 @@ export default function EnrollmentsIndex() {
                       </select>
                     </div>
 
-                    {/* Status Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                       <select
@@ -861,7 +992,6 @@ export default function EnrollmentsIndex() {
                       </select>
                     </div>
 
-                    {/* Clear Filters Button */}
                     <div className="flex items-end">
                       <button
                         onClick={clearFilters}
@@ -876,15 +1006,144 @@ export default function EnrollmentsIndex() {
             </div>
           </div>
 
-          {/* Create Modal */}
+          {/* Enrollments Table */}
+          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Student
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unit
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Class
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Semester
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Enrolled Date
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {enrollments.data.map((enrollment) => (
+                    <tr key={enrollment.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-10 w-10">
+                            <div className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                              <span className="text-sm font-medium text-white">
+                                {enrollment.student_code.slice(0, 2)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">
+                              {enrollment.student_code}
+                            </div>
+                            {enrollment.student && (
+                              <div className="text-sm text-gray-500">
+                                {enrollment.student.name}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {enrollment.unit?.code}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {enrollment.unit?.name}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {enrollment.unit?.credit_hours} credits
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {enrollment.class?.name} Sec {enrollment.class?.section}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          Year {enrollment.class?.year_level}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {enrollment.semester_name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <StatusBadge status={enrollment.status} />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(enrollment.enrollment_date).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            onClick={() => handleEditEnrollment(enrollment)}
+                            className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
+                            title="Edit"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          {can.delete && (
+                            <button
+                              onClick={() => handleDeleteEnrollment(enrollment.id)}
+                              className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {enrollments.data.length === 0 && (
+              <div className="text-center py-12">
+                <Users className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">No enrollments found</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Get started by creating a new enrollment.
+                </p>
+                {can.create && (
+                  <div className="mt-6">
+                    <button
+                      onClick={handleCreateEnrollment}
+                      className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      New Enrollment
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <Pagination paginationData={enrollments} onPageClick={handlePaginationClick} />
+          </div>
+
+          {/* Create Enrollment Modal */}
           {isCreateModalOpen && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">
-                      Create New Enrollment
-                    </h3>
+                    <h3 className="text-xl font-semibold text-white">Create New Enrollment</h3>
                     <button
                       onClick={() => setIsCreateModalOpen(false)}
                       className="text-white hover:text-gray-200 transition-colors"
@@ -895,11 +1154,8 @@ export default function EnrollmentsIndex() {
                 </div>
 
                 <div className="p-6 space-y-6">
-                  {/* Student Code Input */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Student Number *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Student Number *</label>
                     <input
                       type="text"
                       value={formData.student_code}
@@ -910,11 +1166,8 @@ export default function EnrollmentsIndex() {
                     />
                   </div>
 
-                  {/* School Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      School *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">School *</label>
                     <select
                       value={formData.school_id}
                       onChange={(e) => setFormData(prev => ({ 
@@ -935,11 +1188,8 @@ export default function EnrollmentsIndex() {
                     </select>
                   </div>
 
-                  {/* Program Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Program *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Program *</label>
                     <select
                       value={formData.program_id}
                       onChange={(e) => setFormData(prev => ({ 
@@ -960,11 +1210,8 @@ export default function EnrollmentsIndex() {
                     </select>
                   </div>
 
-                  {/* Semester Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Semester *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Semester *</label>
                     <select
                       value={formData.semester_id}
                       onChange={(e) => setFormData(prev => ({ 
@@ -985,11 +1232,8 @@ export default function EnrollmentsIndex() {
                     </select>
                   </div>
 
-                  {/* Class Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Class *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Class *</label>
                     <select
                       value={formData.class_id}
                       onChange={(e) => setFormData(prev => ({ 
@@ -1014,17 +1258,13 @@ export default function EnrollmentsIndex() {
                     )}
                   </div>
 
-                  {/* Capacity Warning Display */}
                   {capacityInfo && formData.class_id && (
                     <CapacityWarning capacityInfo={capacityInfo} loadingCapacity={loadingCapacity} />
                   )}
 
-                  {/* Units Selection */}
                   {formData.class_id && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Select Units to Enroll *
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Select Units to Enroll *</label>
                       <div className="flex flex-col gap-2">
                         {availableUnits.length > 0 ? (
                           availableUnits.map(unit => (
@@ -1067,11 +1307,8 @@ export default function EnrollmentsIndex() {
                     </div>
                   )}
 
-                  {/* Status Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Default Status *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Default Status *</label>
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'enrolled' | 'dropped' | 'completed' }))}
@@ -1084,7 +1321,6 @@ export default function EnrollmentsIndex() {
                     </select>
                   </div>
 
-                  {/* Form Actions */}
                   <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                     <button
                       type="button"
@@ -1109,15 +1345,13 @@ export default function EnrollmentsIndex() {
             </div>
           )}
 
-          {/* Edit Modal */}
+          {/* Edit Enrollment Modal */}
           {isEditModalOpen && selectedEnrollment && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full">
                 <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">
-                      Edit Enrollment Status
-                    </h3>
+                    <h3 className="text-xl font-semibold text-white">Edit Enrollment Status</h3>
                     <button
                       onClick={() => setIsEditModalOpen(false)}
                       className="text-white hover:text-gray-200 transition-colors"
@@ -1134,11 +1368,8 @@ export default function EnrollmentsIndex() {
                     <p className="text-sm text-gray-600">Class: <span className="font-medium">{selectedEnrollment.class?.name} Section {selectedEnrollment.class?.section}</span></p>
                   </div>
 
-                  {/* Status Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Status *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Status *</label>
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'enrolled' | 'dropped' | 'completed' }))}
@@ -1151,7 +1382,6 @@ export default function EnrollmentsIndex() {
                     </select>
                   </div>
 
-                  {/* Form Actions */}
                   <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                     <button
                       type="button"
@@ -1164,9 +1394,9 @@ export default function EnrollmentsIndex() {
                       type="button"
                       onClick={handleUpdateEnrollment}
                       disabled={loading}
-                      className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {loading ? 'Processing...' : 'Update Status'}
+                      {loading ? 'Updating...' : 'Update Status'}
                     </button>
                   </div>
                 </div>
@@ -1174,128 +1404,246 @@ export default function EnrollmentsIndex() {
             </div>
           )}
 
-          {/* Enrollments Table */}
-          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200/50 overflow-hidden">
-            <div className="p-8">
-              {enrollments.data && enrollments.data.length > 0 ? (
-                <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-gray-200">
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Student
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Unit
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Class
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Status
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Enrolled Date
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {enrollments.data.map((enrollment) => (
-                          <tr key={enrollment.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="text-sm font-medium text-gray-900">
-                                {enrollment.student_code}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {enrollment.first_name} {enrollment.last_name}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="text-sm font-medium text-gray-900">
-                                {enrollment.unit?.code}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {enrollment.unit?.name}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {enrollment.class?.name} Section {enrollment.class?.section}
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <StatusBadge status={enrollment.status} />
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {new Date(enrollment.enrollment_date).toLocaleDateString()}
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                              <div className="flex space-x-2">
-                                {can.update && (
-                                  <button 
-                                    onClick={() => handleEditEnrollment(enrollment)}
-                                    className="text-indigo-600 hover:text-indigo-900"
-                                    title="Edit Enrollment"
-                                  >
-                                    <Edit className="w-4 h-4" />
-                                  </button>
-                                )}
-                                {can.delete && (
-                                  <button 
-                                    onClick={() => handleDeleteEnrollment(enrollment.id)}
-                                    className="text-red-600 hover:text-red-900"
-                                    title="Delete Enrollment"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+          {/* Lecturer Assignment Modal */}
+          {isLecturerAssignModalOpen && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-semibold text-white">Assign Lecturer to Unit</h3>
+                    <button
+                      onClick={() => setIsLecturerAssignModalOpen(false)}
+                      className="text-white hover:text-gray-200 transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
                   </div>
-                  
-                  {/* Pagination Component */}
-                  <Pagination paginationData={enrollments} />
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <Users className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Enrollments Found</h3>
-                  <p className="text-gray-500">
-                    {Object.values(filters).some(filter => filter) 
-                      ? "No enrollments match your current filters. Try adjusting your search criteria."
-                      : "Get started by creating a new enrollment."
-                    }
-                  </p>
-                  {can.create && (
-                    <button
-                      onClick={handleCreateEnrollment}
-                      className="mt-4 inline-flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create First Enrollment
-                    </button>
-                  )}
-                  {Object.values(filters).some(filter => filter) && (
-                    <button
-                      onClick={clearFilters}
-                      className="mt-2 ml-4 inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Clear Filters
-                    </button>
-                  )}
                 </div>
-              )}
+
+                <div className="p-6 space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Semester *</label>
+                    <select
+                      value={lecturerAssignmentForm.semester_id}
+                      onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                        ...prev, 
+                        semester_id: e.target.value,
+                        class_id: '',
+                        unit_id: '',
+                        lecturer_code: ''
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      <option value="">Select Semester</option>
+                      {semesters.map(semester => (
+                        <option key={semester.id} value={semester.id}>
+                          {semester.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">School *</label>
+                    <select
+                      value={lecturerAssignmentForm.school_id}
+                      onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                        ...prev, 
+                        school_id: e.target.value,
+                        program_id: '',
+                        class_id: '',
+                        unit_id: '',
+                        lecturer_code: ''
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      <option value="">Select School</option>
+                      {schools.map(school => (
+                        <option key={school.id} value={school.id}>
+                          {school.code} - {school.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Program *</label>
+                    <select
+                      value={lecturerAssignmentForm.program_id}
+                      onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                        ...prev, 
+                        program_id: e.target.value,
+                        class_id: '',
+                        unit_id: '',
+                        lecturer_code: ''
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      disabled={!lecturerAssignmentForm.school_id}
+                      required
+                    >
+                      <option value="">Select Program</option>
+                      {lecturerAssignmentPrograms.map(program => (
+                        <option key={program.id} value={program.id}>
+                          {program.code} - {program.name}
+                        </option>
+                      ))}
+                    </select>
+                    {!lecturerAssignmentForm.school_id && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Select school first to see programs
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Class *</label>
+                    {loadingClassesForAssignment ? (
+                      <div className="flex items-center justify-center p-4 border border-gray-300 rounded-lg">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        <span className="ml-2 text-gray-600">Loading classes...</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={lecturerAssignmentForm.class_id}
+                        onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                          ...prev, 
+                          class_id: e.target.value,
+                          unit_id: '',
+                          lecturer_code: ''
+                        }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                        disabled={!lecturerAssignmentForm.program_id || !lecturerAssignmentForm.semester_id}
+                      >
+                        <option value="">Select Class</option>
+                        {availableClassesForAssignment.map(cls => (
+                          <option key={cls.id} value={cls.id}>
+                            {cls.display_name || `${cls.name} Section ${cls.section}`} (Capacity: {cls.capacity})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {(!lecturerAssignmentForm.program_id || !lecturerAssignmentForm.semester_id) && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Select program and semester first to see classes
+                      </p>
+                    )}
+                    {availableClassesForAssignment.length === 0 && lecturerAssignmentForm.program_id && lecturerAssignmentForm.semester_id && !loadingClassesForAssignment && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        No classes found for the selected program and semester
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Unit *</label>
+                    {loadingUnitsForAssignment ? (
+                      <div className="flex items-center justify-center p-4 border border-gray-300 rounded-lg">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        <span className="ml-2 text-gray-600">Loading units...</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={lecturerAssignmentForm.unit_id}
+                        onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                          ...prev, 
+                          unit_id: e.target.value,
+                          lecturer_code: ''
+                        }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                        disabled={!lecturerAssignmentForm.class_id || !lecturerAssignmentForm.semester_id}
+                      >
+                        <option value="">Select Unit</option>
+                        {availableUnitsForAssignment.map(unit => (
+                          <option key={unit.id} value={unit.id}>
+                            {unit.code} - {unit.name} ({unit.credit_hours} credits)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {(!lecturerAssignmentForm.class_id || !lecturerAssignmentForm.semester_id) && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Select class and semester first to see units
+                      </p>
+                    )}
+                    {availableUnitsForAssignment.length === 0 && lecturerAssignmentForm.class_id && lecturerAssignmentForm.semester_id && !loadingUnitsForAssignment && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        No units found for the selected class and semester
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Lecturer *</label>
+                    <select
+                      value={lecturerAssignmentForm.lecturer_code}
+                      onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                        ...prev, 
+                        lecturer_code: e.target.value
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                      disabled={!lecturerAssignmentForm.school_id}
+                    >
+                      <option value="">Select Lecturer</option>
+                      {availableLecturers.map(lecturer => (
+                        <option key={lecturer.id} value={lecturer.code}>
+                          {lecturer.display_name || `${lecturer.first_name} ${lecturer.last_name}`} ({lecturer.code})
+                        </option>
+                      ))}
+                    </select>
+                    {!lecturerAssignmentForm.school_id && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Select school first to see lecturers
+                      </p>
+                    )}
+                    {availableLecturers.length === 0 && lecturerAssignmentForm.school_id && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        No lecturers found for the selected school
+                      </p>
+                    )}
+                  </div>
+
+                  {lecturerAssignmentForm.unit_id && lecturerAssignmentForm.lecturer_code && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h4 className="font-medium text-blue-900 mb-2">Assignment Summary</h4>
+                      <div className="text-sm text-blue-800 space-y-1">
+                        <p><strong>Unit:</strong> {availableUnitsForAssignment.find(u => u.id === parseInt(lecturerAssignmentForm.unit_id))?.code} - {availableUnitsForAssignment.find(u => u.id === parseInt(lecturerAssignmentForm.unit_id))?.name}</p>
+                        <p><strong>Class:</strong> {availableClassesForAssignment.find(c => c.id === parseInt(lecturerAssignmentForm.class_id))?.display_name || `${availableClassesForAssignment.find(c => c.id === parseInt(lecturerAssignmentForm.class_id))?.name} Section ${availableClassesForAssignment.find(c => c.id === parseInt(lecturerAssignmentForm.class_id))?.section}`}</p>
+                        <p><strong>Lecturer:</strong> {availableLecturers.find(l => l.code === lecturerAssignmentForm.lecturer_code)?.display_name || `${availableLecturers.find(l => l.code === lecturerAssignmentForm.lecturer_code)?.first_name} ${availableLecturers.find(l => l.code === lecturerAssignmentForm.lecturer_code)?.last_name}`}</p>
+                        <p><strong>Semester:</strong> {semesters.find(s => s.id === parseInt(lecturerAssignmentForm.semester_id))?.name}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setIsLecturerAssignModalOpen(false)}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitLecturerAssignment}
+                      disabled={loading || !lecturerAssignmentForm.unit_id || !lecturerAssignmentForm.lecturer_code || !lecturerAssignmentForm.semester_id}
+                      className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Processing...' : 'Assign Lecturer'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
         </div>
       </div>
     </AuthenticatedLayout>
   );
 }
+                      

@@ -47,6 +47,12 @@ type Unit = {
     lecturer_name: string;
     lecturer_code: string;
   };
+  classes?: Array<{
+    id: number;
+    name: string;
+    section: string;
+    display_name: string;
+  }>;
   school: {
     id: number;
     name: string;
@@ -93,7 +99,10 @@ type Assignment = {
 type Lecturer = {
   id: number;
   code: string;
-  name: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  display_name: string;
   email: string;
   school_id?: number;
   current_workload?: number;
@@ -109,8 +118,17 @@ type Program = {
   id: number;
   code: string;
   name: string;
+  display_name: string;
   school_id: number;
   school: School;
+};
+
+type ClassType = {
+  id: number;
+  name: string;
+  section: string;
+  display_name: string;
+  year_level: number;
 };
 
 type Semester = {
@@ -183,7 +201,6 @@ export default function LecturerAssignmentIndex() {
 
   // State management
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [loading, setLoading] = useState(false);
@@ -196,26 +213,24 @@ export default function LecturerAssignmentIndex() {
     lecturer_code: ''
   });
 
-  // Form state for bulk assignment
-  const [bulkAssignmentForm, setBulkAssignmentForm] = useState({
-    unit_ids: [] as number[],
-    semester_id: '',
-    lecturer_code: ''
-  });
-
   // Filter state
   const [searchTerm, setSearchTerm] = useState(filters?.search || '');
   const [selectedSemester, setSelectedSemester] = useState<string | number>(filters?.semester_id || '');
   const [selectedSchool, setSelectedSchool] = useState<string | number>(filters?.school_id || '');
   const [selectedProgram, setSelectedProgram] = useState<string | number>(filters?.program_id || '');
+  const [selectedClass, setSelectedClass] = useState<string | number>('');
 
   // Available lecturers for assignment (filtered by school/workload)
   const [availableLecturers, setAvailableLecturers] = useState<Lecturer[]>(lecturers);
   const [lecturerWorkload, setLecturerWorkload] = useState<any>(null);
   const [loadingWorkload, setLoadingWorkload] = useState(false);
 
-  // Bulk assignment specific state
+  // New state for hierarchical filtering
+  const [availablePrograms, setAvailablePrograms] = useState<Program[]>([]);
+  const [availableClasses, setAvailableClasses] = useState<ClassType[]>([]);
   const [availableUnits, setAvailableUnits] = useState<Unit[]>([]);
+  const [loadingPrograms, setLoadingPrograms] = useState(false);
+  const [loadingClasses, setLoadingClasses] = useState(false);
   const [loadingUnits, setLoadingUnits] = useState(false);
 
   // Handle flash messages
@@ -245,9 +260,68 @@ export default function LecturerAssignmentIndex() {
     }
   }, [selectedSchool, lecturers]);
 
-  // Fetch available units for bulk assignment
-  const fetchAvailableUnits = async (semesterId: string | number) => {
-    if (!semesterId) {
+  // Fetch programs when school changes
+  const handleSchoolChange = async (schoolId: string | number) => {
+    setSelectedSchool(schoolId);
+    setSelectedProgram('');
+    setSelectedClass('');
+    setAvailablePrograms([]);
+    setAvailableClasses([]);
+    setAvailableUnits([]);
+
+    if (schoolId) {
+      setLoadingPrograms(true);
+      try {
+        const response = await fetch(`/admin/lecturerassignment/programs-by-school?school_id=${schoolId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAvailablePrograms(data);
+        }
+      } catch (error) {
+        console.error('Error fetching programs:', error);
+        toast.error('Failed to load programs');
+      } finally {
+        setLoadingPrograms(false);
+      }
+    }
+  };
+
+  // Fetch classes when program changes
+  const handleProgramChange = async (programId: string | number) => {
+    setSelectedProgram(programId);
+    setSelectedClass('');
+    setAvailableClasses([]);
+    setAvailableUnits([]);
+
+    if (programId && selectedSemester) {
+      setLoadingClasses(true);
+      try {
+        const response = await fetch(`/admin/lecturerassignment/classes-by-program-semester?program_id=${programId}&semester_id=${selectedSemester}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableClasses(data);
+        }
+        
+        // Also fetch units for this program/semester combination
+        await fetchAvailableUnits(selectedSemester, selectedSchool, programId);
+      } catch (error) {
+        console.error('Error fetching classes:', error);
+        toast.error('Failed to load classes');
+      } finally {
+        setLoadingClasses(false);
+      }
+    }
+  };
+
+  // Fetch units when class filter changes (optional)
+  const handleClassChange = async (classId: string | number) => {
+    setSelectedClass(classId);
+    await fetchAvailableUnits(selectedSemester, selectedSchool, selectedProgram, classId);
+  };
+
+  // Fetch available units
+  const fetchAvailableUnits = async (semesterId: string | number, schoolId: string | number, programId: string | number, classId?: string | number) => {
+    if (!semesterId || !schoolId || !programId) {
       setAvailableUnits([]);
       return;
     }
@@ -256,14 +330,26 @@ export default function LecturerAssignmentIndex() {
     try {
       const params = new URLSearchParams({
         semester_id: semesterId.toString(),
-        ...(selectedSchool && { school_id: selectedSchool.toString() }),
-        ...(selectedProgram && { program_id: selectedProgram.toString() })
+        school_id: schoolId.toString(),
+        program_id: programId.toString()
       });
+
+      if (classId) {
+        params.append('class_id', classId.toString());
+      }
       
-      const response = await fetch(`/admin/lecturer-assignments/available-units?${params}`);
+      const response = await fetch(`/admin/lecturerassignment/available-units?${params}`);
       if (response.ok) {
         const data = await response.json();
-        setAvailableUnits(data.units || []);
+        if (data.success) {
+          setAvailableUnits(data.units || []);
+        } else {
+          console.error('Error fetching units:', data.message);
+          setAvailableUnits([]);
+          if (data.message) {
+            toast.error(data.message);
+          }
+        }
       } else {
         console.error('Failed to fetch units');
         setAvailableUnits([]);
@@ -277,13 +363,38 @@ export default function LecturerAssignmentIndex() {
     }
   };
 
+  // Handle semester change
+  const handleSemesterChange = async (semesterId: string | number) => {
+    setSelectedSemester(semesterId);
+    
+    if (semesterId && selectedSchool && selectedProgram) {
+      await fetchAvailableUnits(semesterId, selectedSchool, selectedProgram, selectedClass);
+      
+      // Also refresh classes for the new semester
+      if (selectedProgram) {
+        setLoadingClasses(true);
+        try {
+          const response = await fetch(`/admin/lecturerassignment/classes-by-program-semester?program_id=${selectedProgram}&semester_id=${semesterId}`);
+          if (response.ok) {
+            const data = await response.json();
+            setAvailableClasses(data);
+          }
+        } catch (error) {
+          console.error('Error fetching classes:', error);
+        } finally {
+          setLoadingClasses(false);
+        }
+      }
+    }
+  };
+
   // Fetch lecturer workload when lecturer is selected
   const fetchLecturerWorkload = async (lecturerCode: string, semesterId: string | number) => {
     if (!lecturerCode || !semesterId) return;
     
     setLoadingWorkload(true);
     try {
-      const response = await fetch(`/admin/lecturer-assignments/workload?lecturer_code=${lecturerCode}&semester_id=${semesterId}`);
+      const response = await fetch(`/admin/lecturerassignment/workload?lecturer_code=${lecturerCode}&semester_id=${semesterId}`);
       if (response.ok) {
         const data = await response.json();
         setLecturerWorkload(data);
@@ -300,7 +411,7 @@ export default function LecturerAssignmentIndex() {
 
   // Search and filter functions
   const handleSearch = () => {
-    router.get('/admin/lecturer-assignments', {
+    router.get('/admin/lecturerassignment', {
       search: searchTerm,
       semester_id: selectedSemester,
       school_id: selectedSchool,
@@ -316,7 +427,11 @@ export default function LecturerAssignmentIndex() {
     setSelectedSemester('');
     setSelectedSchool('');
     setSelectedProgram('');
-    router.get('/admin/lecturer-assignments', {}, {
+    setSelectedClass('');
+    setAvailablePrograms([]);
+    setAvailableClasses([]);
+    setAvailableUnits([]);
+    router.get('/admin/lecturerassignment', {}, {
       preserveState: true,
       replace: true
     });
@@ -331,19 +446,6 @@ export default function LecturerAssignmentIndex() {
       lecturer_code: assignment.lecturer_code || ''
     });
     setIsAssignModalOpen(true);
-  };
-
-  const handleBulkAssign = () => {
-    setBulkAssignmentForm({
-      unit_ids: [],
-      semester_id: selectedSemester.toString() || '',
-      lecturer_code: ''
-    });
-    setIsBulkAssignModalOpen(true);
-    // Fetch available units when opening bulk assign modal
-    if (selectedSemester) {
-      fetchAvailableUnits(selectedSemester);
-    }
   };
 
   const handleViewAssignment = (assignment: Assignment) => {
@@ -361,7 +463,7 @@ export default function LecturerAssignmentIndex() {
     }
 
     if (confirm(`Remove lecturer assignment for ${assignment.code} - ${assignment.name}?`)) {
-      router.delete(`/admin/lecturer-assignments/${assignment.id}/${selectedSemester}`, {
+      router.delete(`/admin/lecturerassignment/${assignment.id}/${selectedSemester}`, {
         onSuccess: () => {
           toast.success('Lecturer assignment removed successfully!');
         },
@@ -382,8 +484,8 @@ export default function LecturerAssignmentIndex() {
 
     const isUpdate = selectedAssignment?.lecturer_code;
     const url = isUpdate 
-      ? `/admin/lecturer-assignments/${assignmentForm.unit_id}/${assignmentForm.semester_id}`
-      : '/admin/lecturer-assignments';
+      ? `/admin/lecturerassignment/${assignmentForm.unit_id}/${assignmentForm.semester_id}`
+      : '/admin/lecturerassignment';
 
     const method = isUpdate ? 'put' : 'post';
 
@@ -392,6 +494,10 @@ export default function LecturerAssignmentIndex() {
         toast.success(isUpdate ? 'Assignment updated successfully!' : 'Lecturer assigned successfully!');
         setIsAssignModalOpen(false);
         setSelectedAssignment(null);
+        // Refresh units list if we're in assignment mode
+        if (selectedSemester && selectedSchool && selectedProgram) {
+          fetchAvailableUnits(selectedSemester, selectedSchool, selectedProgram, selectedClass);
+        }
       },
       onError: (errors) => {
         toast.error(errors.error || 'Failed to assign lecturer');
@@ -401,61 +507,6 @@ export default function LecturerAssignmentIndex() {
       }
     });
   };
-
-  const submitBulkAssignment = () => {
-    if (!bulkAssignmentForm.semester_id || !bulkAssignmentForm.lecturer_code || bulkAssignmentForm.unit_ids.length === 0) {
-      toast.error('Please fill in all fields and select at least one unit');
-      return;
-    }
-
-    setLoading(true);
-
-    router.post('/admin/lecturer-assignments/bulk', bulkAssignmentForm, {
-      onSuccess: () => {
-        toast.success('Bulk assignment completed successfully!');
-        setIsBulkAssignModalOpen(false);
-        setBulkAssignmentForm({
-          unit_ids: [],
-          semester_id: '',
-          lecturer_code: ''
-        });
-      },
-      onError: (errors) => {
-        toast.error(errors.error || 'Failed to complete bulk assignment');
-      },
-      onFinish: () => {
-        setLoading(false);
-      }
-    });
-  };
-
-  const handleUnitToggle = (unitId: number) => {
-    setBulkAssignmentForm(prev => ({
-      ...prev,
-      unit_ids: prev.unit_ids.includes(unitId)
-        ? prev.unit_ids.filter(id => id !== unitId)
-        : [...prev.unit_ids, unitId]
-    }));
-  };
-
-  const selectAllUnassigned = () => {
-    const unassignedUnits = availableUnits
-      .filter(unit => !unit.is_assigned)
-      .map(unit => unit.id);
-    setBulkAssignmentForm(prev => ({ ...prev, unit_ids: unassignedUnits }));
-  };
-
-  const selectAllUnits = () => {
-    const allUnitIds = availableUnits.map(unit => unit.id);
-    setBulkAssignmentForm(prev => ({ ...prev, unit_ids: allUnitIds }));
-  };
-
-  // Watch for semester changes in bulk assignment
-  useEffect(() => {
-    if (isBulkAssignModalOpen && bulkAssignmentForm.semester_id) {
-      fetchAvailableUnits(bulkAssignmentForm.semester_id);
-    }
-  }, [bulkAssignmentForm.semester_id, isBulkAssignModalOpen]);
 
   // Status badge component
   const StatusBadge: React.FC<{ assignment: Assignment }> = ({ assignment }) => {
@@ -587,20 +638,6 @@ export default function LecturerAssignmentIndex() {
                     </div>
                   )}
                 </div>
-                
-                <div className="flex items-center gap-3">
-                  {can.create && (
-                    <>
-                      <button
-                        onClick={handleBulkAssign}
-                        className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-blue-600 hover:via-blue-700 hover:to-indigo-700 transform hover:scale-105 transition-all duration-300"
-                      >
-                        <CheckSquare className="w-4 h-4 mr-2" />
-                        Bulk Assign
-                      </button>
-                    </>
-                  )}
-                </div>
               </div>
             </div>
           </div>
@@ -648,13 +685,13 @@ export default function LecturerAssignmentIndex() {
               {/* Advanced Filters */}
               {showFilters && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                     {/* Semester Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Semester *</label>
                       <select
                         value={selectedSemester}
-                        onChange={(e) => setSelectedSemester(e.target.value)}
+                        onChange={(e) => handleSemesterChange(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
                       >
                         <option value="">Select Semester</option>
@@ -671,10 +708,7 @@ export default function LecturerAssignmentIndex() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">School</label>
                       <select
                         value={selectedSchool}
-                        onChange={(e) => {
-                          setSelectedSchool(e.target.value);
-                          setSelectedProgram('');
-                        }}
+                        onChange={(e) => handleSchoolChange(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
                       >
                         <option value="">All Schools</option>
@@ -691,14 +725,32 @@ export default function LecturerAssignmentIndex() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Program</label>
                       <select
                         value={selectedProgram}
-                        onChange={(e) => setSelectedProgram(e.target.value)}
+                        onChange={(e) => handleProgramChange(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-                        disabled={!selectedSchool}
+                        disabled={!selectedSchool || loadingPrograms}
                       >
                         <option value="">All Programs</option>
-                        {filteredPrograms.map(program => (
+                        {(availablePrograms.length > 0 ? availablePrograms : filteredPrograms).map(program => (
                           <option key={program.id} value={program.id}>
-                            {program.code} - {program.name}
+                            {program.display_name || `${program.code} - ${program.name}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Class Filter (Optional) */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Class (Optional)</label>
+                      <select
+                        value={selectedClass}
+                        onChange={(e) => handleClassChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                        disabled={!selectedProgram || !selectedSemester || loadingClasses}
+                      >
+                        <option value="">All Classes</option>
+                        {availableClasses.map(cls => (
+                          <option key={cls.id} value={cls.id}>
+                            {cls.display_name}
                           </option>
                         ))}
                       </select>
@@ -724,6 +776,87 @@ export default function LecturerAssignmentIndex() {
                           <p className="text-sm text-yellow-700">Please select a semester to view and manage lecturer assignments.</p>
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Units Available for Assignment */}
+                  {selectedSemester && selectedSchool && selectedProgram && (
+                    <div className="mt-6 pt-6 border-t border-gray-200">
+                      <h4 className="text-lg font-medium text-gray-900 mb-4">Units Available for Assignment</h4>
+                      
+                      {loadingUnits ? (
+                        <div className="flex items-center justify-center p-8">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                          <span className="ml-2 text-gray-600">Loading units...</span>
+                        </div>
+                      ) : availableUnits.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {availableUnits.map(unit => (
+                            <div
+                              key={unit.id}
+                              className={`border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
+                                unit.is_assigned 
+                                  ? 'border-green-300 bg-green-50' 
+                                  : 'border-gray-300 bg-white hover:border-emerald-500 hover:shadow-md'
+                              }`}
+                              onClick={() => {
+                                if (!unit.is_assigned) {
+                                  const mockAssignment: Assignment = {
+                                    id: unit.id,
+                                    code: unit.code,
+                                    name: unit.name,
+                                    credit_hours: unit.credit_hours,
+                                    school_id: unit.school_id,
+                                    program_id: unit.program_id,
+                                    school: unit.school,
+                                    program: unit.program,
+                                    semester: unit.semester
+                                  };
+                                  handleAssignLecturer(mockAssignment);
+                                }
+                              }}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <h5 className="font-medium text-gray-900 text-sm">{unit.code}</h5>
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                  {unit.credit_hours} credits
+                                </span>
+                              </div>
+                              
+                              <p className="text-sm text-gray-600 mb-2 line-clamp-2">{unit.name}</p>
+                              
+                              <div className="text-xs text-gray-500 space-y-1">
+                                <p><strong>School:</strong> {unit.school.name}</p>
+                                <p><strong>Program:</strong> {unit.program.name}</p>
+                                {unit.classes && unit.classes.length > 0 && (
+                                  <p><strong>Classes:</strong> {unit.classes.map(c => c.display_name).join(', ')}</p>
+                                )}
+                              </div>
+                              
+                              {unit.is_assigned && unit.assignment && (
+                                <div className="mt-2 pt-2 border-t border-green-200">
+                                  <p className="text-xs text-green-700">
+                                    <strong>Assigned to:</strong> {unit.assignment.lecturer_name} ({unit.assignment.lecturer_code})
+                                  </p>
+                                </div>
+                              )}
+                              
+                              {!unit.is_assigned && (
+                                <div className="mt-2 pt-2 border-t border-gray-200">
+                                  <p className="text-xs text-emerald-600 font-medium">Click to assign lecturer</p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <BookOpen className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                          <p className="text-gray-500">
+                            No units found for the selected criteria. Make sure units are assigned to classes in this semester.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -925,7 +1058,7 @@ export default function LecturerAssignmentIndex() {
                       <option value="">Select Lecturer</option>
                       {availableLecturers.map(lecturer => (
                         <option key={lecturer.id} value={lecturer.code}>
-                          {lecturer.name} ({lecturer.code}) 
+                          {lecturer.display_name || `${lecturer.code} - ${lecturer.first_name} ${lecturer.last_name}`}
                           {lecturer.current_workload !== undefined && ` - ${lecturer.current_workload} units`}
                         </option>
                       ))}
@@ -969,184 +1102,6 @@ export default function LecturerAssignmentIndex() {
                       className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {loading ? 'Processing...' : (selectedAssignment?.lecturer_code ? 'Update Assignment' : 'Assign Lecturer')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Bulk Assignment Modal */}
-          {isBulkAssignModalOpen && (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 p-6 rounded-t-2xl">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">
-                      Bulk Assign Lecturer
-                    </h3>
-                    <button
-                      onClick={() => setIsBulkAssignModalOpen(false)}
-                      className="text-white hover:text-gray-200 transition-colors"
-                    >
-                      <X className="w-6 h-6" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="p-6 space-y-6">
-                  {/* Semester and Lecturer Selection */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Semester *
-                      </label>
-                      <select
-                        value={bulkAssignmentForm.semester_id}
-                        onChange={(e) => setBulkAssignmentForm(prev => ({ ...prev, semester_id: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        required
-                      >
-                        <option value="">Select Semester</option>
-                        {semesters.map(semester => (
-                          <option key={semester.id} value={semester.id}>
-                            {semester.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Lecturer *
-                      </label>
-                      <select
-                        value={bulkAssignmentForm.lecturer_code}
-                        onChange={(e) => setBulkAssignmentForm(prev => ({ ...prev, lecturer_code: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        required
-                      >
-                        <option value="">Select Lecturer</option>
-                        {availableLecturers.map(lecturer => (
-                          <option key={lecturer.id} value={lecturer.code}>
-                            {lecturer.name} ({lecturer.code})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Unit Selection */}
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Select Units to Assign *
-                      </label>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={selectAllUnassigned}
-                          className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                        >
-                          Select Unassigned
-                        </button>
-                        <button
-                          type="button"
-                          onClick={selectAllUnits}
-                          className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
-                        >
-                          Select All
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setBulkAssignmentForm(prev => ({ ...prev, unit_ids: [] }))}
-                          className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Loading State */}
-                    {loadingUnits && (
-                      <div className="flex items-center justify-center p-8 border border-gray-300 rounded-lg">
-                        <div className="flex items-center space-x-2">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                          <span className="text-gray-600">Loading units...</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Units List */}
-                    {!loadingUnits && (
-                      <div className="max-h-60 overflow-y-auto border border-gray-300 rounded-lg">
-                        {availableUnits.length > 0 ? (
-                          availableUnits.map(unit => (
-                            <label
-                              key={unit.id}
-                              className={`flex items-center p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer ${
-                                unit.is_assigned ? 'bg-yellow-50' : ''
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={bulkAssignmentForm.unit_ids.includes(unit.id)}
-                                onChange={() => handleUnitToggle(unit.id)}
-                                className="form-checkbox h-4 w-4 text-blue-600 mr-3"
-                              />
-                              <div className="flex-1">
-                                <div className="text-sm font-medium text-gray-900">
-                                  {unit.code} - {unit.name}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  {unit.school?.code} | {unit.program?.code} | {unit.credit_hours} credits
-                                </div>
-                                {unit.is_assigned && unit.assignment && (
-                                  <div className="text-xs text-yellow-600 mt-1 flex items-center">
-                                    <AlertTriangle className="w-3 h-3 mr-1" />
-                                    Already assigned to {unit.assignment.lecturer_name}
-                                  </div>
-                                )}
-                              </div>
-                            </label>
-                          ))
-                        ) : (
-                          <div className="p-8 text-center text-gray-500">
-                            {bulkAssignmentForm.semester_id ? 
-                              'No units found for the selected criteria' : 
-                              'Please select a semester to load units'
-                            }
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="text-sm text-gray-600 mt-2">
-                      {bulkAssignmentForm.unit_ids.length} units selected
-                      {availableUnits.length > 0 && (
-                        <span className="ml-2">
-                          ({availableUnits.filter(u => !u.is_assigned).length} unassigned, {availableUnits.filter(u => u.is_assigned).length} already assigned)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Form Actions */}
-                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
-                    <button
-                      type="button"
-                      onClick={() => setIsBulkAssignModalOpen(false)}
-                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={submitBulkAssignment}
-                      disabled={loading || !bulkAssignmentForm.semester_id || !bulkAssignmentForm.lecturer_code || bulkAssignmentForm.unit_ids.length === 0}
-                      className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {loading ? 'Processing...' : `Assign to ${bulkAssignmentForm.unit_ids.length} Units`}
                     </button>
                   </div>
                 </div>
