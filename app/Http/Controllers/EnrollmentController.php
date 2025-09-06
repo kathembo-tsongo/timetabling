@@ -85,6 +85,14 @@ class EnrollmentController extends Controller
             ->role('Student')
             ->orderByRaw("CONCAT(first_name, ' ', last_name)")
             ->get();
+
+            // ADD THIS: Fetch lecturers from users table
+    $lecturers = User::role('Lecturer')
+        ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
+        ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+        ->get();
+
+        
         
         // Get units that are assigned to classes
         $units = Unit::with(['school', 'program'])
@@ -114,21 +122,22 @@ class EnrollmentController extends Controller
         ];
         
         return Inertia::render('Admin/Enrollments/Index', [
-            'enrollments' => $enrollments, // Now paginated
-            'students' => $students,
-            'units' => $units,
-            'schools' => $schools,
-            'programs' => $programs,
-            'semesters' => $semesters,
-            'classes' => $classes,
-            'stats' => $stats,
-            'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
-            'can' => [
-                'create' => auth()->user()->can('create-enrollments'),
-                'update' => auth()->user()->can('edit-enrollments'),
-                'delete' => auth()->user()->can('delete-enrollments'),
-            ]
-        ]);
+        'enrollments' => $enrollments,
+        'students' => $students,
+        'lecturers' => $lecturers,  // ADD THIS LINE
+        'units' => $units,
+        'schools' => $schools,
+        'programs' => $programs,
+        'semesters' => $semesters,
+        'classes' => $classes,
+        'stats' => $stats,
+        'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
+        'can' => [
+            'create' => auth()->user()->can('create-enrollments'),
+            'update' => auth()->user()->can('edit-enrollments'),
+            'delete' => auth()->user()->can('delete-enrollments'),
+        ]
+    ]);
     }
 
     public function store(Request $request)

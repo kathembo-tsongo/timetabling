@@ -550,9 +550,32 @@ export default function EnrollmentsIndex() {
     !selectedSchool || program.school_id === selectedSchool
   );
 
-  const availableLecturers = lecturers.filter(lecturer => 
-    !lecturerAssignmentForm.school_id || lecturer.school_id === parseInt(lecturerAssignmentForm.school_id)
-  );
+const availableLecturers = lecturers.filter(lecturer => {
+  if (!lecturerAssignmentForm.school_id) return true;
+  
+  const selectedSchool = schools.find(school => school.id === Number(lecturerAssignmentForm.school_id));
+  if (!selectedSchool) return false;
+  
+  return lecturer.schools === selectedSchool.code;
+});
+
+// Alternative approach if lecturers don't have school_id property:
+// You might need to check the actual structure of your lecturer object
+const availableLecturersAlternative = lecturers.filter(lecturer => {
+  // If no school is selected, show all lecturers
+  if (!lecturerAssignmentForm.school_id) return true;
+  
+  // If lecturer doesn't have school_id, include them (or exclude based on your logic)
+  if (!lecturer.school_id) {
+    console.log('Lecturer without school_id:', lecturer);
+    return false; // or return true if you want to include lecturers without school assignment
+  }
+  
+  const selectedSchoolId = Number(lecturerAssignmentForm.school_id);
+  const lecturerSchoolId = Number(lecturer.school_id);
+  
+  return lecturerSchoolId === selectedSchoolId;
+});
 
   const lecturerAssignmentPrograms = programs.filter(program => 
     !lecturerAssignmentForm.school_id || program.school_id === parseInt(lecturerAssignmentForm.school_id)
