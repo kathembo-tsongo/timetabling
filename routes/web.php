@@ -227,21 +227,18 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
         Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
 
-            // Lecturer Assignment routes
-   // Lecturer Assignment routes (single assignment only)
-// Lecturer Assignment routes (single assignment only)
-Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
-    Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
-    Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
-    Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
-    Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
-    
-    // API endpoints for filtering
-    Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
-    Route::get('/programs-by-school', [LecturerAssignmentController::class, 'getProgramsBySchool'])->name('programs-by-school');
-    Route::get('/classes-by-program-semester', [LecturerAssignmentController::class, 'getClassesByProgramSemester'])->name('classes-by-program-semester');
-    Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
-});
+ Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
+        Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
+        Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
+        Route::put('/{assignmentId}', [LecturerAssignmentController::class, 'update'])->name('update');
+        Route::delete('/{assignmentId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
+        
+        // API endpoints for filtering
+        Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
+        Route::get('/programs-by-school', [LecturerAssignmentController::class, 'getProgramsBySchool'])->name('programs-by-school');
+        Route::get('/classes-by-program-semester', [LecturerAssignmentController::class, 'getClassesByProgramSemester'])->name('classes-by-program-semester');
+        Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
+    });
 
 
         // System Settings
@@ -287,10 +284,10 @@ Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function
             Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
             Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
             Route::get('/schools/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
-            Route::get('/lecturer-assignments/lecturers', [LecturerAssignmentController::class, 'getAvailableLecturers']);
-            Route::get('/lecturer-assignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
-            Route::get('/lecturer-assignments/units', [LecturerAssignmentController::class, 'getFilteredUnits']);
-            Route::get('/lecturer-assignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
+            Route::get('/lecturerassignments/lecturers', [LecturerAssignmentController::class, 'getAvailableLecturers']);
+            Route::get('/lecturerassignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
+            Route::get('/lecturerassignments/units', [LecturerAssignmentController::class, 'getFilteredUnits']);
+            Route::get('/lecturerassignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
         });
     });
 });

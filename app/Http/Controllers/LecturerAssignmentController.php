@@ -9,11 +9,13 @@ use App\Models\ClassModel;
 use App\Models\Semester;
 use App\Models\School;
 use App\Models\Program;
+use App\Models\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+
 
 class LecturerAssignmentController extends Controller
 {
@@ -122,6 +124,234 @@ class LecturerAssignmentController extends Controller
             ]
         ]);
     }
+
+    public function store(Request $request){
+
+         Log::info('Lecturer assignment request received:', $request->all());
+
+    $validator = Validator::make($request->all(), [
+        'unit_id' => 'required|exists:units,id',
+        'lecturer_code' => 'required|string',
+        'semester_id' => 'required|exists:semesters,id',
+        'class_id' => 'required|exists:classes,id'  // Add this validation
+    ]);
+
+    if ($validator->fails()) {
+        return redirect()->back()
+            ->withErrors($validator)
+            ->with('error', 'Please check the form for errors.');
+    }
+
+    try {
+        DB::beginTransaction();
+
+        // Find lecturer by code with school information
+        $lecturer = User::with(['school', 'program'])
+            ->where('code', $request->lecturer_code)
+            ->role('Lecturer')
+            ->first();
+
+        if (!$lecturer) {
+            return redirect()->back()
+                ->with('error', 'Lecturer with code "' . $request->lecturer_code . '" not found.');
+        }
+
+        // Get unit and semester details
+        $unit = Unit::with(['school', 'program'])->find($request->unit_id);
+        $semester = Semester::find($request->semester_id);
+        $class = ClassModel::find($request->class_id);
+
+        // Check if this exact assignment already exists
+        $existingAssignment = UnitAssignment::where('unit_id', $request->unit_id)
+            ->where('semester_id', $request->semester_id)
+            ->where('class_id', $request->class_id)  // Include class_id
+            ->where('lecturer_code', $request->lecturer_code)
+            ->first();
+
+        if ($existingAssignment) {
+            DB::rollBack();
+            return redirect()->back()
+                ->with('error', 'This lecturer is already assigned to this unit for the selected class and semester.');
+        }
+
+        // Check if unit already has a different lecturer assigned for this class and semester
+        $unitHasLecturer = UnitAssignment::where('unit_id', $request->unit_id)
+            ->where('semester_id', $request->semester_id)
+            ->where('class_id', $request->class_id)  // Include class_id
+            ->whereNotNull('lecturer_code')
+            ->where('lecturer_code', '!=', '')
+            ->where('lecturer_code', '!=', $request->lecturer_code)
+            ->first();
+
+        if ($unitHasLecturer) {
+            DB::rollBack();
+            $existingLecturer = User::where('code', $unitHasLecturer->lecturer_code)->first();
+            $existingLecturerName = $existingLecturer ? 
+                "{$existingLecturer->first_name} {$existingLecturer->last_name}" : 
+                $unitHasLecturer->lecturer_code;
+                
+            return redirect()->back()
+                ->with('error', "This unit already has a lecturer assigned ({$existingLecturerName}) for the selected class and semester.");
+        }
+
+        // Update or create unit assignment with lecturer - INCLUDE CLASS_ID
+        UnitAssignment::updateOrCreate(
+            [
+                'unit_id' => $request->unit_id,
+                'semester_id' => $request->semester_id,
+                'class_id' => $request->class_id  // Add this line
+            ],
+            [
+                'lecturer_code' => $request->lecturer_code,
+                'updated_at' => now()
+            ]
+        );
+
+        DB::commit();
+
+        return redirect()->back()->with('success', 
+            "Lecturer {$lecturer->first_name} {$lecturer->last_name} ({$lecturer->code}) assigned to {$unit->code} - {$unit->name} for {$class->name} in {$semester->name}."
+        );
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Error assigning lecturer: ' . $e->getMessage());
+        return redirect()->back()->with('error', 'Error assigning lecturer. Please try again.');
+    }
+}
+
+    public function update(Request $request, $unitId, $semesterId)
+    {
+        $validator = Validator::make($request->all(), [
+            'lecturer_code' => 'required|string'
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->with('error', 'Please provide a valid lecturer code.');
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Find lecturer by code with school information
+            $lecturer = User::with(['school', 'program'])
+                ->where('code', $request->lecturer_code)
+                ->role('Lecturer')
+                ->first();
+
+            if (!$lecturer) {
+                return redirect()->back()
+                    ->with('error', 'Lecturer with code "' . $request->lecturer_code . '" not found.');
+            }
+
+            // Find the unit assignment
+            $assignment = UnitAssignment::with([
+                'unit.school',
+                'unit.program',
+                'semester'
+            ])->where('unit_id', $unitId)
+              ->where('semester_id', $semesterId)
+              ->first();
+
+            if (!$assignment) {
+                return redirect()->back()
+                    ->with('error', 'Unit assignment not found.');
+            }
+
+            // Check if trying to assign the same lecturer (no change needed)
+            if ($assignment->lecturer_code === $request->lecturer_code) {
+                return redirect()->back()
+                    ->with('error', 'This lecturer is already assigned to this unit.');
+            }
+
+            // Get old lecturer info for the success message
+            $oldLecturer = null;
+            if ($assignment->lecturer_code) {
+                $oldLecturer = User::where('code', $assignment->lecturer_code)->first();
+            }
+
+            // Update the assignment
+            $assignment->update([
+                'lecturer_code' => $request->lecturer_code,
+                'updated_at' => now()
+            ]);
+
+            DB::commit();
+
+            $unit = $assignment->unit;
+            $semester = $assignment->semester;
+
+            $message = "Lecturer assignment updated for {$unit->code} - {$unit->name} in {$semester->name}. ";
+            if ($oldLecturer) {
+                $message .= "Changed from {$oldLecturer->first_name} {$oldLecturer->last_name} to ";
+            } else {
+                $message .= "Assigned ";
+            }
+            $message .= "{$lecturer->first_name} {$lecturer->last_name} ({$lecturer->code}).";
+
+            return redirect()->back()->with('success', $message);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error updating lecturer assignment: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to update lecturer assignment.');
+        }
+    }
+
+    public function destroy($unitId, $semesterId)
+    {
+        try {
+            DB::beginTransaction();
+
+            $assignment = UnitAssignment::with([
+                'unit.school',
+                'unit.program',
+                'semester',
+                'lecturer' // Assuming you have lecturer relationship
+            ])->where('unit_id', $unitId)
+              ->where('semester_id', $semesterId)
+              ->first();
+
+            if (!$assignment) {
+                return redirect()->back()
+                    ->with('error', 'Unit assignment not found.');
+            }
+
+            if (!$assignment->lecturer_code) {
+                return redirect()->back()
+                    ->with('error', 'No lecturer is currently assigned to this unit.');
+            }
+
+            // Get lecturer info for success message
+            $lecturer = User::where('code', $assignment->lecturer_code)->first();
+            $lecturerName = $lecturer ? 
+                "{$lecturer->first_name} {$lecturer->last_name}" : 
+                $assignment->lecturer_code;
+
+            // Remove lecturer assignment (but keep the unit assignment record)
+            $assignment->update([
+                'lecturer_code' => null,
+                'updated_at' => now()
+            ]);
+
+            DB::commit();
+
+            $unit = $assignment->unit;
+            $semester = $assignment->semester;
+
+            return redirect()->back()->with('success', 
+                "Lecturer assignment removed. {$lecturerName} is no longer assigned to {$unit->code} - {$unit->name} for {$semester->name}."
+            );
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error removing lecturer assignment: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to remove lecturer assignment.');
+        }
+    }
+
 
     public function assign(Request $request)
     {

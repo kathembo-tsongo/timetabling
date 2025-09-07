@@ -87,10 +87,39 @@ class EnrollmentController extends Controller
             ->get();
 
             // ADD THIS: Fetch lecturers from users table
-    $lecturers = User::role('Lecturer')
+        $lecturers = User::role('Lecturer')
         ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
         ->orderByRaw("CONCAT(first_name, ' ', last_name)")
         ->get();
+
+        $lecturers = User::role('Lecturer')
+    ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
+    ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+    ->get();
+
+// Fetch lecturer assignments
+$lecturerAssignments = UnitAssignment::with([
+    'unit.school',
+    'unit.program', 
+    'class.program.school',
+    'semester'
+])
+->whereNotNull('lecturer_code')
+->whereNotNull('class_id')  // Add this to ensure class_id exists
+->orderBy('created_at', 'desc')
+->take(20)
+->get()
+->map(function ($assignment) {
+    $lecturer = User::where('code', $assignment->lecturer_code)->first();
+    $assignment->lecturer = $lecturer;
+    return $assignment;
+});
+
+// Get units that are assigned to classes
+$units = Unit::with(['school', 'program'])
+    ->whereHas('assignments')
+    ->where('is_active', true)
+    ->get();
 
         
         
@@ -124,7 +153,8 @@ class EnrollmentController extends Controller
         return Inertia::render('Admin/Enrollments/Index', [
         'enrollments' => $enrollments,
         'students' => $students,
-        'lecturers' => $lecturers,  // ADD THIS LINE
+        'lecturers' => $lecturers,
+        'lecturerAssignments' => $lecturerAssignments,
         'units' => $units,
         'schools' => $schools,
         'programs' => $programs,
@@ -173,7 +203,6 @@ class EnrollmentController extends Controller
             $class = ClassModel::with(['program.school'])->find($request->class_id);
             $semester = Semester::find($request->semester_id);
             
-            // **FIX: CHECK CLASS CAPACITY USING UNIQUE STUDENT COUNT**
             // Count current UNIQUE enrolled students in this class for this semester
             $currentEnrollments = Enrollment::where('class_id', $request->class_id)
                 ->where('semester_id', $request->semester_id)
@@ -312,9 +341,7 @@ class EnrollmentController extends Controller
             
             $enrollment->update([
                 'status' => $request->status
-            ]);
-
-            // **NEW: UPDATE CLASS STUDENT COUNT WHEN STATUS CHANGES**
+            ]);            
             // If status changed between enrolled/not-enrolled states, update count
             if (($oldStatus === 'enrolled') !== ($request->status === 'enrolled')) {
                 $this->updateClassStudentCount($enrollment->class_id, $enrollment->semester_id);

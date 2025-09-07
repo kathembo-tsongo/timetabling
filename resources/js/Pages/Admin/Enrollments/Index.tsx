@@ -62,6 +62,7 @@ type Unit = {
 };
 
 type Lecturer = {
+  schools: string;
   id: number;
   code: string;
   first_name: string;
@@ -70,6 +71,19 @@ type Lecturer = {
   display_name: string;
   school_id?: number;
   current_workload?: number;
+};
+
+type LecturerAssignment = {
+  unit_id: number;
+  semester_id: number;
+  class_id: number;
+  lecturer_code: string;
+  unit: Unit;
+  semester: Semester;
+  class: Class;
+  lecturer: Lecturer;
+  created_at: string;
+  updated_at: string;
 };
 
 type Enrollment = {
@@ -158,6 +172,7 @@ type PageProps = {
   students: Student[];
   units: Unit[];
   lecturers?: Lecturer[];
+  lecturerAssignments?: LecturerAssignment[]; 
   schools: School[];
   programs: Program[];
   classes: Class[];
@@ -351,6 +366,7 @@ export default function EnrollmentsIndex() {
     students = [], 
     units = [],
     lecturers = [],
+    lecturerAssignments = [],
     schools = [], 
     programs = [], 
     classes = [],
@@ -390,6 +406,32 @@ export default function EnrollmentsIndex() {
     unit_id: '',
     lecturer_code: ''
   });
+
+  const handleEditLecturerAssignment = (assignment: LecturerAssignment) => {
+  // Set the form with existing assignment data
+  setLecturerAssignmentForm({
+    semester_id: assignment.semester_id.toString(),
+    school_id: assignment.unit.school_id.toString(),
+    program_id: assignment.unit.program_id.toString(),
+    class_id: assignment.class_id.toString(),
+    unit_id: assignment.unit_id.toString(),
+    lecturer_code: assignment.lecturer_code
+  });
+  setIsLecturerAssignModalOpen(true);
+};
+
+const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
+  if (confirm('Are you sure you want to remove this lecturer assignment?')) {
+    router.delete(`/admin/lecturerassignment/${unitId}/${semesterId}`, {
+      onSuccess: () => {
+        toast.success('Lecturer assignment removed successfully!');
+      },
+      onError: () => {
+        toast.error('Failed to remove lecturer assignment');
+      }
+    });
+  }
+};
 
   // Available data for enrollment
   const [availableClasses, setAvailableClasses] = useState<Class[]>([]);
@@ -764,41 +806,41 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
   };
 
   const submitLecturerAssignment = () => {
-    if (!lecturerAssignmentForm.unit_id || !lecturerAssignmentForm.lecturer_code || !lecturerAssignmentForm.semester_id) {
-      toast.error('Please fill in all required fields');
-      return;
+    if (!lecturerAssignmentForm.unit_id || !lecturerAssignmentForm.lecturer_code || !lecturerAssignmentForm.semester_id || !lecturerAssignmentForm.class_id) {
+        toast.error('Please fill in all required fields');
+        return;
     }
 
     setLoading(true);
 
-    router.post('/admin/lecturer-assignments', {
-      unit_id: lecturerAssignmentForm.unit_id,
-      lecturer_code: lecturerAssignmentForm.lecturer_code,
-      semester_id: lecturerAssignmentForm.semester_id
+    router.post('/admin/lecturerassignment/', {
+        unit_id: lecturerAssignmentForm.unit_id,
+        lecturer_code: lecturerAssignmentForm.lecturer_code,
+        semester_id: lecturerAssignmentForm.semester_id,
+        class_id: lecturerAssignmentForm.class_id  // Make sure this is included
     }, {
-      onSuccess: () => {
-        toast.success('Lecturer assigned successfully!');
-        setIsLecturerAssignModalOpen(false);
-        setLecturerAssignmentForm({
-          semester_id: '',
-          school_id: '',
-          program_id: '',
-          class_id: '',
-          unit_id: '',
-          lecturer_code: ''
-        });
-        setAvailableClassesForAssignment([]);
-        setAvailableUnitsForAssignment([]);
-      },
-      onError: (errors) => {
-        toast.error(errors.error || 'Failed to assign lecturer');
-      },
-      onFinish: () => {
-        setLoading(false);
-      }
+        onSuccess: () => {
+            toast.success('Lecturer assigned successfully!');
+            setIsLecturerAssignModalOpen(false);
+            setLecturerAssignmentForm({
+                semester_id: '',
+                school_id: '',
+                program_id: '',
+                class_id: '',
+                unit_id: '',
+                lecturer_code: ''
+            });
+            setAvailableClassesForAssignment([]);
+            setAvailableUnitsForAssignment([]);
+        },
+        onError: (errors) => {
+            toast.error(errors.error || 'Failed to assign lecturer');
+        },
+        onFinish: () => {
+            setLoading(false);
+        }
     });
-  };
-
+};
   return (
     <AuthenticatedLayout user={auth.user}>
       <Head title="Enrollments Management" />
@@ -1133,8 +1175,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+              </table>         </div>
 
             {enrollments.data.length === 0 && (
               <div className="text-center py-12">
@@ -1156,9 +1197,128 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                 )}
               </div>
             )}
-
             <Pagination paginationData={enrollments} onPageClick={handlePaginationClick} />
           </div>
+
+          {/* Lecturer Assignments Table */}
+          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden mt-8">
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+      <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
+      Current Lecturer Assignments
+    </h3>
+  </div>
+  
+  <div className="overflow-x-auto">
+    <table className="min-w-full divide-y divide-gray-200">
+      <thead className="bg-gray-50">
+        <tr>
+          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Unit
+          </th>
+          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Lecturer
+          </th>
+          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Class
+          </th>
+          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Semester
+          </th>
+          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            School
+          </th>
+          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Actions
+          </th>
+        </tr>
+      </thead>
+      <tbody className="bg-white divide-y divide-gray-200">
+        {/* Note: You'll need to fetch lecturer assignments data from your backend */}
+        {/* This is a placeholder - you need to add lecturer assignments to your props */}
+        {lecturerAssignments?.length > 0 ? (
+          lecturerAssignments.map((assignment) => (
+            <tr key={`${assignment.unit_id}-${assignment.semester_id}`} className="hover:bg-gray-50">
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm font-medium text-gray-900">
+                  {assignment.unit?.code}
+                </div>
+                <div className="text-sm text-gray-500">
+                  {assignment.unit?.name}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {assignment.unit?.credit_hours} credits
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 h-10 w-10">
+                    <div className="h-10 w-10 rounded-full bg-gradient-to-r from-green-500 to-blue-600 flex items-center justify-center">
+                      <span className="text-sm font-medium text-white">
+                        {assignment.lecturer_code?.slice(0, 2) || 'UN'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="ml-4">
+                    <div className="text-sm font-medium text-gray-900">
+                      {assignment.lecturer?.first_name} {assignment.lecturer?.last_name}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {assignment.lecturer_code}
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm font-medium text-gray-900">
+                  {assignment.class?.name} Sec {assignment.class?.section}
+                </div>
+                <div className="text-sm text-gray-500">
+                  Year {assignment.class?.year_level}
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                {assignment.semester?.name}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm text-gray-900">
+                  {assignment.unit?.school?.code}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {assignment.unit?.school?.name}
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <div className="flex items-center justify-end space-x-2">
+                  <button
+                    onClick={() => handleEditLecturerAssignment(assignment)}
+                    className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
+                    title="Edit Assignment"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleRemoveLecturerAssignment(assignment.unit_id, assignment.semester_id)}
+                    className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
+                    title="Remove Assignment"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
+              No lecturer assignments found
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
 
           {/* Create Enrollment Modal */}
           {isCreateModalOpen && (

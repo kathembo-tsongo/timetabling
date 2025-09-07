@@ -12,6 +12,7 @@ class UnitAssignment extends Model
         'semester_id', 
         'class_id',
         'program_id',
+        'lecturer_code',
         'is_active',
     ];
 
