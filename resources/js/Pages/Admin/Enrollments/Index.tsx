@@ -1224,10 +1224,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
           </th>
           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
             Semester
-          </th>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            School
-          </th>
+          </th>          
           <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
             Actions
           </th>
@@ -1279,24 +1276,16 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 {assignment.semester?.name}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="text-sm text-gray-900">
-                  {assignment.unit?.school?.code}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {assignment.unit?.school?.name}
-                </div>
-              </td>
+              </td>              
               <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                 <div className="flex items-center justify-end space-x-2">
-                  <button
+                  {/* <button
                     onClick={() => handleEditLecturerAssignment(assignment)}
                     className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
                     title="Edit Assignment"
                   >
                     <Edit className="w-4 h-4" />
-                  </button>
+                  </button> */}
                   <button
                     onClick={() => handleRemoveLecturerAssignment(assignment.unit_id, assignment.semester_id)}
                     className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"

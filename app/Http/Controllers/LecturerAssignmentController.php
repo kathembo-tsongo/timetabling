@@ -300,57 +300,58 @@ class LecturerAssignmentController extends Controller
         }
     }
 
-    public function destroy($unitId, $semesterId)
-    {
-        try {
-            DB::beginTransaction();
 
-            $assignment = UnitAssignment::with([
-                'unit.school',
-                'unit.program',
-                'semester',
-                'lecturer' // Assuming you have lecturer relationship
-            ])->where('unit_id', $unitId)
-              ->where('semester_id', $semesterId)
-              ->first();
+public function destroy($unitId, $semesterId)
+{
+    try {
+        DB::beginTransaction();
 
-            if (!$assignment) {
-                return redirect()->back()
-                    ->with('error', 'Unit assignment not found.');
-            }
+        $assignment = UnitAssignment::with([
+            'unit.school',
+            'unit.program',
+            'semester',
+            'lecturer' // Make sure this relationship exists in your UnitAssignment model
+        ])->where('unit_id', $unitId)
+          ->where('semester_id', $semesterId)
+          ->first();
 
-            if (!$assignment->lecturer_code) {
-                return redirect()->back()
-                    ->with('error', 'No lecturer is currently assigned to this unit.');
-            }
-
-            // Get lecturer info for success message
-            $lecturer = User::where('code', $assignment->lecturer_code)->first();
-            $lecturerName = $lecturer ? 
-                "{$lecturer->first_name} {$lecturer->last_name}" : 
-                $assignment->lecturer_code;
-
-            // Remove lecturer assignment (but keep the unit assignment record)
-            $assignment->update([
-                'lecturer_code' => null,
-                'updated_at' => now()
-            ]);
-
-            DB::commit();
-
-            $unit = $assignment->unit;
-            $semester = $assignment->semester;
-
-            return redirect()->back()->with('success', 
-                "Lecturer assignment removed. {$lecturerName} is no longer assigned to {$unit->code} - {$unit->name} for {$semester->name}."
-            );
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Error removing lecturer assignment: ' . $e->getMessage());
-            return redirect()->back()->with('error', 'Failed to remove lecturer assignment.');
+        if (!$assignment) {
+            return redirect()->back()
+                ->with('error', 'Unit assignment not found.');
         }
+
+        if (!$assignment->lecturer_code) {
+            return redirect()->back()
+                ->with('error', 'No lecturer is currently assigned to this unit.');
+        }
+
+        // Get lecturer info for success message
+        $lecturer = User::where('code', $assignment->lecturer_code)->first();
+        $lecturerName = $lecturer ? 
+            "{$lecturer->first_name} {$lecturer->last_name}" : 
+            $assignment->lecturer_code;
+
+        // Remove lecturer assignment (but keep the unit assignment record)
+        $assignment->update([
+            'lecturer_code' => null,
+            'updated_at' => now()
+        ]);
+
+        DB::commit();
+
+        $unit = $assignment->unit;
+        $semester = $assignment->semester;
+
+        return redirect()->back()->with('success', 
+            "Lecturer assignment removed. {$lecturerName} is no longer assigned to {$unit->code} - {$unit->name} for {$semester->name}."
+        );
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Error removing lecturer assignment: ' . $e->getMessage());
+        return redirect()->back()->with('error', 'Failed to remove lecturer assignment.');
     }
+}
 
 
     public function assign(Request $request)

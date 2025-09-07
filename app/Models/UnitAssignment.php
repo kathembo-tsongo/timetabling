@@ -11,32 +11,33 @@ class UnitAssignment extends Model
         'unit_id',
         'semester_id', 
         'class_id',
-        'program_id',
         'lecturer_code',
-        'is_active',
+        'assigned_at'
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
+        'assigned_at' => 'datetime',
     ];
 
-    public function unit(): BelongsTo
+    // Existing relationships
+    public function unit()
     {
         return $this->belongsTo(Unit::class);
     }
 
-    public function semester(): BelongsTo
+    public function semester()
     {
         return $this->belongsTo(Semester::class);
     }
 
-    public function class(): BelongsTo
+    public function class()
     {
         return $this->belongsTo(ClassModel::class, 'class_id');
     }
 
-    public function program(): BelongsTo
+    // ADD THIS RELATIONSHIP if it doesn't exist
+    public function lecturer()
     {
-        return $this->belongsTo(Program::class);
+        return $this->belongsTo(User::class, 'lecturer_code', 'code');
     }
 }

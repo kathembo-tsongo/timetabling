@@ -227,19 +227,22 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
         Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
 
- Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
-        Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
-        Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
-        Route::put('/{assignmentId}', [LecturerAssignmentController::class, 'update'])->name('update');
-        Route::delete('/{assignmentId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
-        
-        // API endpoints for filtering
-        Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
-        Route::get('/programs-by-school', [LecturerAssignmentController::class, 'getProgramsBySchool'])->name('programs-by-school');
-        Route::get('/classes-by-program-semester', [LecturerAssignmentController::class, 'getClassesByProgramSemester'])->name('classes-by-program-semester');
-        Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
-    });
-
+Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
+    Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
+    Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
+    
+    // Change this to match your controller method signature and React component call
+    Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
+    
+    // Update route should also match the pattern if you're using unitId and semesterId
+    Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
+    
+    // API endpoints for filtering
+    Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
+    Route::get('/programs-by-school', [LecturerAssignmentController::class, 'getProgramsBySchool'])->name('programs-by-school');
+    Route::get('/classes-by-program-semester', [LecturerAssignmentController::class, 'getClassesByProgramSemester'])->name('classes-by-program-semester');
+    Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
+});
 
         // System Settings
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
