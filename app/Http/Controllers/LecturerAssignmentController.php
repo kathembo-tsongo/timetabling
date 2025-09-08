@@ -84,6 +84,9 @@ class LecturerAssignmentController extends Controller
         // Paginate results
         $assignments = $query->paginate(15)->withQueryString();
 
+        // Get lecturer assignments separately with independent pagination
+        $lecturerAssignments = $this->getLecturerAssignments($request);
+
         // Get lecturers (users with lecturer role)
         $lecturers = User::with(['school', 'program'])
             ->role('Lecturer')
@@ -110,6 +113,7 @@ class LecturerAssignmentController extends Controller
 
         return Inertia::render('Admin/LecturerAssignments/Index', [
             'assignments' => $assignments,
+            'lecturerAssignments' => $lecturerAssignments, // Added separate lecturer assignments with pagination
             'lecturers' => $lecturers,
             'schools' => $schools,
             'programs' => $programs,
@@ -123,6 +127,75 @@ class LecturerAssignmentController extends Controller
                 'bulk_assign' => auth()->user()->can('bulk-assign-lecturers'),
             ]
         ]);
+    }
+
+    // NEW METHOD: Get lecturer assignments with independent pagination
+    public function getLecturerAssignments(Request $request)
+    {
+        // Base query for lecturer assignments (only those with assigned lecturers)
+        $query = UnitAssignment::with([
+            'unit.school',
+            'unit.program', 
+            'class.program.school',
+            'semester',
+            'lecturer'
+        ])->whereNotNull('lecturer_code')
+          ->where('lecturer_code', '!=', '');
+
+        // Apply filters if provided (you can customize these based on your needs)
+        if ($request->filled('semester_id')) {
+            $query->where('semester_id', $request->semester_id);
+        }
+
+        if ($request->filled('school_id')) {
+            $query->whereHas('unit', function($q) use ($request) {
+                $q->where('school_id', $request->school_id);
+            });
+        }
+
+        if ($request->filled('program_id')) {
+            $query->whereHas('unit', function($q) use ($request) {
+                $q->where('program_id', $request->program_id);
+            });
+        }
+
+        if ($request->filled('class_id')) {
+            $query->where('class_id', $request->class_id);
+        }
+
+        if ($request->filled('lecturer_code')) {
+            $query->where('lecturer_code', $request->lecturer_code);
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->whereHas('unit', function($unitQuery) use ($search) {
+                    $unitQuery->where('code', 'like', '%' . $search . '%')
+                             ->orWhere('name', 'like', '%' . $search . '%');
+                })
+                ->orWhere('lecturer_code', 'like', '%' . $search . '%')
+                ->orWhereHas('lecturer', function($lecturerQuery) use ($search) {
+                    $lecturerQuery->where('first_name', 'like', '%' . $search . '%')
+                                  ->orWhere('last_name', 'like', '%' . $search . '%');
+                });
+            });
+        }
+
+        // Order by latest first
+        $query->orderBy('created_at', 'desc');
+
+        // Use lecturer_page parameter for independent pagination
+        $page = $request->input('lecturer_page', 1);
+        
+        // Paginate with custom page parameter and page name
+        $lecturerAssignments = $query->paginate(10, ['*'], 'lecturer_page', $page);
+        
+        // Manually set the path and append query parameters
+        $lecturerAssignments->withPath($request->url());
+        $lecturerAssignments->appends($request->except('lecturer_page'));
+
+        return $lecturerAssignments;
     }
 
     public function store(Request $request){

@@ -79,7 +79,7 @@ class EnrollmentController extends Controller
         $query->orderBy('created_at', 'desc');
 
         // Paginate results (15 per page)
-        $enrollments = $query->paginate(10)->withQueryString();
+        $enrollments = $query->paginate(5)->withQueryString();
         
         $students = User::with(['school', 'program'])
             ->role('Student')
