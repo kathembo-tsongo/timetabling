@@ -254,186 +254,103 @@ class ClassTimetableController extends Controller
      * ✅ FIXED: API endpoint to get units by class and semester
      */
     public function getUnitsByClass(Request $request)
-    {
-        try {
-            $classId = $request->input('class_id');
-            $semesterId = $request->input('semester_id');
+{
+    try {
+        $classId = $request->input('class_id');
+        $semesterId = $request->input('semester_id');
 
-            if (!$classId || !$semesterId) {
-                return response()->json(['error' => 'Class ID and Semester ID are required.'], 400);
-            }
-
-            \Log::info('Fetching units for class', [
-                'class_id' => $classId,
-                'semester_id' => $semesterId
-            ]);
-
-            // Method 1: Try to find units through enrollments that have the specific class association
-            $unitsFromEnrollments = [];
-            
-            // Check if enrollments table has class_id column
-            $enrollmentColumns = DB::getSchemaBuilder()->getColumnListing('enrollments');
-            
-            if (in_array('class_id', $enrollmentColumns)) {
-                // Direct method: enrollments table has class_id
-                $unitsFromEnrollments = DB::table('enrollments')
-                    ->join('units', 'enrollments.unit_id', '=', 'units.id')
-                    ->where('enrollments.semester_id', $semesterId)
-                    ->where('enrollments.class_id', $classId)
-                    ->select('units.id', 'units.code', 'units.name', 'units.credit_hours')
-                    ->distinct()
-                    ->get()
-                    ->toArray();
-            }
-
-            // Method 2: Try semester_unit pivot table
-            $unitsFromSemesterUnit = [];
-            $hasSemesterUnitTable = DB::getSchemaBuilder()->hasTable('semester_unit');
-            
-            if ($hasSemesterUnitTable) {
-                $semesterUnitColumns = DB::getSchemaBuilder()->getColumnListing('semester_unit');
-                
-                if (in_array('class_id', $semesterUnitColumns)) {
-                    $unitsFromSemesterUnit = DB::table('semester_unit')
-                        ->join('units', 'semester_unit.unit_id', '=', 'units.id')
-                        ->where('semester_unit.semester_id', $semesterId)
-                        ->where('semester_unit.class_id', $classId)
-                        ->select('units.id', 'units.code', 'units.name', 'units.credit_hours')
-                        ->distinct()
-                        ->get()
-                        ->toArray();
-                }
-            }
-
-            // Method 3: Try class_unit pivot table (common relationship)
-            $unitsFromClassUnit = [];
-            $hasClassUnitTable = DB::getSchemaBuilder()->hasTable('class_unit');
-            
-            if ($hasClassUnitTable) {
-                $classUnitColumns = DB::getSchemaBuilder()->getColumnListing('class_unit');
-                
-                if (in_array('semester_id', $classUnitColumns)) {
-                    $unitsFromClassUnit = DB::table('class_unit')
-                        ->join('units', 'class_unit.unit_id', '=', 'units.id')
-                        ->where('class_unit.class_id', $classId)
-                        ->where('class_unit.semester_id', $semesterId)
-                        ->select('units.id', 'units.code', 'units.name', 'units.credit_hours')
-                        ->distinct()
-                        ->get()
-                        ->toArray();
-                } else {
-                    // class_unit table exists but doesn't have semester_id
-                    $unitsFromClassUnit = DB::table('class_unit')
-                        ->join('units', 'class_unit.unit_id', '=', 'units.id')
-                        ->where('class_unit.class_id', $classId)
-                        ->where('units.semester_id', $semesterId) // Filter by units.semester_id instead
-                        ->select('units.id', 'units.code', 'units.name', 'units.credit_hours')
-                        ->distinct()
-                        ->get()
-                        ->toArray();
-                }
-            }
-
-            // Method 4: Try group-based relationship
-            $unitsFromGroups = [];
-            $hasGroupUnitTable = DB::getSchemaBuilder()->hasTable('group_unit');
-            
-            if ($hasGroupUnitTable) {
-                $unitsFromGroups = DB::table('groups')
-                    ->join('group_unit', 'groups.id', '=', 'group_unit.group_id')
-                    ->join('units', 'group_unit.unit_id', '=', 'units.id')
-                    ->where('groups.class_id', $classId)
-                    ->where('units.semester_id', $semesterId)
-                    ->select('units.id', 'units.code', 'units.name', 'units.credit_hours')
-                    ->distinct()
-                    ->get()
-                    ->toArray();
-            }
-
-            // Method 5: Fallback - get all units for the semester and let user choose
-            $allUnitsInSemester = DB::table('units')
-                ->where('semester_id', $semesterId)
-                ->select('id', 'code', 'name', 'credit_hours')
-                ->get()
-                ->toArray();
-
-            // Merge results and prioritize
-            $units = [];
-            
-            if (!empty($unitsFromEnrollments)) {
-                $units = $unitsFromEnrollments;
-                \Log::info('Found units via enrollments method', ['count' => count($units)]);
-            } elseif (!empty($unitsFromSemesterUnit)) {
-                $units = $unitsFromSemesterUnit;
-                \Log::info('Found units via semester_unit method', ['count' => count($units)]);
-            } elseif (!empty($unitsFromClassUnit)) {
-                $units = $unitsFromClassUnit;
-                \Log::info('Found units via class_unit method', ['count' => count($units)]);
-            } elseif (!empty($unitsFromGroups)) {
-                $units = $unitsFromGroups;
-                \Log::info('Found units via groups method', ['count' => count($units)]);
-            } else {
-                $units = $allUnitsInSemester;
-                \Log::info('Using fallback method - all units in semester', ['count' => count($units)]);
-            }
-
-            if (empty($units)) {
-                return response()->json([]);
-            }
-
-            // ✅ REAL DATA: Enhance units with real enrollment information
-            $enhancedUnits = collect($units)->map(function ($unit) use ($semesterId, $classId) {
-                $unitArray = is_object($unit) ? (array) $unit : $unit;
-                
-                // Get real enrollment count for this unit in this semester
-                $enrollmentQuery = Enrollment::where('unit_id', $unitArray['id'])
-                    ->where('semester_id', $semesterId);
-
-                // Add class filter if enrollments table supports it
-                $enrollmentColumns = DB::getSchemaBuilder()->getColumnListing('enrollments');
-                if (in_array('class_id', $enrollmentColumns)) {
-                    $enrollmentQuery->where('class_id', $classId);
-                }
-
-                $enrollments = $enrollmentQuery->get();
-                $realStudentCount = $enrollments->count(); // ✅ REAL DATA
-
-                // Get lecturer information
-                $lecturerName = '';
-                $lecturerEnrollment = $enrollments->whereNotNull('lecturer_code')->first();
-                if ($lecturerEnrollment) {
-                    $lecturer = User::where('code', $lecturerEnrollment->lecturer_code)->first();
-                    if ($lecturer) {
-                        $lecturerName = $lecturer->first_name . ' ' . $lecturer->last_name;
-                    }
-                }
-
-                return [
-                    'id' => $unitArray['id'],
-                    'code' => $unitArray['code'],
-                    'name' => $unitArray['name'],
-                    'credit_hours' => $unitArray['credit_hours'] ?? 3,
-                    'student_count' => $realStudentCount, // ✅ REAL DATA from enrollments
-                    'lecturer_name' => $lecturerName,
-                ];
-            });
-
-            return response()->json($enhancedUnits->values()->all());
-            
-        } catch (\Exception $e) {
-            \Log::error('Error fetching units for class: ' . $e->getMessage(), [
-                'exception' => $e->getTraceAsString(),
-                'class_id' => $request->input('class_id'),
-                'semester_id' => $request->input('semester_id')
-            ]);
-            
-            return response()->json(['error' => 'Failed to fetch units. Please try again.'], 500);
+        if (!$classId || !$semesterId) {
+            return response()->json(['error' => 'Class ID and Semester ID are required.'], 400);
         }
+
+        \Log::info('Fetching units for class', [
+            'class_id' => $classId,
+            'semester_id' => $semesterId
+        ]);
+
+        // Get units that are assigned to lecturers for this semester and class
+        $units = DB::table('unit_assignments')
+            ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
+            ->leftJoin('users', 'users.code', '=', 'unit_assignments.lecturer_code')
+            ->where('unit_assignments.semester_id', $semesterId)
+            ->where('unit_assignments.class_id', $classId)
+            ->select(
+                'units.id',
+                'units.code',
+                'units.name',
+                'units.credit_hours',
+                'unit_assignments.lecturer_code',
+                DB::raw("CASE 
+                    WHEN users.id IS NOT NULL THEN CONCAT(users.first_name, ' ', users.last_name) 
+                    ELSE unit_assignments.lecturer_code 
+                    END as lecturer_name")
+            )
+            ->distinct()
+            ->get();
+
+        if ($units->isEmpty()) {
+            \Log::info('No units found, trying fallback method');
+            
+            // Fallback: get all units for the semester
+            $units = DB::table('units')
+                ->leftJoin('unit_assignments', function($join) use ($semesterId, $classId) {
+                    $join->on('units.id', '=', 'unit_assignments.unit_id')
+                         ->where('unit_assignments.semester_id', '=', $semesterId)
+                         ->where('unit_assignments.class_id', '=', $classId);
+                })
+                ->leftJoin('users', 'users.code', '=', 'unit_assignments.lecturer_code')
+                ->where('units.semester_id', $semesterId)
+                ->select(
+                    'units.id',
+                    'units.code',
+                    'units.name',
+                    'units.credit_hours',
+                    'unit_assignments.lecturer_code',
+                    DB::raw("CASE 
+                        WHEN users.id IS NOT NULL THEN CONCAT(users.first_name, ' ', users.last_name) 
+                        ELSE unit_assignments.lecturer_code 
+                        END as lecturer_name")
+                )
+                ->get();
+        }
+
+        // ✅ REAL DATA: Enhance units with real enrollment information
+        $enhancedUnits = $units->map(function ($unit) use ($semesterId, $classId) {
+            // Get real enrollment count for this unit in this semester and class
+            $enrollmentCount = DB::table('enrollments')
+                ->where('unit_id', $unit->id)
+                ->where('semester_id', $semesterId)
+                ->where('class_id', $classId)
+                ->count();
+
+            return [
+                'id' => $unit->id,
+                'code' => $unit->code,
+                'name' => $unit->name,
+                'credit_hours' => $unit->credit_hours ?? 3,
+                'student_count' => $enrollmentCount,
+                'lecturer_name' => $unit->lecturer_name ?? '',
+                'lecturer_code' => $unit->lecturer_code ?? '',
+            ];
+        });
+
+        \Log::info('Units with lecturer info found', [
+            'count' => $enhancedUnits->count(),
+            'units' => $enhancedUnits->toArray()
+        ]);
+
+        return response()->json($enhancedUnits->values()->all());
+        
+    } catch (\Exception $e) {
+        \Log::error('Error fetching units for class: ' . $e->getMessage(), [
+            'exception' => $e->getTraceAsString(),
+            'class_id' => $request->input('class_id'),
+            'semester_id' => $request->input('semester_id')
+        ]);
+        
+        return response()->json(['error' => 'Failed to fetch units. Please try again.'], 500);
     }
-
-
-
-
+}
 
     public function getGroupsByClassWithCounts(Request $request)
     {

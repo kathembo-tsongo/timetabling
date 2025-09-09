@@ -655,7 +655,7 @@ const EnhancedClassTimetable = () => {
       if (data.id === 0 || !data.id) {
         console.log("🆕 Creating new timetable...")
 
-        router.post(`/classtimetables`, formattedData, {
+        router.post(`/admin/classtimetable`, formattedData, {
           onSuccess: (response) => {
             console.log("✅ Create successful:", response)
             toast.success("Class timetable created successfully.")
@@ -694,7 +694,7 @@ const EnhancedClassTimetable = () => {
       } else {
         console.log("📝 Updating timetable with ID:", data.id)
 
-        router.put(`/classtimetables/${data.id}`, formattedData, {
+        router.put(`/admin/classtimetable/${data.id}`, formattedData, {
           onSuccess: (response) => {
             console.log("✅ Update successful:", response)
             toast.success("Class timetable updated successfully.")
@@ -810,7 +810,7 @@ const EnhancedClassTimetable = () => {
       setErrorMessage(null)
 
       try {
-        const response = await axios.get("/api/units/by-class", {
+        const response = await axios.get("/admin/api/timetable/units/by-class", {
           params: {
             class_id: numericClassId,
             semester_id: formState.semester_id,
@@ -841,91 +841,60 @@ const EnhancedClassTimetable = () => {
     [formState, groups],
   )
 
-  // ✅ FIXED: Enhanced unit change handler that properly populates lecturer field
   const handleUnitChange = useCallback(
-    async (unitId: number | string) => {
-      if (!formState) return
+  async (unitId: number | string) => {
+    if (!formState) return;
 
-      console.log("🔍 Unit selection changed:", unitId)
+    console.log("🔍 Unit selection changed:", unitId);
 
-      const selectedUnit = filteredUnits.find((u) => u.id === Number(unitId))
+    const selectedUnit = filteredUnits.find((u) => u.id === Number(unitId));
 
-      if (!selectedUnit) {
-        console.warn("⚠️ Selected unit not found in filtered units")
-        return
-      }
+    if (!selectedUnit) {
+      console.warn("⚠️ Selected unit not found in filtered units");
+      return;
+    }
 
-      console.log("📋 Selected unit details:", selectedUnit)
+    console.log("📋 Selected unit details:", selectedUnit);
 
-      // ✅ CRITICAL FIX: Update form state with unit details AND lecturer information
-      setFormState((prev) => {
-        if (!prev) return null
+    // ✅ CRITICAL FIX: Update form state with unit details AND lecturer information
+    setFormState((prev) => {
+      if (!prev) return null;
 
-        const updatedState = {
-          ...prev,
-          unit_id: Number(unitId),
-          unit_code: selectedUnit.code || "",
-          unit_name: selectedUnit.name || "",
-          no: selectedUnit.student_count || 0,
-          // ✅ FIXED: Properly set lecturer field from unit data
-          lecturer: selectedUnit.lecturer_name || "",
-          lecturer_name: selectedUnit.lecturer_name || "",
-          lecturer_id: selectedUnit.lecturer_id || null,
-        }
+      const updatedState = {
+        ...prev,
+        unit_id: Number(unitId),
+        unit_code: selectedUnit.code || "",
+        unit_name: selectedUnit.name || "",
+        no: selectedUnit.student_count || 0,
+        // ✅ FIXED: Use both lecturer_name and lecturer_code from backend
+        lecturer: selectedUnit.lecturer_name || selectedUnit.lecturer_code || "",
+        lecturer_name: selectedUnit.lecturer_name || "",
+        lecturer_code: selectedUnit.lecturer_code || "",
+      };
 
-        console.log("✅ Form state updated with lecturer:", {
-          unit_id: updatedState.unit_id,
-          unit_code: updatedState.unit_code,
-          lecturer: updatedState.lecturer,
-          lecturer_name: updatedState.lecturer_name,
-          student_count: updatedState.no,
-        })
+      console.log("✅ Form state updated with lecturer:", {
+        unit_id: updatedState.unit_id,
+        unit_code: updatedState.unit_code,
+        lecturer: updatedState.lecturer,
+        lecturer_name: updatedState.lecturer_name,
+        lecturer_code: updatedState.lecturer_code,
+        student_count: updatedState.no,
+      });
 
-        return updatedState
-      })
+      return updatedState;
+    });
 
-      // ✅ ENHANCED: Try to fetch additional lecturer information from backend
-      if (formState.semester_id && unitId) {
-        try {
-          console.log("🔄 Fetching additional lecturer info from backend...")
-
-          const response = await axios.get(`/api/lecturer-for-unit/${unitId}/${formState.semester_id}`)
-
-          if (response.data && response.data.success && response.data.lecturer) {
-            const lecturerInfo = response.data.lecturer
-
-            console.log("✅ Backend lecturer info received:", lecturerInfo)
-
-            setFormState((prev) => {
-              if (!prev) return null
-
-              return {
-                ...prev,
-                lecturer: lecturerInfo.name || prev.lecturer,
-                lecturer_name: lecturerInfo.name || prev.lecturer_name,
-                lecturer_id: lecturerInfo.id || prev.lecturer_id,
-                // Also update student count if provided by backend
-                no: response.data.studentCount || prev.no,
-              }
-            })
-
-            toast.success(`Lecturer auto-assigned: ${lecturerInfo.name}`, { duration: 2000 })
-          } else {
-            console.log("ℹ️ No additional lecturer info from backend, using unit data")
-          }
-        } catch (error) {
-          console.warn("⚠️ Failed to fetch additional lecturer info:", error)
-          // Don't show error to user as we already have lecturer from unit data
-        }
-      }
-    },
-    [formState, filteredUnits],
-  )
-
+    // Show success message when lecturer is found
+    if (selectedUnit.lecturer_name || selectedUnit.lecturer_code) {
+      toast.success(`Lecturer auto-assigned: ${selectedUnit.lecturer_name || selectedUnit.lecturer_code}`, { duration: 2000 });
+    }
+  },
+  [formState, filteredUnits],
+);
   const handleDelete = useCallback(async (id: number) => {
     if (confirm("Are you sure you want to delete this class timetable?")) {
       try {
-        await router.delete(`/classtimetables/${id}`, {
+        await router.delete(`/admin/classtimetable/${id}`, {
           onSuccess: () => toast.success("Class timetable deleted successfully."),
           onError: (errors) => {
             console.error("Failed to delete class timetable:", errors)
@@ -943,7 +912,7 @@ const EnhancedClassTimetable = () => {
     toast.promise(
       new Promise((resolve) => {
         const link = document.createElement("a")
-        link.href = "/download-classtimetables"
+        link.href = "/download-classtimetable"
         link.setAttribute("download", "classtimetable.pdf")
         link.setAttribute("target", "_blank")
         document.body.appendChild(link)
@@ -962,7 +931,7 @@ const EnhancedClassTimetable = () => {
   const handleSearchSubmit = useCallback(
     (e: FormEvent) => {
       e.preventDefault()
-      router.get("/classtimetable", { search: searchValue, perPage: rowsPerPage })
+      router.get("/admin/classtimetable", { search: searchValue, perPage: rowsPerPage })
     },
     [searchValue, rowsPerPage],
   )
@@ -971,7 +940,7 @@ const EnhancedClassTimetable = () => {
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const newPerPage = Number.parseInt(e.target.value)
       setRowsPerPage(newPerPage)
-      router.get("/classtimetable", { search: searchValue, perPage: newPerPage })
+      router.get("/admin/classtimetable", { search: searchValue, perPage: newPerPage })
     },
     [searchValue],
   )
