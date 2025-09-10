@@ -270,6 +270,10 @@ Route::prefix('api')->group(function () {
     Route::get('/timetable/lecturer-for-unit/{unitId}/{semesterId}', [ClassTimetableController::class, 'getLecturerForUnit']);
     Route::get('/timetable/debug-class-data', [ClassTimetableController::class, 'debugClassData']);
     
+    // ✅ NEW: Cascading dropdown routes for timetable creation
+    Route::get('/timetable/programs/by-school', [ClassTimetableController::class, 'getProgramsBySchool']);
+    Route::get('/timetable/classes/by-program', [ClassTimetableController::class, 'getClassesByProgram']);
+    
     // General class routes
     Route::get('/classes/by-program-semester', function(Request $request) {
         $request->validate([

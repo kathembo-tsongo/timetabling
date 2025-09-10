@@ -26,7 +26,6 @@ import {
   Search,
 } from "lucide-react"
 import { toast } from "react-hot-toast"
-// import Pagination from "@/Components/Pagination"
 import axios from "axios"
 
 // Keep all existing interfaces...
@@ -86,6 +85,7 @@ interface FormState {
   class_id?: number | null
   group_id?: number | null
   school_id?: number | null
+  program_id?: number | null // Added program_id
 }
 
 interface SchedulingConstraints {
@@ -97,7 +97,7 @@ interface SchedulingConstraints {
   avoidConsecutiveSlots: boolean
 }
 
-// ✅ ADDED: Day ordering constant
+// Day ordering constant
 const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
 // Helper functions
@@ -226,7 +226,6 @@ const EnhancedClassTimetable = () => {
     classTimetables = { data: [], links: [], total: 0, per_page: 100, current_page: 1 },
     perPage = 100,
     search = "",
-    
     semesters = [],
     can = { create: false, edit: false, delete: false, download: false, solve_conflicts: false },
     enrollments = [],
@@ -263,6 +262,8 @@ const EnhancedClassTimetable = () => {
   const [searchValue, setSearchValue] = useState(search)
   const [rowsPerPage, setRowsPerPage] = useState(perPage)
   const [filteredUnits, setFilteredUnits] = useState<any[]>([])
+  const [filteredPrograms, setFilteredPrograms] = useState<any[]>([]) // NEW
+  const [filteredClasses, setFilteredClasses] = useState<any[]>([])   // NEW
   const [capacityWarning, setCapacityWarning] = useState<string | null>(null)
   const [conflictWarning, setConflictWarning] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -273,7 +274,7 @@ const EnhancedClassTimetable = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showConflictAnalysis, setShowConflictAnalysis] = useState(false)
 
-  // ✅ ENHANCED: Added day ordering to organizedTimetables
+  // Enhanced day ordering to organizedTimetables
   const organizedTimetables = useMemo(() => {
     const organized: { [day: string]: ClassTimetable[] } = {}
 
@@ -292,7 +293,7 @@ const EnhancedClassTimetable = () => {
       })
     })
 
-    // ✅ NEW: Create ordered object with days in correct chronological sequence
+    // Create ordered object with days in correct chronological sequence
     const orderedTimetables: { [day: string]: ClassTimetable[] } = {}
 
     // Add days in the correct order (Monday to Friday)
@@ -398,6 +399,129 @@ const EnhancedClassTimetable = () => {
     }
   }, [formState, validateFormWithConstraints])
 
+  // NEW: Handle school change
+  const handleSchoolChange = useCallback(
+    async (schoolId) => {
+      if (!formState) return
+
+      const numericSchoolId = schoolId === "" ? null : Number(schoolId)
+
+      setFormState((prev) =>
+        prev
+          ? {
+              ...prev,
+              school_id: numericSchoolId,
+              program_id: null,
+              class_id: null,
+              group_id: null,
+              unit_id: 0,
+              unit_code: "",
+              unit_name: "",
+              no: 0,
+              lecturer: "",
+            }
+          : null,
+      )
+
+      // Reset dependent dropdowns
+      setFilteredPrograms([])
+      setFilteredClasses([])
+      setFilteredGroups([])
+      setFilteredUnits([])
+
+      if (numericSchoolId === null) {
+        return
+      }
+
+      setIsLoading(true)
+      setErrorMessage(null)
+
+      try {
+        // Fetch programs for the selected school
+        const response = await axios.get("/admin/api/timetable/programs/by-school", {
+          params: {
+            school_id: numericSchoolId,
+          },
+        })
+
+        if (response.data && response.data.length > 0) {
+          setFilteredPrograms(response.data)
+          setErrorMessage(null)
+        } else {
+          setFilteredPrograms([])
+          setErrorMessage("No programs found for the selected school.")
+        }
+      } catch (error) {
+        setErrorMessage("Failed to fetch programs for the selected school. Please try again.")
+        setFilteredPrograms([])
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [formState],
+  )
+
+  // NEW: Handle program change
+  const handleProgramChange = useCallback(
+    async (programId) => {
+      if (!formState) return
+
+      const numericProgramId = programId === "" ? null : Number(programId)
+
+      setFormState((prev) =>
+        prev
+          ? {
+              ...prev,
+              program_id: numericProgramId,
+              class_id: null,
+              group_id: null,
+              unit_id: 0,
+              unit_code: "",
+              unit_name: "",
+              no: 0,
+              lecturer: "",
+            }
+          : null,
+      )
+
+      // Reset dependent dropdowns
+      setFilteredClasses([])
+      setFilteredGroups([])
+      setFilteredUnits([])
+
+      if (numericProgramId === null || !formState.semester_id) {
+        return
+      }
+
+      setIsLoading(true)
+      setErrorMessage(null)
+
+      try {
+        // Fetch classes for the selected program and semester
+        const response = await axios.get("/admin/api/timetable/classes/by-program", {
+          params: {
+            program_id: numericProgramId,
+            semester_id: formState.semester_id,
+          },
+        })
+
+        if (response.data && response.data.length > 0) {
+          setFilteredClasses(response.data)
+          setErrorMessage(null)
+        } else {
+          setFilteredClasses([])
+          setErrorMessage("No classes found for the selected program in this semester.")
+        }
+      } catch (error) {
+        setErrorMessage("Failed to fetch classes for the selected program. Please try again.")
+        setFilteredClasses([])
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [formState],
+  )
+
   const handleOpenModal = useCallback(
     (
       type: "view" | "edit" | "delete" | "create" | "conflicts" | "csp_solver",
@@ -410,6 +534,8 @@ const EnhancedClassTimetable = () => {
       setErrorMessage(null)
       setUnitLecturers([])
       setFilteredGroups([])
+      setFilteredPrograms([]) // Reset filtered programs
+      setFilteredClasses([])  // Reset filtered classes
 
       if (type === "conflicts") {
         setShowConflictAnalysis(true)
@@ -444,8 +570,11 @@ const EnhancedClassTimetable = () => {
           class_id: null,
           group_id: null,
           school_id: null,
+          program_id: null, // Initialize program_id
         })
         setFilteredUnits([])
+        setFilteredPrograms([]) // Reset filtered programs
+        setFilteredClasses([])  // Reset filtered classes
       } else if (classtimetable) {
         const unit = units.find((u) => u.code === classtimetable.unit_code)
         const classtimeSlot = classtimeSlots.find(
@@ -469,6 +598,7 @@ const EnhancedClassTimetable = () => {
           class_id: classtimetable.class_id || null,
           group_id: classtimetable.group_id || null,
           teaching_mode: classtimetable.teaching_mode || "physical",
+          program_id: classtimetable.program_id || null, // Initialize program_id from existing data
         })
 
         if (classtimetable.semester_id) {
@@ -497,6 +627,8 @@ const EnhancedClassTimetable = () => {
     setErrorMessage(null)
     setUnitLecturers([])
     setFilteredGroups([])
+    setFilteredPrograms([]) // Reset filtered programs
+    setFilteredClasses([])  // Reset filtered classes
     setShowConflictAnalysis(false)
   }, [])
 
@@ -575,7 +707,17 @@ const EnhancedClassTimetable = () => {
 
   const handleSubmitForm = useCallback(
     (data: FormState) => {
-      console.log("🚀 Form submission started with data:", data)
+      console.log("Form submission started with data:", data)
+
+      if (!data.school_id) {
+        toast.error("Please select a school before submitting.")
+        return
+      }
+
+      if (!data.program_id) {
+        toast.error("Please select a program before submitting.")
+        return
+      }
 
       if (!data.class_id) {
         toast.error("Please select a class before submitting.")
@@ -620,13 +762,15 @@ const EnhancedClassTimetable = () => {
       }
 
       const timeoutId = setTimeout(() => {
-        console.warn("⏰ Form submission timeout - resetting loading state")
+        console.warn("Form submission timeout - resetting loading state")
         setIsSubmitting(false)
         toast.error("Request timed out. Please try again.")
       }, 30000)
 
       const formattedData: any = {
         semester_id: Number(data.semester_id),
+        school_id: Number(data.school_id),
+        program_id: Number(data.program_id), // Include program_id
         class_id: Number(data.class_id),
         group_id: data.group_id ? Number(data.group_id) : null,
         unit_id: Number(data.unit_id),
@@ -639,7 +783,6 @@ const EnhancedClassTimetable = () => {
         no: Number(data.no),
         teaching_mode: data.teaching_mode || "physical",
         classtimeslot_id: data.classtimeslot_id ? Number(data.classtimeslot_id) : null,
-        school_id: data.school_id ? Number(data.school_id) : null,
       }
 
       Object.keys(formattedData).forEach((key) => {
@@ -648,22 +791,22 @@ const EnhancedClassTimetable = () => {
         }
       })
 
-      console.log("📤 Submitting formatted data:", formattedData)
+      console.log("Submitting formatted data with program_id:", formattedData)
 
       setIsSubmitting(true)
 
       if (data.id === 0 || !data.id) {
-        console.log("🆕 Creating new timetable...")
+        console.log("Creating new timetable...")
 
         router.post(`/admin/classtimetable`, formattedData, {
           onSuccess: (response) => {
-            console.log("✅ Create successful:", response)
+            console.log("Create successful:", response)
             toast.success("Class timetable created successfully.")
             handleCloseModal()
             router.reload({ only: ["classTimetables"] })
           },
           onError: (errors: any) => {
-            console.error("❌ Create failed with errors:", errors)
+            console.error("Create failed with errors:", errors)
             let msg = "Failed to create class timetable."
 
             if (errors && typeof errors === "object") {
@@ -682,51 +825,12 @@ const EnhancedClassTimetable = () => {
             toast.error(msg)
           },
           onFinish: () => {
-            console.log("🏁 Create request finished")
+            console.log("Update request finished")
             clearTimeout(timeoutId)
             setIsSubmitting(false)
           },
           onBefore: () => {
-            console.log("🚀 Create request starting")
-            return true
-          },
-        })
-      } else {
-        console.log("📝 Updating timetable with ID:", data.id)
-
-        router.put(`/admin/classtimetable/${data.id}`, formattedData, {
-          onSuccess: (response) => {
-            console.log("✅ Update successful:", response)
-            toast.success("Class timetable updated successfully.")
-            handleCloseModal()
-            router.reload({ only: ["classTimetables"] })
-          },
-          onError: (errors: any) => {
-            console.error("❌ Update failed with errors:", errors)
-            let msg = "Failed to update class timetable."
-
-            if (errors && typeof errors === "object") {
-              if (errors.error) {
-                msg = errors.error
-              } else if (errors.message) {
-                msg = errors.message
-              } else {
-                const errorMsgs = Object.values(errors).flat().filter(Boolean).join(" ")
-                if (errorMsgs) msg = errorMsgs
-              }
-            } else if (typeof errors === "string") {
-              msg = errors
-            }
-
-            toast.error(msg)
-          },
-          onFinish: () => {
-            console.log("🏁 Update request finished")
-            clearTimeout(timeoutId)
-            setIsSubmitting(false)
-          },
-          onBefore: () => {
-            console.log("🚀 Update request starting")
+            console.log("Update request starting")
             return true
           },
         })
@@ -736,7 +840,7 @@ const EnhancedClassTimetable = () => {
   )
 
   const handleSemesterChange = useCallback(
-    (semesterId: number | string) => {
+    (semesterId) => {
       if (!formState) return
 
       setIsLoading(true)
@@ -756,6 +860,8 @@ const EnhancedClassTimetable = () => {
           ? {
               ...prev,
               semester_id: numericSemesterId,
+              school_id: null,
+              program_id: null,
               class_id: null,
               group_id: null,
               unit_id: 0,
@@ -769,6 +875,8 @@ const EnhancedClassTimetable = () => {
           : null,
       )
 
+      setFilteredPrograms([])
+      setFilteredClasses([])
       setFilteredGroups([])
       setFilteredUnits([])
       setIsLoading(false)
@@ -777,7 +885,7 @@ const EnhancedClassTimetable = () => {
   )
 
   const handleClassChange = useCallback(
-    async (classId: number | string) => {
+    async (classId) => {
       if (!formState) return
 
       const numericClassId = classId === "" ? null : Number(classId)
@@ -818,10 +926,10 @@ const EnhancedClassTimetable = () => {
         })
 
         if (response.data && response.data.length > 0) {
-          const unitsWithDetails = response.data.map((unit: any) => ({
+          const unitsWithDetails = response.data.map((unit) => ({
             ...unit,
             student_count: unit.student_count || 0,
-            lecturer_name: unit.lecturer_name || "",
+            lecturer_name: unit.lecturer_name || unit.lecturerName || "",
             credit_hours: unit.credit_hours || 3,
           }))
 
@@ -831,7 +939,7 @@ const EnhancedClassTimetable = () => {
           setFilteredUnits([])
           setErrorMessage("No units found for the selected class in this semester.")
         }
-      } catch (error: any) {
+      } catch (error) {
         setErrorMessage("Failed to fetch units for the selected class. Please try again.")
         setFilteredUnits([])
       } finally {
@@ -842,55 +950,91 @@ const EnhancedClassTimetable = () => {
   )
 
   const handleUnitChange = useCallback(
-  async (unitId: number | string) => {
-    if (!formState) return;
+    async (unitId) => {
+      if (!formState) return
 
-    console.log("🔍 Unit selection changed:", unitId);
+      console.log("Unit selection changed:", unitId)
 
-    const selectedUnit = filteredUnits.find((u) => u.id === Number(unitId));
+      const selectedUnit = filteredUnits.find((u) => u.id === Number(unitId))
 
-    if (!selectedUnit) {
-      console.warn("⚠️ Selected unit not found in filtered units");
-      return;
-    }
+      if (!selectedUnit) {
+        console.warn("Selected unit not found in filtered units")
+        return
+      }
 
-    console.log("📋 Selected unit details:", selectedUnit);
+      console.log("Selected unit details:", selectedUnit)
 
-    // ✅ CRITICAL FIX: Update form state with unit details AND lecturer information
-    setFormState((prev) => {
-      if (!prev) return null;
+      // Enhanced lecturer extraction with multiple field variations
+      let lecturerName = ""
+      let lecturerCode = ""
+      
+      // Try different possible field names from the backend
+      if (selectedUnit.lecturer_name) {
+        lecturerName = selectedUnit.lecturer_name
+      } else if (selectedUnit.lecturerName) {
+        lecturerName = selectedUnit.lecturerName
+      } else if (selectedUnit.lecturer) {
+        lecturerName = selectedUnit.lecturer
+      }
 
-      const updatedState = {
-        ...prev,
-        unit_id: Number(unitId),
-        unit_code: selectedUnit.code || "",
-        unit_name: selectedUnit.name || "",
-        no: selectedUnit.student_count || 0,
-        // ✅ FIXED: Use both lecturer_name and lecturer_code from backend
-        lecturer: selectedUnit.lecturer_name || selectedUnit.lecturer_code || "",
-        lecturer_name: selectedUnit.lecturer_name || "",
-        lecturer_code: selectedUnit.lecturer_code || "",
-      };
+      if (selectedUnit.lecturer_code) {
+        lecturerCode = selectedUnit.lecturer_code
+      } else if (selectedUnit.lecturerCode) {
+        lecturerCode = selectedUnit.lecturerCode
+      }
 
-      console.log("✅ Form state updated with lecturer:", {
-        unit_id: updatedState.unit_id,
-        unit_code: updatedState.unit_code,
-        lecturer: updatedState.lecturer,
-        lecturer_name: updatedState.lecturer_name,
-        lecturer_code: updatedState.lecturer_code,
-        student_count: updatedState.no,
-      });
+      // Use lecturer name if available, otherwise use lecturer code
+      const finalLecturer = lecturerName || lecturerCode || ""
 
-      return updatedState;
-    });
+      console.log("Lecturer extraction result:", {
+        lecturerName,
+        lecturerCode,
+        finalLecturer,
+        rawUnit: selectedUnit
+      })
 
-    // Show success message when lecturer is found
-    if (selectedUnit.lecturer_name || selectedUnit.lecturer_code) {
-      toast.success(`Lecturer auto-assigned: ${selectedUnit.lecturer_name || selectedUnit.lecturer_code}`, { duration: 2000 });
-    }
-  },
-  [formState, filteredUnits],
-);
+      // Update form state with unit details AND lecturer information
+      setFormState((prev) => {
+        if (!prev) return null
+
+        const updatedState = {
+          ...prev,
+          unit_id: Number(unitId),
+          unit_code: selectedUnit.code || "",
+          unit_name: selectedUnit.name || "",
+          no: selectedUnit.student_count || 0,
+          lecturer: finalLecturer,
+          lecturer_name: lecturerName,
+          lecturer_code: lecturerCode,
+        }
+
+        console.log("Form state updated with lecturer:", {
+          unit_id: updatedState.unit_id,
+          unit_code: updatedState.unit_code,
+          lecturer: updatedState.lecturer,
+          lecturer_name: updatedState.lecturer_name,
+          lecturer_code: updatedState.lecturer_code,
+          student_count: updatedState.no,
+        })
+
+        return updatedState
+      })
+
+      // Show success message when lecturer is found
+      if (finalLecturer) {
+        toast.success(`Lecturer auto-assigned: ${finalLecturer}`, {
+          duration: 2000,
+        })
+      } else {
+        console.warn("No lecturer found for this unit")
+        toast.warning("No lecturer assigned to this unit. Please enter manually.", {
+          duration: 3000,
+        })
+      }
+    },
+    [formState, filteredUnits],
+  )
+
   const handleDelete = useCallback(async (id: number) => {
     if (confirm("Are you sure you want to delete this class timetable?")) {
       try {
@@ -1017,17 +1161,6 @@ const EnhancedClassTimetable = () => {
               Search
             </Button>
           </form>
-
-          {/* <div>
-            <label className="mr-2">Rows per page:</label>
-            <select value={rowsPerPage} onChange={handlePerPageChange} className="border rounded p-2">
-              {[5, 10, 15, 20].map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </div> */}
         </div>
 
         {/* Constraints Summary */}
@@ -1096,7 +1229,7 @@ const EnhancedClassTimetable = () => {
 
         {classTimetables?.data?.length > 0 ? (
           <>
-            {/* ✅ NEW: Day Order Indicator */}
+            {/* Day Order Indicator */}
             {classTimetables?.data?.length > 0 && (
               <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
                 <div className="flex items-center text-green-700">
@@ -1109,169 +1242,167 @@ const EnhancedClassTimetable = () => {
 
             {/* Enhanced Timetable Display */}
             <ScrollArea className="h-[800px] w-full">
-            <div className="space-y-6">
-              {Object.entries(organizedTimetables).map(([day, dayTimetables]) => {
-                const dayConflicts = detectedConflicts.filter((c) => c.day === day)
+              <div className="space-y-6">
+                {Object.entries(organizedTimetables).map(([day, dayTimetables]) => {
+                  const dayConflicts = detectedConflicts.filter((c) => c.day === day)
 
-                return (
-                  <div key={day} className="border rounded-lg overflow-hidden">
-                    <div className={`px-4 py-3 border-b ${dayConflicts.length > 0 ? "bg-red-50" : "bg-gray-100"}`}>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                            <Calendar className="w-5 h-5 mr-2" />
-                            {day}
-                            <Badge variant="outline" className="ml-2">
-                              {dayTimetables.length} sessions
-                            </Badge>
-                          </h3>
-                          <p className="text-sm text-gray-600">
-                            {dayTimetables
-                              .reduce((total, ct) => total + calculateDuration(ct.start_time, ct.end_time), 0)
-                              .toFixed(1)}{" "}
-                            total hours
-                          </p>
+                  return (
+                    <div key={day} className="border rounded-lg overflow-hidden">
+                      <div className={`px-4 py-3 border-b ${dayConflicts.length > 0 ? "bg-red-50" : "bg-gray-100"}`}>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                              <Calendar className="w-5 h-5 mr-2" />
+                              {day}
+                              <Badge variant="outline" className="ml-2">
+                                {dayTimetables.length} sessions
+                              </Badge>
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              {dayTimetables
+                                .reduce((total, ct) => total + calculateDuration(ct.start_time, ct.end_time), 0)
+                                .toFixed(1)}{" "}
+                              total hours
+                            </p>
+                          </div>
+
+                          {dayConflicts.length > 0 && (
+                            <Badge variant="destructive">{dayConflicts.length} conflicts</Badge>
+                          )}
                         </div>
-
-                        {dayConflicts.length > 0 && (
-                          <Badge variant="destructive">{dayConflicts.length} conflicts</Badge>
-                        )}
                       </div>
-                    </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b">
-                          <tr>
-                            <th className="px-3 py-2 text-left">Time</th>
-                            <th className="px-3 py-2 text-left">Unit</th>
-                            <th className="px-3 py-2 text-left">Class/Group</th>
-                            <th className="px-3 py-2 text-left">Venue</th>
-                            <th className="px-3 py-2 text-left">Mode</th>
-                            <th className="px-3 py-2 text-left">Lecturer</th>
-                            <th className="px-3 py-2 text-left">Students</th>
-                            <th className="px-3 py-2 text-left">Status</th>
-                            <th className="px-3 py-2 text-left">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {dayTimetables.map((ct) => {
-                            const hasConflict = detectedConflicts.some((conflict) =>
-                              conflict.affectedSessions?.some((session: any) => session.id === ct.id),
-                            )
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Time</th>
+                              <th className="px-3 py-2 text-left">Unit</th>
+                              <th className="px-3 py-2 text-left">Class/Group</th>
+                              <th className="px-3 py-2 text-left">Venue</th>
+                              <th className="px-3 py-2 text-left">Mode</th>
+                              <th className="px-3 py-2 text-left">Lecturer</th>
+                              <th className="px-3 py-2 text-left">Students</th>
+                              <th className="px-3 py-2 text-left">Status</th>
+                              <th className="px-3 py-2 text-left">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {dayTimetables.map((ct) => {
+                              const hasConflict = detectedConflicts.some((conflict) =>
+                                conflict.affectedSessions?.some((session: any) => session.id === ct.id),
+                              )
 
-                            return (
-                              <tr key={ct.id} className={`border-b hover:bg-gray-50 ${hasConflict ? "bg-red-50" : ""}`}>
-                                <td className="px-3 py-2 font-medium">
-                                  <div className="flex items-center">
-                                    {hasConflict && <AlertCircle className="w-4 h-4 text-red-500 mr-1" />}
-                                    <div>
+                              return (
+                                <tr key={ct.id} className={`border-b hover:bg-gray-50 ${hasConflict ? "bg-red-50" : ""}`}>
+                                  <td className="px-3 py-2 font-medium">
+                                    <div className="flex items-center">
+                                      {hasConflict && <AlertCircle className="w-4 h-4 text-red-500 mr-1" />}
                                       <div>
-                                        {formatTimeToHi(ct.start_time)} - {formatTimeToHi(ct.end_time)}
-                                      </div>
-                                      <div className="text-xs text-gray-500">
-                                        {calculateDuration(ct.start_time, ct.end_time).toFixed(1)}h
+                                        <div>
+                                          {formatTimeToHi(ct.start_time)} - {formatTimeToHi(ct.end_time)}
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                          {calculateDuration(ct.start_time, ct.end_time).toFixed(1)}h
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <div>
-                                    <div className="font-medium">{ct.unit_code}</div>
-                                    <div className="text-xs text-gray-500 truncate max-w-32">{ct.unit_name}</div>
-                                    {ct.credit_hours && (
-                                      <div className="text-xs text-blue-600">{ct.credit_hours} credits</div>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <div>
-                                    <div className="font-medium">{ct.class_name || ct.class_id || "-"}</div>
-                                    {ct.group_name && (
-                                      <Badge variant="outline" className="text-xs">
-                                        {ct.group_name}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div>
+                                      <div className="font-medium">{ct.unit_code}</div>
+                                      <div className="text-xs text-gray-500 truncate max-w-32">{ct.unit_name}</div>
+                                      {ct.credit_hours && (
+                                        <div className="text-xs text-blue-600">{ct.credit_hours} credits</div>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div>
+                                      <div className="font-medium">{ct.class_name || ct.class_id || "-"}</div>
+                                      {ct.group_name && (
+                                        <Badge variant="outline" className="text-xs">
+                                          {ct.group_name}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center">
+                                      <MapPin className="w-3 h-3 mr-1" />
+                                      <div>
+                                        <div className="font-medium">{ct.venue}</div>
+                                        <div className="text-xs text-gray-500">{ct.location}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <Badge
+                                      variant={ct.teaching_mode === "online" ? "default" : "secondary"}
+                                      className={
+                                        ct.teaching_mode === "online"
+                                          ? "bg-blue-100 text-blue-800"
+                                          : "bg-green-100 text-green-800"
+                                      }
+                                    >
+                                      {ct.teaching_mode || "Physical"}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-3 py-2 text-sm">{ct.lecturer}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center">
+                                      <Users className="w-3 h-3 mr-1" />
+                                      {ct.no}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {hasConflict ? (
+                                      <Badge variant="destructive" className="text-xs">
+                                        Conflict
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-xs text-green-600">
+                                        OK
                                       </Badge>
                                     )}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <div className="flex items-center">
-                                    <MapPin className="w-3 h-3 mr-1" />
-                                    <div>
-                                      <div className="font-medium">{ct.venue}</div>
-                                      <div className="text-xs text-gray-500">{ct.location}</div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex space-x-1">
+                                      <Button
+                                        onClick={() => handleOpenModal("view", ct)}
+                                        className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1"
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                      </Button>
+                                      {/* {can.edit && (
+                                        <Button
+                                          onClick={() => handleOpenModal("edit", ct)}
+                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1"
+                                        >
+                                          <Edit className="w-3 h-3" />
+                                        </Button>
+                                      )} */}
+                                      {can.delete && (
+                                        <Button
+                                          onClick={() => handleDelete(ct.id)}
+                                          className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </Button>
+                                      )}
                                     </div>
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <Badge
-                                    variant={ct.teaching_mode === "online" ? "default" : "secondary"}
-                                    className={
-                                      ct.teaching_mode === "online"
-                                        ? "bg-blue-100 text-blue-800"
-                                        : "bg-green-100 text-green-800"
-                                    }
-                                  >
-                                    {ct.teaching_mode || "Physical"}
-                                  </Badge>
-                                </td>
-                                <td className="px-3 py-2 text-sm">{ct.lecturer}</td>
-                                <td className="px-3 py-2">
-                                  <div className="flex items-center">
-                                    <Users className="w-3 h-3 mr-1" />
-                                    {ct.no}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  {hasConflict ? (
-                                    <Badge variant="destructive" className="text-xs">
-                                      Conflict
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="outline" className="text-xs text-green-600">
-                                      OK
-                                    </Badge>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  <div className="flex space-x-1">
-                                    <Button
-                                      onClick={() => handleOpenModal("view", ct)}
-                                      className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1"
-                                    >
-                                      <Eye className="w-3 h-3" />
-                                    </Button>
-                                    {can.edit && (
-                                      <Button
-                                        onClick={() => handleOpenModal("edit", ct)}
-                                        className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1"
-                                      >
-                                        <Edit className="w-3 h-3" />
-                                      </Button>
-                                    )}
-                                    {can.delete && (
-                                      <Button
-                                        onClick={() => handleDelete(ct.id)}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </Button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
             </ScrollArea>
-
-            {/* <Pagination links={classTimetables?.links || []} /> */}
           </>
         ) : (
           <div className="text-center py-12">
@@ -1313,9 +1444,7 @@ const EnhancedClassTimetable = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">School *</label>
                       <select
                         value={formState.school_id || ""}
-                        onChange={(e) =>
-                          setFormState((prev) => (prev ? { ...prev, school_id: Number(e.target.value) || null } : null))
-                        }
+                        onChange={(e) => handleSchoolChange(e.target.value)}
                         className="w-full border rounded p-2"
                         required
                       >
@@ -1327,6 +1456,34 @@ const EnhancedClassTimetable = () => {
                         ))}
                       </select>
                     </div>
+
+                    {/* Program Selection - Only show if school is selected */}
+                    {formState.school_id && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Program *
+                          <span className="text-blue-600 text-xs ml-2">(Filtered by selected school)</span>
+                        </label>
+                        <select
+                          value={formState.program_id || ""}
+                          onChange={(e) => handleProgramChange(e.target.value)}
+                          className="w-full border rounded p-2"
+                          required
+                          disabled={isLoading}
+                        >
+                          <option value="">Select Program</option>
+                          {filteredPrograms.map((program) => (
+                            <option key={program.id} value={program.id}>
+                              {program.code} - {program.name}
+                            </option>
+                          ))}
+                        </select>
+                        {isLoading && <div className="text-xs text-blue-600 mt-1">Loading programs...</div>}
+                        {filteredPrograms.length === 0 && formState.school_id && !isLoading && (
+                          <div className="text-xs text-orange-600 mt-1">No programs found for selected school</div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Semester Selection */}
                     <div className="mb-4">
@@ -1346,52 +1503,72 @@ const EnhancedClassTimetable = () => {
                       </select>
                     </div>
 
-                    {/* Class Selection */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Class *</label>
-                      <select
-                        value={formState.class_id || ""}
-                        onChange={(e) => handleClassChange(e.target.value)}
-                        className="w-full border rounded p-2"
-                        required
-                      >
-                        <option value="">Select Class</option>
-                        {classes.map((cls) => (
-                          <option key={cls.id} value={cls.id}>
-                            {cls.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* Class Selection - Only show if program and semester are selected */}
+                    {formState.program_id && formState.semester_id && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Class *
+                          <span className="text-green-600 text-xs ml-2">(Filtered by program & semester)</span>
+                        </label>
+                        <select
+                          value={formState.class_id || ""}
+                          onChange={(e) => handleClassChange(e.target.value)}
+                          className="w-full border rounded p-2"
+                          required
+                          disabled={isLoading}
+                        >
+                          <option value="">Select Class</option>
+                          {filteredClasses.map((cls) => (
+                            <option key={cls.id} value={cls.id}>
+                              {cls.name} {cls.section ? `- Section ${cls.section}` : ""}{" "}
+                              {cls.year_level ? `(Year ${cls.year_level})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        {isLoading && <div className="text-xs text-blue-600 mt-1">Loading classes...</div>}
+                        {filteredClasses.length === 0 &&
+                          formState.program_id &&
+                          formState.semester_id &&
+                          !isLoading && (
+                            <div className="text-xs text-orange-600 mt-1">
+                              No classes found for selected program and semester
+                            </div>
+                          )}
+                      </div>
+                    )}
 
                     {/* Unit Selection with proper lecturer population */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Unit *<span className="text-green-600 text-xs ml-2">(Lecturer auto-populated)</span>
-                      </label>
-                      <select
-                        value={formState.unit_id || ""}
-                        onChange={(e) => handleUnitChange(e.target.value)}
-                        className="w-full border rounded p-2"
-                        required
-                      >
-                        <option value="">Select Unit</option>
-                        {filteredUnits.map((unit) => (
-                          <option key={unit.id} value={unit.id}>
-                            {unit.code} - {unit.name} ({unit.student_count} students)
-                            {unit.lecturer_name && ` - ${unit.lecturer_name}`}
-                          </option>
-                        ))}
-                      </select>
-                      {formState.unit_id && (
-                        <div className="text-xs text-green-600 mt-1">
-                          ✅ Unit selected - lecturer will be auto-populated
-                        </div>
-                      )}
-                    </div>
+                    {formState.class_id && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Unit *<span className="text-green-600 text-xs ml-2">(Lecturer auto-populated)</span>
+                        </label>
+                        <select
+                          value={formState.unit_id || ""}
+                          onChange={(e) => handleUnitChange(e.target.value)}
+                          className="w-full border rounded p-2"
+                          required
+                          disabled={isLoading}
+                        >
+                          <option value="">Select Unit</option>
+                          {filteredUnits.map((unit) => (
+                            <option key={unit.id} value={unit.id}>
+                              {unit.code} - {unit.name} ({unit.student_count} students)
+                              {unit.lecturer_name && ` - ${unit.lecturer_name}`}
+                            </option>
+                          ))}
+                        </select>
+                        {formState.unit_id && (
+                          <div className="text-xs text-green-600 mt-1">
+                            ✅ Unit selected - lecturer will be auto-populated
+                          </div>
+                        )}
+                        {isLoading && <div className="text-xs text-blue-600 mt-1">Loading units...</div>}
+                      </div>
+                    )}
 
                     {/* Group Selection */}
-                    {filteredGroups.length > 0 && (
+                    {filteredGroups.length > 0 && formState.class_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">Group</label>
                         <select
@@ -1422,32 +1599,34 @@ const EnhancedClassTimetable = () => {
                     )}
 
                     {/* Enhanced Time Slot Selection */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Time Slot *
-                        <span className="text-blue-600 text-xs ml-2">(Teaching mode auto-assigned by duration)</span>
-                      </label>
-                      <select
-                        value={formState.classtimeslot_id || ""}
-                        onChange={(e) => handleClassTimeSlotChange(e.target.value)}
-                        className="w-full border rounded p-2"
-                        required
-                      >
-                        <option value="">Select Time Slot</option>
-                        {classtimeSlots.map((slot) => {
-                          const duration = calculateDuration(slot.start_time, slot.end_time)
-                          const autoMode = getTeachingModeFromDuration(slot.start_time, slot.end_time)
-                          const modeIcon = autoMode === "physical" ? "🏫" : "📱"
+                    {formState.unit_id && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Time Slot *
+                          <span className="text-blue-600 text-xs ml-2">(Teaching mode auto-assigned by duration)</span>
+                        </label>
+                        <select
+                          value={formState.classtimeslot_id || ""}
+                          onChange={(e) => handleClassTimeSlotChange(e.target.value)}
+                          className="w-full border rounded p-2"
+                          required
+                        >
+                          <option value="">Select Time Slot</option>
+                          {classtimeSlots.map((slot) => {
+                            const duration = calculateDuration(slot.start_time, slot.end_time)
+                            const autoMode = getTeachingModeFromDuration(slot.start_time, slot.end_time)
+                            const modeIcon = autoMode === "physical" ? "🏫" : "📱"
 
-                          return (
-                            <option key={slot.id} value={slot.id}>
-                              {modeIcon} {slot.day} {slot.start_time}-{slot.end_time} ({duration.toFixed(1)}h →{" "}
-                              {autoMode})
-                            </option>
-                          )
-                        })}
-                      </select>
-                    </div>
+                            return (
+                              <option key={slot.id} value={slot.id}>
+                                {modeIcon} {slot.day} {slot.start_time}-{slot.end_time} ({duration.toFixed(1)}h →{" "}
+                                {autoMode})
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </div>
+                    )}
 
                     {/* Duration and Mode Display */}
                     {formState.start_time && formState.end_time && (
@@ -1484,122 +1663,130 @@ const EnhancedClassTimetable = () => {
                     )}
 
                     {/* Read-only Teaching Mode Display */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Teaching Mode
-                        <span className="text-blue-600 text-xs ml-2">(Auto-determined by duration)</span>
-                      </label>
-                      <div className="w-full border rounded p-2 bg-gray-50 flex items-center">
-                        <Badge
-                          className={`mr-2 ${
-                            formState.teaching_mode === "online"
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-green-100 text-green-800"
-                          }`}
-                        >
-                          {formState.teaching_mode === "online" ? "📱 Online" : "🏫 Physical"}
-                        </Badge>
-                        <span className="text-sm text-gray-600">
-                          {formState.start_time && formState.end_time
-                            ? `${calculateDuration(formState.start_time, formState.end_time).toFixed(1)}h duration`
-                            : "Select time slot first"}
-                        </span>
+                    {formState.start_time && formState.end_time && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Teaching Mode
+                          <span className="text-blue-600 text-xs ml-2">(Auto-determined by duration)</span>
+                        </label>
+                        <div className="w-full border rounded p-2 bg-gray-50 flex items-center">
+                          <Badge
+                            className={`mr-2 ${
+                              formState.teaching_mode === "online"
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-green-100 text-green-800"
+                            }`}
+                          >
+                            {formState.teaching_mode === "online" ? "📱 Online" : "🏫 Physical"}
+                          </Badge>
+                          <span className="text-sm text-gray-600">
+                            {formState.start_time && formState.end_time
+                              ? `${calculateDuration(formState.start_time, formState.end_time).toFixed(1)}h duration`
+                              : "Select time slot first"}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          💡 2+ hours = Physical class | 1 hour = Online class
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        💡 2+ hours = Physical class | 1 hour = Online class
-                      </div>
-                    </div>
+                    )}
 
                     {/* Enhanced Venue Selection */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Venue
-                        <span className="text-blue-600 text-xs ml-2">(Auto-assigned based on teaching mode)</span>
-                      </label>
+                    {formState.teaching_mode && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Venue
+                          <span className="text-blue-600 text-xs ml-2">(Auto-assigned based on teaching mode)</span>
+                        </label>
 
-                      {formState.teaching_mode === "online" ? (
-                        <div className="w-full border rounded p-2 bg-blue-50 flex items-center">
-                          <Users className="w-4 h-4 text-blue-600 mr-2" />
-                          <span className="text-blue-800 font-medium">Remote (Online Class)</span>
-                        </div>
-                      ) : (
-                        <select
-                          value={formState.venue}
-                          onChange={(e) => {
-                            const venueName = e.target.value
-                            const selectedClassroom = classrooms.find((c) => c.name === venueName)
-                            setFormState((prev) => ({
-                              ...prev!,
-                              venue: venueName,
-                              location: selectedClassroom?.location || "Physical",
-                            }))
-                          }}
+                        {formState.teaching_mode === "online" ? (
+                          <div className="w-full border rounded p-2 bg-blue-50 flex items-center">
+                            <Users className="w-4 h-4 text-blue-600 mr-2" />
+                            <span className="text-blue-800 font-medium">Remote (Online Class)</span>
+                          </div>
+                        ) : (
+                          <select
+                            value={formState.venue}
+                            onChange={(e) => {
+                              const venueName = e.target.value
+                              const selectedClassroom = classrooms.find((c) => c.name === venueName)
+                              setFormState((prev) => ({
+                                ...prev!,
+                                venue: venueName,
+                                location: selectedClassroom?.location || "Physical",
+                              }))
+                            }}
+                            className="w-full border rounded p-2"
+                          >
+                            <option value="">Auto-assign suitable venue</option>
+                            {classrooms
+                              .filter((c) => c.capacity >= (formState.no || 0))
+                              .map((classroom) => (
+                                <option key={classroom.id} value={classroom.name}>
+                                  🏫 {classroom.name} (Capacity: {classroom.capacity}, {classroom.location})
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Lecturer field with proper population */}
+                    {formState.unit_id && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Lecturer *
+                          <span className="text-green-600 text-xs ml-2">(Auto-populated from unit selection)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={formState.lecturer}
+                          onChange={(e) => setFormState((prev) => (prev ? { ...prev, lecturer: e.target.value } : null))}
                           className="w-full border rounded p-2"
-                        >
-                          <option value="">Auto-assign suitable venue</option>
-                          {classrooms
-                            .filter((c) => c.capacity >= (formState.no || 0))
-                            .map((classroom) => (
-                              <option key={classroom.id} value={classroom.name}>
-                                🏫 {classroom.name} (Capacity: {classroom.capacity}, {classroom.location})
-                              </option>
-                            ))}
-                        </select>
-                      )}
-                    </div>
-
-                    {/* ✅ FIXED: Lecturer field with proper population */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Lecturer *
-                        <span className="text-green-600 text-xs ml-2">(Auto-populated from unit selection)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formState.lecturer}
-                        onChange={(e) => setFormState((prev) => (prev ? { ...prev, lecturer: e.target.value } : null))}
-                        className="w-full border rounded p-2"
-                        placeholder="Select a unit first to auto-populate lecturer"
-                        required
-                      />
-                      {formState.lecturer && (
-                        <div className="text-xs text-green-600 mt-1">✅ Lecturer: {formState.lecturer}</div>
-                      )}
-                      {!formState.lecturer && formState.unit_id && (
-                        <div className="text-xs text-orange-600 mt-1">
-                          ⚠️ No lecturer assigned to this unit. Please enter manually.
-                        </div>
-                      )}
-                    </div>
+                          placeholder="Select a unit first to auto-populate lecturer"
+                          required
+                        />
+                        {formState.lecturer && (
+                          <div className="text-xs text-green-600 mt-1">✅ Lecturer: {formState.lecturer}</div>
+                        )}
+                        {!formState.lecturer && formState.unit_id && (
+                          <div className="text-xs text-orange-600 mt-1">
+                            ⚠️ No lecturer assigned to this unit. Please enter manually.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Number of Students */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Number of Students *
-                        <span className="text-blue-600 text-xs ml-2">(Auto-populated from group selection)</span>
-                      </label>
-                      <input
-                        type="number"
-                        value={formState.no}
-                        onChange={(e) =>
-                          setFormState((prev) => (prev ? { ...prev, no: Number(e.target.value) } : null))
-                        }
-                        className="w-full border rounded p-2"
-                        min="1"
-                        required
-                        readOnly={!!formState.group_id}
-                      />
-                      {formState.group_id && (
-                        <div className="text-xs text-green-600 mt-1">
-                          ✅ Student count auto-populated from group selection.
-                        </div>
-                      )}
-                      {!formState.group_id && (
-                        <div className="text-xs text-orange-600 mt-1">
-                          ⚠️ Select a group to auto-populate student count, or enter manually.
-                        </div>
-                      )}
-                    </div>
+                    {formState.unit_id && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Number of Students *
+                          <span className="text-blue-600 text-xs ml-2">(Auto-populated from group selection)</span>
+                        </label>
+                        <input
+                          type="number"
+                          value={formState.no}
+                          onChange={(e) =>
+                            setFormState((prev) => (prev ? { ...prev, no: Number(e.target.value) } : null))
+                          }
+                          className="w-full border rounded p-2"
+                          min="1"
+                          required
+                          readOnly={!!formState.group_id}
+                        />
+                        {formState.group_id && (
+                          <div className="text-xs text-green-600 mt-1">
+                            ✅ Student count auto-populated from group selection.
+                          </div>
+                        )}
+                        {!formState.group_id && (
+                          <div className="text-xs text-orange-600 mt-1">
+                            ⚠️ Select a group to auto-populate student count, or enter manually.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Conflict Warning */}
                     {conflictWarning && (
@@ -1609,17 +1796,25 @@ const EnhancedClassTimetable = () => {
                       </Alert>
                     )}
 
-                    {/* Duration-Based Assignment Info */}
+                    {/* Error Message */}
+                    {errorMessage && (
+                      <Alert className="mb-4 border-orange-200 bg-orange-50">
+                        <AlertCircle className="h-4 w-4 text-orange-500" />
+                        <AlertDescription className="text-orange-700">{errorMessage}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    {/* School-Program-Class Hierarchy Info */}
                     <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm">
                       <div className="flex items-center text-green-700">
                         <Zap className="w-4 h-4 mr-2" />
-                        <span className="font-medium">Smart Assignment Active:</span>
+                        <span className="font-medium">Smart Hierarchical Selection Active:</span>
                       </div>
                       <div className="mt-2 text-green-600 text-xs">
-                        • Time slot duration automatically determines teaching mode
-                        <br />• Teaching mode automatically determines venue type
-                        <br />• Physical classes get classroom venues, online classes get "Remote"
-                        <br />• ✅ Lecturer auto-populated from unit selection
+                        • School → Program → Class filtering ensures proper relationships
+                        <br />• Units and groups are filtered by selected class and semester
+                        <br />• Duration-based teaching mode and venue assignment
+                        <br />• ✅ Lecturer and student count auto-populated from selections
                       </div>
                     </div>
 
@@ -1637,7 +1832,7 @@ const EnhancedClassTimetable = () => {
                         <Button
                           type="button"
                           onClick={() => {
-                            console.log("🔄 Emergency reset triggered")
+                            console.log("Emergency reset triggered")
                             setIsSubmitting(false)
                             toast.info("Loading state reset. Please try again.")
                           }}
@@ -1647,9 +1842,9 @@ const EnhancedClassTimetable = () => {
                         </Button>
                       )}
 
-                      <Button
+                      {/* <Button
                         type="submit"
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !formState.school_id || !formState.program_id || !formState.semester_id || !formState.class_id || !formState.unit_id}
                         className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSubmitting ? (
@@ -1663,13 +1858,13 @@ const EnhancedClassTimetable = () => {
                             {modalType === "create" ? "Create Smart Timetable" : "Update Smart Timetable"}
                           </>
                         )}
-                      </Button>
+                      </Button> */}
                     </div>
                   </form>
                 </>
               )}
 
-              {/* Other modal types would go here... */}
+              {/* VIEW MODAL */}
               {modalType === "view" && selectedClassTimetable && (
                 <>
                   <h2 className="text-xl font-semibold mb-4">View Class Timetable</h2>
@@ -1729,78 +1924,71 @@ const EnhancedClassTimetable = () => {
                   </div>
                 </>
               )}
-            </div>
-          </div>
-        )}
-        {/* ✅ CONFLICTS MODAL - FIXED VERSION */}
-        {modalType === "conflicts" && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* Backdrop */}
-            <div className="fixed inset-0 bg-black bg-opacity-50" onClick={handleCloseModal} />
 
-            {/* Modal Content */}
-            <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] overflow-hidden">
-              <div className="p-6">
-                <h2 className="text-xl font-semibold mb-4 flex items-center">
-                  <AlertCircle className="w-5 h-5 mr-2 text-red-500" />
-                  Conflict Analysis
-                </h2>
+              {/* CONFLICTS MODAL */}
+              {modalType === "conflicts" && (
+                <>
+                  <h2 className="text-xl font-semibold mb-4 flex items-center">
+                    <AlertCircle className="w-5 h-5 mr-2 text-red-500" />
+                    Conflict Analysis
+                  </h2>
 
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center mb-4">
-                    <div>
-                      <p className="text-sm text-gray-600">
-                        Found {detectedConflicts?.length || 0} conflicts in the current timetable
-                      </p>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <div>
+                        <p className="text-sm text-gray-600">
+                          Found {detectedConflicts?.length || 0} conflicts in the current timetable
+                        </p>
+                      </div>
                     </div>
+
+                    {detectedConflicts && detectedConflicts.length > 0 ? (
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {detectedConflicts.map((conflict, index) => (
+                          <div key={index} className="border border-red-200 rounded-lg p-4 bg-red-50">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <h4 className="font-medium text-red-800">
+                                  {conflict.type?.replace("_", " ").toUpperCase()}
+                                </h4>
+                                <p className="text-sm text-red-700">{conflict.description}</p>
+                              </div>
+                              <Badge variant="destructive" className="text-xs">
+                                {conflict.severity}
+                              </Badge>
+                            </div>
+
+                            {conflict.affectedSessions && conflict.affectedSessions.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                <p className="text-xs font-medium text-red-800">Affected Sessions:</p>
+                                {conflict.affectedSessions.map((session, sessionIndex) => (
+                                  <div key={sessionIndex} className="text-xs bg-white p-2 rounded border">
+                                    <span className="font-medium">{session.unit_code}</span> - {session.day}{" "}
+                                    {formatTimeToHi(session.start_time)}-{formatTimeToHi(session.end_time)} -{" "}
+                                    {session.lecturer} - {session.venue}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                        <p className="text-lg text-green-600 font-medium">No conflicts detected!</p>
+                        <p className="text-sm text-gray-500 mt-2">Your timetable is optimally scheduled.</p>
+                      </div>
+                    )}
                   </div>
 
-                  {detectedConflicts && detectedConflicts.length > 0 ? (
-                    <div className="space-y-3 max-h-96 overflow-y-auto">
-                      {detectedConflicts.map((conflict, index) => (
-                        <div key={index} className="border border-red-200 rounded-lg p-4 bg-red-50">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <h4 className="font-medium text-red-800">
-                                {conflict.type?.replace("_", " ").toUpperCase()}
-                              </h4>
-                              <p className="text-sm text-red-700">{conflict.description}</p>
-                            </div>
-                            <Badge variant="destructive" className="text-xs">
-                              {conflict.severity}
-                            </Badge>
-                          </div>
-
-                          {conflict.affectedSessions && conflict.affectedSessions.length > 0 && (
-                            <div className="mt-3 space-y-2">
-                              <p className="text-xs font-medium text-red-800">Affected Sessions:</p>
-                              {conflict.affectedSessions.map((session, sessionIndex) => (
-                                <div key={sessionIndex} className="text-xs bg-white p-2 rounded border">
-                                  <span className="font-medium">{session.unit_code}</span> - {session.day}{" "}
-                                  {formatTimeToHi(session.start_time)}-{formatTimeToHi(session.end_time)} -{" "}
-                                  {session.lecturer} - {session.venue}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                      <p className="text-lg text-green-600 font-medium">No conflicts detected!</p>
-                      <p className="text-sm text-gray-500 mt-2">Your timetable is optimally scheduled.</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-6 flex justify-end border-t pt-4">
-                  <Button onClick={handleCloseModal} className="bg-gray-400 hover:bg-gray-500 text-white">
-                    Close
-                  </Button>
-                </div>
-              </div>
+                  <div className="mt-6 flex justify-end border-t pt-4">
+                    <Button onClick={handleCloseModal} className="bg-gray-400 hover:bg-gray-500 text-white">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

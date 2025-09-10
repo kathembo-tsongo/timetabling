@@ -1564,135 +1564,305 @@ class ClassTimetableController extends Controller
     }
 
     /**
-     * Update the specified resource in storage
+     * Update the specified resource in storage.
      */
-    public function update(Request $request, $id)
-    {
-        $request->validate([
-            'day' => 'nullable|string',
-            'unit_id' => 'required|exists:units,id',
-            'semester_id' => 'required|exists:semesters,id',
-            'class_id' => 'required|exists:classes,id',
-            'group_id' => 'nullable|exists:groups,id',
-            'venue' => 'nullable|string',
-            'location' => 'nullable|string',
-            'no' => 'required|integer|min:1',
-            'lecturer' => 'required|string',
-            'start_time' => 'nullable|string',
-            'end_time' => 'nullable|string',
-            'teaching_mode' => 'nullable|in:physical,online',
-            'program_id' => 'nullable|exists:programs,id',
-            'school_id' => 'nullable|exists:schools,id',
-            'classtimeslot_id' => 'nullable|integer',
-        ]);
+public function update(Request $request, $id)
+{
+    // Validate incoming request data
+    $request->validate([
+        'day' => 'nullable|string|max:20',
+        'unit_id' => 'required|integer',
+        'semester_id' => 'required|integer', 
+        'class_id' => 'required|integer',
+        'group_id' => 'nullable|integer',
+        'venue' => 'nullable|string|max:100',
+        'location' => 'nullable|string|max:100',
+        'no' => 'required|integer|min:1|max:1000',
+        'lecturer' => 'required|string|max:255',
+        'start_time' => 'nullable|string|max:8',
+        'end_time' => 'nullable|string|max:8',
+        'teaching_mode' => 'nullable|in:physical,online',
+        'program_id' => 'nullable|integer',
+        'school_id' => 'nullable|integer',
+        'classtimeslot_id' => 'nullable|integer',
+    ]);
 
-        try {
-            $timetable = ClassTimetable::findOrFail($id);
-            
-            \Log::info('Updating class timetable', [
-                'id' => $id,
-                'data' => $request->all()
-            ]);
+    DB::beginTransaction();
+    
+    try {
+        // ✅ OPTIMIZATION 2: Use findOrFail with specific columns only
+        $timetable = ClassTimetable::select([
+            'id', 'unit_id', 'semester_id', 'class_id', 'group_id', 
+            'day', 'start_time', 'end_time', 'venue', 'location',
+            'no', 'lecturer', 'teaching_mode', 'program_id', 'school_id'
+        ])->findOrFail($id);
+        
+        \Log::info('Updating class timetable (optimized)', ['id' => $id]);
 
-            $unit = Unit::findOrFail($request->unit_id);
-            $class = ClassModel::find($request->class_id);
-            $programId = $request->program_id ?: ($class ? $class->program_id : null);
-            $schoolId = $request->school_id ?: ($class ? $class->school_id : null);
+        // ✅ OPTIMIZATION 3: Cache frequently accessed data
+        static $cachedUnits = [];
+        static $cachedClasses = [];
+        static $cachedTimeSlots = [];
 
-            // Handle time slot changes properly
-            $day = $request->day;
-            $startTime = $request->start_time;
-            $endTime = $request->end_time;
+        // Get unit with caching
+        if (!isset($cachedUnits[$request->unit_id])) {
+            $cachedUnits[$request->unit_id] = Unit::select('id', 'code')->find($request->unit_id);
+        }
+        $unit = $cachedUnits[$request->unit_id];
 
-            // If a specific time slot ID is provided, get the correct day and times from it
-            if ($request->classtimeslot_id) {
-                $timeSlot = DB::table('class_time_slots')->find($request->classtimeslot_id);
-                if ($timeSlot) {
-                    $day = $timeSlot->day;
-                    $startTime = $timeSlot->start_time;
-                    $endTime = $timeSlot->end_time;
-                }
+        if (!$unit) {
+            throw new \Exception("Unit not found with ID: {$request->unit_id}");
+        }
+
+        // Get class with caching (only if needed)
+        $class = null;
+        $programId = $request->program_id;
+        $schoolId = $request->school_id;
+        
+        if (!$programId || !$schoolId) {
+            if (!isset($cachedClasses[$request->class_id])) {
+                $cachedClasses[$request->class_id] = ClassModel::select('id', 'program_id', 'school_id')
+                    ->find($request->class_id);
             }
+            $class = $cachedClasses[$request->class_id];
+            
+            $programId = $programId ?: ($class ? $class->program_id : null);
+            $schoolId = $schoolId ?: ($class ? $class->school_id : null);
+        }
 
-            // Determine teaching mode based on duration
-            $teachingMode = $request->teaching_mode;
-            if ($startTime && $endTime) {
+        // ✅ OPTIMIZATION 4: Handle time slot logic efficiently
+        $day = $request->day;
+        $startTime = $request->start_time;
+        $endTime = $request->end_time;
+
+        // Only query time slot if classtimeslot_id is provided
+        if ($request->classtimeslot_id) {
+            if (!isset($cachedTimeSlots[$request->classtimeslot_id])) {
+                $cachedTimeSlots[$request->classtimeslot_id] = DB::table('class_time_slots')
+                    ->select('day', 'start_time', 'end_time')
+                    ->where('id', $request->classtimeslot_id)
+                    ->first();
+            }
+            
+            $timeSlot = $cachedTimeSlots[$request->classtimeslot_id];
+            if ($timeSlot) {
+                $day = $timeSlot->day;
+                $startTime = $timeSlot->start_time;
+                $endTime = $timeSlot->end_time;
+            }
+        }
+
+        // ✅ OPTIMIZATION 5: Simplified teaching mode determination
+        $teachingMode = $request->teaching_mode;
+        if ($startTime && $endTime && !$teachingMode) {
+            try {
                 $duration = \Carbon\Carbon::parse($startTime)->diffInHours(\Carbon\Carbon::parse($endTime));
                 $teachingMode = $duration >= 2 ? 'physical' : 'online';
+            } catch (\Exception $e) {
+                $teachingMode = 'physical'; // Safe fallback
             }
+        }
+        $teachingMode = $teachingMode ?: 'physical';
 
-            // Auto-assign venue based on teaching mode
-            $venue = $request->venue;
-            $location = $request->location;
-            
-            if (!$venue) {
-                if ($teachingMode === 'online') {
-                    $venue = 'Remote';
-                    $location = 'Online';
-                } else {
-                    $suitableClassroom = Classroom::where('capacity', '>=', $request->no)
+        // ✅ OPTIMIZATION 6: Simplified venue assignment
+        $venue = $request->venue;
+        $location = $request->location;
+        
+        if (!$venue) {
+            if ($teachingMode === 'online') {
+                $venue = 'Remote';
+                $location = 'Online';
+            } else {
+                // Use a cached query for suitable classroom
+                static $cachedClassrooms = null;
+                if ($cachedClassrooms === null) {
+                    $cachedClassrooms = Classroom::select('name', 'location', 'capacity')
                         ->orderBy('capacity', 'asc')
-                        ->first();
-                    $venue = $suitableClassroom ? $suitableClassroom->name : 'TBD';
-                    $location = $suitableClassroom ? $suitableClassroom->location : 'Physical';
+                        ->get()
+                        ->keyBy('name');
                 }
+                
+                $suitableClassroom = $cachedClassrooms->where('capacity', '>=', $request->no)->first();
+                $venue = $suitableClassroom ? $suitableClassroom->name : 'TBD';
+                $location = $suitableClassroom ? $suitableClassroom->location : 'Physical';
             }
+        }
 
-            // Perform the update
-            $timetable->update([
-                'day' => $day,
-                'unit_id' => $unit->id,
-                'semester_id' => $request->semester_id,
-                'class_id' => $request->class_id,
-                'group_id' => $request->group_id ?: null,
-                'venue' => $venue,
-                'location' => $location,
-                'no' => $request->no,
-                'lecturer' => $request->lecturer,
-                'start_time' => $startTime,
-                'end_time' => $endTime,
-                'teaching_mode' => $teachingMode,
-                'program_id' => $programId,
-                'school_id' => $schoolId,
-            ]);
+        // ✅ OPTIMIZATION 7: Batch update with only changed fields
+        $updateData = [];
+        
+        // Only include fields that have actually changed
+        if ($timetable->day !== $day) $updateData['day'] = $day;
+        if ($timetable->unit_id !== $unit->id) $updateData['unit_id'] = $unit->id;
+        if ($timetable->semester_id !== $request->semester_id) $updateData['semester_id'] = $request->semester_id;
+        if ($timetable->class_id !== $request->class_id) $updateData['class_id'] = $request->class_id;
+        if ($timetable->group_id !== $request->group_id) $updateData['group_id'] = $request->group_id ?: null;
+        if ($timetable->venue !== $venue) $updateData['venue'] = $venue;
+        if ($timetable->location !== $location) $updateData['location'] = $location;
+        if ($timetable->no !== $request->no) $updateData['no'] = $request->no;
+        if ($timetable->lecturer !== $request->lecturer) $updateData['lecturer'] = $request->lecturer;
+        if ($timetable->start_time !== $startTime) $updateData['start_time'] = $startTime;
+        if ($timetable->end_time !== $endTime) $updateData['end_time'] = $endTime;
+        if ($timetable->teaching_mode !== $teachingMode) $updateData['teaching_mode'] = $teachingMode;
+        if ($timetable->program_id !== $programId) $updateData['program_id'] = $programId;
+        if ($timetable->school_id !== $schoolId) $updateData['school_id'] = $schoolId;
 
-            \Log::info('Class timetable updated successfully', [
+        // Only update if there are actual changes
+        if (!empty($updateData)) {
+            $updateData['updated_at'] = now();
+            $timetable->update($updateData);
+            
+            \Log::info('Class timetable updated successfully (optimized)', [
                 'id' => $id,
+                'changes' => array_keys($updateData),
                 'unit_code' => $unit->code,
                 'teaching_mode' => $teachingMode,
                 'venue' => $venue,
             ]);
-
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Class timetable updated successfully.',
-                    'data' => $timetable->fresh()
-                ]);
-            }
-
-            return redirect()->back()->with('success', 'Class timetable updated successfully.');
-
-        } catch (\Exception $e) {
-            \Log::error('Failed to update class timetable: ' . $e->getMessage(), [
-                'id' => $id,
-                'request_data' => $request->all(),
-                'exception' => $e->getTraceAsString()
-            ]);
-
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Failed to update class timetable: ' . $e->getMessage(),
-                    'errors' => ['error' => $e->getMessage()]
-                ], 500);
-            }
-
-            return redirect()->back()
-                ->withErrors(['error' => 'Failed to update class timetable: ' . $e->getMessage()])
-                ->withInput();
+        } else {
+            \Log::info('No changes detected, skipping update', ['id' => $id]);
         }
+
+        DB::commit();
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Class timetable updated successfully.',
+                'data' => $timetable->fresh(['unit:id,code,name', 'semester:id,name'])
+            ]);
+        }
+
+        return redirect()->back()->with('success', 'Class timetable updated successfully.');
+
+    } catch (\Exception $e) {
+        DB::rollback();
+        
+        \Log::error('Failed to update class timetable (optimized): ' . $e->getMessage(), [
+            'id' => $id,
+            'request_data' => $request->only([
+                'unit_id', 'semester_id', 'class_id', 'day', 'start_time', 'end_time'
+            ]),
+            'exception_line' => $e->getLine(),
+            'exception_file' => $e->getFile()
+        ]);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update class timetable: ' . $e->getMessage(),
+                'errors' => ['error' => $e->getMessage()]
+            ], 500);
+        }
+
+        return redirect()->back()
+            ->withErrors(['error' => 'Failed to update class timetable: ' . $e->getMessage()])
+            ->withInput();
     }
+}
+
+/**
+ * ✅ NEW: Optimized bulk update method for multiple timetables
+ */
+public function bulkUpdate(Request $request)
+{
+    $request->validate([
+        'updates' => 'required|array|min:1|max:100',
+        'updates.*.id' => 'required|integer',
+        'updates.*.data' => 'required|array'
+    ]);
+
+    DB::beginTransaction();
+    
+    try {
+        $updated = 0;
+        $errors = [];
+        
+        // Batch process updates
+        foreach ($request->updates as $update) {
+            try {
+                $timetable = ClassTimetable::findOrFail($update['id']);
+                $timetable->update($update['data']);
+                $updated++;
+            } catch (\Exception $e) {
+                $errors[] = "ID {$update['id']}: " . $e->getMessage();
+            }
+        }
+        
+        DB::commit();
+        
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully updated {$updated} timetable entries.",
+            'updated_count' => $updated,
+            'errors' => $errors
+        ]);
+        
+    } catch (\Exception $e) {
+        DB::rollback();
+        return response()->json([
+            'success' => false,
+            'message' => 'Bulk update failed: ' . $e->getMessage()
+        ], 500);
+    }
+}
+
+/**
+ * ✅ NEW: Quick update method for specific fields only
+ */
+public function quickUpdate(Request $request, $id)
+{
+    $allowedFields = ['venue', 'lecturer', 'teaching_mode', 'no'];
+    
+    $request->validate([
+        'field' => 'required|in:' . implode(',', $allowedFields),
+        'value' => 'required|string|max:255'
+    ]);
+
+    try {
+        $timetable = ClassTimetable::findOrFail($id);
+        $field = $request->field;
+        $value = $request->value;
+        
+        // Validate specific field
+        if ($field === 'no') {
+            $value = (int) $value;
+            if ($value < 1 || $value > 1000) {
+                throw new \Exception('Student count must be between 1 and 1000');
+            }
+        }
+        
+        if ($field === 'teaching_mode' && !in_array($value, ['physical', 'online'])) {
+            throw new \Exception('Teaching mode must be physical or online');
+        }
+        
+        $timetable->update([$field => $value]);
+        
+        \Log::info('Quick update completed', [
+            'id' => $id,
+            'field' => $field,
+            'new_value' => $value
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Updated successfully.',
+            'data' => $timetable->fresh()
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('Quick update failed: ' . $e->getMessage(), [
+            'id' => $id,
+            'field' => $request->field,
+            'value' => $request->value
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 500);
+    }
+}
 
 
     /**
@@ -1820,6 +1990,93 @@ class ClassTimetableController extends Controller
         }
     }
 
+
+/**
+ * Get programs by school ID
+ */
+public function getProgramsBySchool(Request $request)
+{
+    try {
+        $schoolId = $request->input('school_id');
+
+        if (!$schoolId) {
+            return response()->json(['error' => 'School ID is required.'], 400);
+        }
+
+        \Log::info('Fetching programs for school', ['school_id' => $schoolId]);
+
+        $programs = DB::table('programs')
+            ->where('school_id', $schoolId)
+            ->select('id', 'code', 'name', 'school_id')
+            ->orderBy('name')
+            ->get();
+
+        \Log::info('Programs found for school', [
+            'school_id' => $schoolId,
+            'programs_count' => $programs->count()
+        ]);
+
+        return response()->json($programs);
+
+    } catch (\Exception $e) {
+        \Log::error('Error fetching programs by school: ' . $e->getMessage(), [
+            'school_id' => $request->input('school_id'),
+            'exception' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json(['error' => 'Failed to fetch programs.'], 500);
+    }
+}
+
+/**
+ * Get classes by program ID and semester ID
+ */
+public function getClassesByProgram(Request $request)
+{
+    try {
+        $programId = $request->input('program_id');
+        $semesterId = $request->input('semester_id');
+
+        if (!$programId) {
+            return response()->json(['error' => 'Program ID is required.'], 400);
+        }
+
+        if (!$semesterId) {
+            return response()->json(['error' => 'Semester ID is required.'], 400);
+        }
+
+        \Log::info('Fetching classes for program and semester', [
+            'program_id' => $programId,
+            'semester_id' => $semesterId
+        ]);
+
+        $classes = DB::table('classes')
+            ->where('program_id', $programId)
+            ->where('semester_id', $semesterId)
+            ->where('is_active', true)
+            ->select('id', 'name', 'program_id', 'semester_id', 'year_level', 'section')
+            ->orderBy('name')
+            ->orderBy('section')
+            ->get();
+
+        \Log::info('Classes found for program and semester', [
+            'program_id' => $programId,
+            'semester_id' => $semesterId,
+            'classes_count' => $classes->count()
+        ]);
+
+        return response()->json($classes);
+
+    } catch (\Exception $e) {
+        \Log::error('Error fetching classes by program: ' . $e->getMessage(), [
+            'program_id' => $request->input('program_id'),
+            'semester_id' => $request->input('semester_id'),
+            'exception' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json(['error' => 'Failed to fetch classes.'], 500);
+    }
+}
     /**
      * ✅ REAL DATA: Display student's timetable page with real group filtering
      */
