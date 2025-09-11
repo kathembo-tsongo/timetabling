@@ -306,6 +306,7 @@ const EnhancedClassTimetable = () => {
     return orderedTimetables
   }, [classTimetables.data])
 
+  // FIXED: Conflict detection with correct variable references
   const detectScheduleConflicts = useCallback((timetableData: ClassTimetable[]) => {
     const conflicts: any[] = []
     const lecturerSlots: { [key: string]: ClassTimetable[] } = {}
@@ -325,7 +326,7 @@ const EnhancedClassTimetable = () => {
         for (let i = 0; i < slots.length; i++) {
           for (let j = i + 1; j < slots.length; j++) {
             const start1 = timeToMinutes(slots[i].start_time)
-            const end1 = timeToMinutes(slots[j].end_time)
+            const end1 = timeToMinutes(slots[i].end_time)  // FIXED: was slots[j].end_time
             const start2 = timeToMinutes(slots[j].start_time)
             const end2 = timeToMinutes(slots[j].end_time)
 
@@ -399,10 +400,27 @@ const EnhancedClassTimetable = () => {
     }
   }, [formState, validateFormWithConstraints])
 
-  // NEW: Handle school change
+  // FIXED: Cleanup useEffect to prevent null access errors
+  useEffect(() => {
+    if (!isModalOpen) {
+      setFormState(null)
+      setFilteredPrograms([])
+      setFilteredClasses([])
+      setFilteredGroups([])
+      setFilteredUnits([])
+      setErrorMessage(null)
+      setConflictWarning(null)
+      setCapacityWarning(null)
+    }
+  }, [isModalOpen])
+
+  // FIXED: Handle school change with null checks
   const handleSchoolChange = useCallback(
     async (schoolId) => {
-      if (!formState) return
+      if (!formState) {
+        console.warn('handleSchoolChange called but formState is null')
+        return
+      }
 
       const numericSchoolId = schoolId === "" ? null : Number(schoolId)
 
@@ -461,10 +479,13 @@ const EnhancedClassTimetable = () => {
     [formState],
   )
 
-  // NEW: Handle program change
+  // FIXED: Handle program change with null checks
   const handleProgramChange = useCallback(
     async (programId) => {
-      if (!formState) return
+      if (!formState) {
+        console.warn('handleProgramChange called but formState is null')
+        return
+      }
 
       const numericProgramId = programId === "" ? null : Number(programId)
 
@@ -839,9 +860,13 @@ const EnhancedClassTimetable = () => {
     [validateFormWithConstraints, handleCloseModal],
   )
 
+  // FIXED: Handle semester change with null checks
   const handleSemesterChange = useCallback(
     (semesterId) => {
-      if (!formState) return
+      if (!formState) {
+        console.warn('handleSemesterChange called but formState is null')
+        return
+      }
 
       setIsLoading(true)
       setErrorMessage(null)
@@ -884,79 +909,82 @@ const EnhancedClassTimetable = () => {
     [formState],
   )
 
-  // Enhanced React Component Updates for the existing timetable component
-
-// 1. ✅ UPDATE: Enhanced Class Selection Display
-const handleClassChange = useCallback(
-  async (classId) => {
-    if (!formState) return
-
-    const numericClassId = classId === "" ? null : Number(classId)
-
-    setFormState((prev) =>
-      prev
-        ? {
-            ...prev,
-            class_id: numericClassId,
-            group_id: null,
-            unit_id: 0,
-            unit_code: "",
-            unit_name: "",
-            no: 0,
-            lecturer: "",
-          }
-        : null,
-    )
-
-    if (numericClassId === null) {
-      setFilteredGroups([])
-      setFilteredUnits([])
-      return
-    }
-
-    const filteredGroupsForClass = groups.filter((group) => group.class_id === numericClassId)
-    setFilteredGroups(filteredGroupsForClass)
-
-    setIsLoading(true)
-    setErrorMessage(null)
-
-    try {
-      const response = await axios.get("/admin/api/timetable/units/by-class", {
-        params: {
-          class_id: numericClassId,
-          semester_id: formState.semester_id,
-        },
-      })
-
-      if (response.data && response.data.length > 0) {
-        const unitsWithDetails = response.data.map((unit) => ({
-          ...unit,
-          student_count: unit.student_count || 0,
-          lecturer_name: unit.lecturer_name || unit.lecturerName || "",
-          credit_hours: unit.credit_hours || 3,
-        }))
-
-        setFilteredUnits(unitsWithDetails)
-        setErrorMessage(null)
-      } else {
-        setFilteredUnits([])
-        setErrorMessage("No units found for the selected class in this semester.")
+  // FIXED: Handle class change with null checks
+  const handleClassChange = useCallback(
+    async (classId) => {
+      if (!formState) {
+        console.warn('handleClassChange called but formState is null')
+        return
       }
-    } catch (error) {
-      setErrorMessage("Failed to fetch units for the selected class. Please try again.")
-      setFilteredUnits([])
-    } finally {
-      setIsLoading(false)
-    }
-  },
-  [formState, groups],
-)
 
-// 2. ✅ ENHANCED: Unit Change Handler with Better Lecturer Handling
-// Export the enhanced components for use in your main component
+      const numericClassId = classId === "" ? null : Number(classId)
+
+      setFormState((prev) =>
+        prev
+          ? {
+              ...prev,
+              class_id: numericClassId,
+              group_id: null,
+              unit_id: 0,
+              unit_code: "",
+              unit_name: "",
+              no: 0,
+              lecturer: "",
+            }
+          : null,
+      )
+
+      if (numericClassId === null) {
+        setFilteredGroups([])
+        setFilteredUnits([])
+        return
+      }
+
+      const filteredGroupsForClass = groups.filter((group) => group.class_id === numericClassId)
+      setFilteredGroups(filteredGroupsForClass)
+
+      setIsLoading(true)
+      setErrorMessage(null)
+
+      try {
+        const response = await axios.get("/admin/api/timetable/units/by-class", {
+          params: {
+            class_id: numericClassId,
+            semester_id: formState.semester_id,
+          },
+        })
+
+        if (response.data && response.data.length > 0) {
+          const unitsWithDetails = response.data.map((unit) => ({
+            ...unit,
+            student_count: unit.student_count || 0,
+            lecturer_name: unit.lecturer_name || unit.lecturerName || "",
+            credit_hours: unit.credit_hours || 3,
+          }))
+
+          setFilteredUnits(unitsWithDetails)
+          setErrorMessage(null)
+        } else {
+          setFilteredUnits([])
+          setErrorMessage("No units found for the selected class in this semester.")
+        }
+      } catch (error) {
+        setErrorMessage("Failed to fetch units for the selected class. Please try again.")
+        setFilteredUnits([])
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [formState, groups],
+  )
+
+  // ADDED: Missing handleUnitChange function
   const handleUnitChange = useCallback(
     async (unitId) => {
-      if (!formState) return
+      if (!formState) {
+        console.warn('handleUnitChange called but formState is null')
+        return
+      }
 
       console.log("Unit selection changed:", unitId)
 
@@ -1039,250 +1067,6 @@ const handleClassChange = useCallback(
     },
     [formState, filteredUnits],
   )
-
-// 3. ✅ FIXED: Class Selection with Proper Null Checks
-const classSelectionJSX = formState && formState.program_id && formState.semester_id && (
-  <div className="mb-4">
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Class *
-      <span className="text-green-600 text-xs ml-2">(Filtered by program & semester)</span>
-    </label>
-    <select
-      value={formState?.class_id || ""} // ✅ Use optional chaining
-      onChange={(e) => handleClassChange(e.target.value)}
-      className="w-full border rounded p-2"
-      required
-      disabled={isLoading}
-    >
-      <option value="">Select Class</option>
-      {filteredClasses.map((cls) => (
-        <option key={cls.id} value={cls.id}>
-          {cls.display_name || `${cls.name}${cls.section ? ` - Section ${cls.section}` : ""}${cls.year_level ? ` (Year ${cls.year_level})` : ""}`}
-        </option>
-      ))}
-    </select>
-    {isLoading && <div className="text-xs text-blue-600 mt-1">Loading classes...</div>}
-    {filteredClasses.length === 0 && !isLoading && ( // ✅ Removed redundant formState checks
-      <div className="text-xs text-orange-600 mt-1">
-        No classes found for selected program and semester
-      </div>
-    )}
-  </div>
-)
-
-// 4. ✅ FIXED: Unit Selection with Proper Null Checks
-const unitSelectionJSX = formState && formState.class_id && (
-  <div className="mb-4">
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Unit *<span className="text-green-600 text-xs ml-2">(Lecturer auto-populated)</span>
-    </label>
-    <select
-      value={formState?.unit_id || ""} // ✅ Use optional chaining
-      onChange={(e) => handleUnitChange(e.target.value)}
-      className="w-full border rounded p-2"
-      required
-      disabled={isLoading}
-    >
-      <option value="">Select Unit</option>
-      {filteredUnits.map((unit) => (
-        <option key={unit.id} value={unit.id}>
-          {unit.code} - {unit.name} ({unit.student_count} students)
-          {unit.lecturer_name && ` - ${unit.lecturer_name}`}
-        </option>
-      ))}
-    </select>
-    {formState?.unit_id && ( // ✅ Use optional chaining
-      <div className="text-xs text-green-600 mt-1">
-        Unit selected - lecturer will be auto-populated
-      </div>
-    )}
-    {isLoading && <div className="text-xs text-blue-600 mt-1">Loading units...</div>}
-  </div>
-)
-
-// 5. ✅ FIXED: Lecturer Field with Proper Null Checks
-const lecturerFieldJSX = formState && formState.unit_id && (
-  <div className="mb-4">
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Lecturer *
-      <span className="text-green-600 text-xs ml-2">(Auto-populated from unit selection)</span>
-    </label>
-    <input
-      type="text"
-      value={formState?.lecturer || ""} // ✅ Use optional chaining
-      onChange={(e) => setFormState((prev) => (prev ? { ...prev, lecturer: e.target.value } : null))}
-      className="w-full border rounded p-2"
-      placeholder="Select a unit first to auto-populate lecturer"
-      required
-    />
-    {formState?.lecturer && ( // ✅ Use optional chaining
-      <div className="text-xs text-green-600 mt-1">Lecturer: {formState.lecturer}</div>
-    )}
-    {!formState?.lecturer && formState?.unit_id && ( // ✅ Use optional chaining for both
-      <div className="text-xs text-orange-600 mt-1">
-        No lecturer assigned to this unit. Please enter manually.
-      </div>
-    )}
-  </div>
-)
-
-// 6. ✅ ENHANCED: Timetable Display with Better Class and Lecturer Info
-const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, dayTimetables]) => {
-  const dayConflicts = detectedConflicts.filter((c) => c.day === day)
-
-  return (
-    <div key={day} className="border rounded-lg overflow-hidden">
-      <div className={`px-4 py-3 border-b ${dayConflicts.length > 0 ? "bg-red-50" : "bg-gray-100"}`}>
-        <div className="flex justify-between items-center">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-              <Calendar className="w-5 h-5 mr-2" />
-              {day}
-              <Badge variant="outline" className="ml-2">
-                {dayTimetables.length} sessions
-              </Badge>
-            </h3>
-            <p className="text-sm text-gray-600">
-              {dayTimetables
-                .reduce((total, ct) => total + calculateDuration(ct.start_time, ct.end_time), 0)
-                .toFixed(1)}{" "}
-              total hours
-            </p>
-          </div>
-
-          {dayConflicts.length > 0 && (
-            <Badge variant="destructive">{dayConflicts.length} conflicts</Badge>
-          )}
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="px-3 py-2 text-left">Time</th>
-              <th className="px-3 py-2 text-left">Unit</th>
-              <th className="px-3 py-2 text-left">Class/Group</th>
-              <th className="px-3 py-2 text-left">Venue</th>
-              <th className="px-3 py-2 text-left">Mode</th>
-              <th className="px-3 py-2 text-left">Lecturer</th>
-              <th className="px-3 py-2 text-left">Students</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dayTimetables.map((ct) => {
-              const hasConflict = detectedConflicts.some((conflict) =>
-                conflict.affectedSessions?.some((session) => session.id === ct.id),
-              )
-
-              return (
-                <tr key={ct.id} className={`border-b hover:bg-gray-50 ${hasConflict ? "bg-red-50" : ""}`}>
-                  <td className="px-3 py-2 font-medium">
-                    <div className="flex items-center">
-                      {hasConflict && <AlertCircle className="w-4 h-4 text-red-500 mr-1" />}
-                      <div>
-                        <div>
-                          {formatTimeToHi(ct.start_time)} - {formatTimeToHi(ct.end_time)}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {calculateDuration(ct.start_time, ct.end_time).toFixed(1)}h
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div>
-                      <div className="font-medium">{ct.unit_code}</div>
-                      <div className="text-xs text-gray-500 truncate max-w-32">{ct.unit_name}</div>
-                      {ct.credit_hours && (
-                        <div className="text-xs text-blue-600">{ct.credit_hours} credits</div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div>
-                      {/* ✅ ENHANCED: Display enhanced class name with section/year */}
-                      <div className="font-medium">{ct.class_name || ct.class_id || "-"}</div>
-                      {ct.group_name && (
-                        <Badge variant="outline" className="text-xs">
-                          {ct.group_name}
-                        </Badge>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center">
-                      <MapPin className="w-3 h-3 mr-1" />
-                      <div>
-                        <div className="font-medium">{ct.venue}</div>
-                        <div className="text-xs text-gray-500">{ct.location}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <Badge
-                      variant={ct.teaching_mode === "online" ? "default" : "secondary"}
-                      className={
-                        ct.teaching_mode === "online"
-                          ? "bg-blue-100 text-blue-800"
-                          : "bg-green-100 text-green-800"
-                      }
-                    >
-                      {ct.teaching_mode || "Physical"}
-                    </Badge>
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    {/* ✅ ENHANCED: Display lecturer name (already handled by backend) */}
-                    {ct.lecturer_name || ct.lecturer}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center">
-                      <Users className="w-3 h-3 mr-1" />
-                      {ct.no}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    {hasConflict ? (
-                      <Badge variant="destructive" className="text-xs">
-                        Conflict
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-xs text-green-600">
-                        OK
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex space-x-1">
-                      <Button
-                        onClick={() => handleOpenModal("view", ct)}
-                        className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1"
-                      >
-                        <Eye className="w-3 h-3" />
-                      </Button>
-                      {can.delete && (
-                        <Button
-                          onClick={() => handleDelete(ct.id)}
-                          className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-})
-
-
 
   const handleDelete = useCallback(async (id: number) => {
     if (confirm("Are you sure you want to delete this class timetable?")) {
@@ -1623,14 +1407,6 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                                       >
                                         <Eye className="w-3 h-3" />
                                       </Button>
-                                      {/* {can.edit && (
-                                        <Button
-                                          onClick={() => handleOpenModal("edit", ct)}
-                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1"
-                                        >
-                                          <Edit className="w-3 h-3" />
-                                        </Button>
-                                      )} */}
                                       {can.delete && (
                                         <Button
                                           onClick={() => handleDelete(ct.id)}
@@ -1692,7 +1468,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Semester *</label>
                       <select
-                        value={formState.semester_id || ""}
+                        value={formState?.semester_id || ""}
                         onChange={(e) => handleSemesterChange(e.target.value)}
                         className="w-full border rounded p-2"
                         required
@@ -1706,12 +1482,11 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                       </select>
                     </div>
 
-
                     {/* School Selection */}
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-gray-700 mb-1">School *</label>
                       <select
-                        value={formState.school_id || ""}
+                        value={formState?.school_id || ""}
                         onChange={(e) => handleSchoolChange(e.target.value)}
                         className="w-full border rounded p-2"
                         required
@@ -1726,14 +1501,14 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     </div>
 
                     {/* Program Selection - Only show if school is selected */}
-                    {formState.school_id && (
+                    {formState?.school_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Program *
                           <span className="text-blue-600 text-xs ml-2">(Filtered by selected school)</span>
                         </label>
                         <select
-                          value={formState.program_id || ""}
+                          value={formState?.program_id || ""}
                           onChange={(e) => handleProgramChange(e.target.value)}
                           className="w-full border rounded p-2"
                           required
@@ -1747,22 +1522,21 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                           ))}
                         </select>
                         {isLoading && <div className="text-xs text-blue-600 mt-1">Loading programs...</div>}
-                        {filteredPrograms.length === 0 && formState.school_id && !isLoading && (
+                        {filteredPrograms.length === 0 && formState?.school_id && !isLoading && (
                           <div className="text-xs text-orange-600 mt-1">No programs found for selected school</div>
                         )}
                       </div>
                     )}
 
-                    
                     {/* Class Selection - Only show if program and semester are selected */}
-                    {formState.program_id && formState.semester_id && (
+                    {formState?.program_id && formState?.semester_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Class *
                           <span className="text-green-600 text-xs ml-2">(Filtered by program & semester)</span>
                         </label>
                         <select
-                          value={formState.class_id || ""}
+                          value={formState?.class_id || ""}
                           onChange={(e) => handleClassChange(e.target.value)}
                           className="w-full border rounded p-2"
                           required
@@ -1778,8 +1552,8 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                         </select>
                         {isLoading && <div className="text-xs text-blue-600 mt-1">Loading classes...</div>}
                         {filteredClasses.length === 0 &&
-                          formState.program_id &&
-                          formState.semester_id &&
+                          formState?.program_id &&
+                          formState?.semester_id &&
                           !isLoading && (
                             <div className="text-xs text-orange-600 mt-1">
                               No classes found for selected program and semester
@@ -1789,13 +1563,13 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Unit Selection with proper lecturer population */}
-                    {formState.class_id && (
+                    {formState?.class_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Unit *<span className="text-green-600 text-xs ml-2">(Lecturer auto-populated)</span>
                         </label>
                         <select
-                          value={formState.unit_id || ""}
+                          value={formState?.unit_id || ""}
                           onChange={(e) => handleUnitChange(e.target.value)}
                           className="w-full border rounded p-2"
                           required
@@ -1809,7 +1583,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                             </option>
                           ))}
                         </select>
-                        {formState.unit_id && (
+                        {formState?.unit_id && (
                           <div className="text-xs text-green-600 mt-1">
                             ✅ Unit selected - lecturer will be auto-populated
                           </div>
@@ -1819,11 +1593,11 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Group Selection */}
-                    {filteredGroups.length > 0 && formState.class_id && (
+                    {filteredGroups.length > 0 && formState?.class_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">Group</label>
                         <select
-                          value={formState.group_id || ""}
+                          value={formState?.group_id || ""}
                           onChange={(e) => {
                             const selectedGroupId = Number(e.target.value) || null
                             const selectedGroup = filteredGroups.find((g) => g.id === selectedGroupId)
@@ -1850,14 +1624,14 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Enhanced Time Slot Selection */}
-                    {formState.unit_id && (
+                    {formState?.unit_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Time Slot *
                           <span className="text-blue-600 text-xs ml-2">(Teaching mode auto-assigned by duration)</span>
                         </label>
                         <select
-                          value={formState.classtimeslot_id || ""}
+                          value={formState?.classtimeslot_id || ""}
                           onChange={(e) => handleClassTimeSlotChange(e.target.value)}
                           className="w-full border rounded p-2"
                           required
@@ -1880,7 +1654,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Duration and Mode Display */}
-                    {formState.start_time && formState.end_time && (
+                    {formState?.start_time && formState?.end_time && (
                       <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded">
                         <div className="grid grid-cols-3 gap-4 text-sm">
                           <div>
@@ -1914,7 +1688,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Read-only Teaching Mode Display */}
-                    {formState.start_time && formState.end_time && (
+                    {formState?.start_time && formState?.end_time && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Teaching Mode
@@ -1943,7 +1717,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Enhanced Venue Selection */}
-                    {formState.teaching_mode && (
+                    {formState?.teaching_mode && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Venue
@@ -1957,7 +1731,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                           </div>
                         ) : (
                           <select
-                            value={formState.venue}
+                            value={formState?.venue || ""}
                             onChange={(e) => {
                               const venueName = e.target.value
                               const selectedClassroom = classrooms.find((c) => c.name === venueName)
@@ -1971,7 +1745,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                           >
                             <option value="">Auto-assign suitable venue</option>
                             {classrooms
-                              .filter((c) => c.capacity >= (formState.no || 0))
+                              .filter((c) => c.capacity >= (formState?.no || 0))
                               .map((classroom) => (
                                 <option key={classroom.id} value={classroom.name}>
                                   🏫 {classroom.name} (Capacity: {classroom.capacity}, {classroom.location})
@@ -1983,7 +1757,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Lecturer field with proper population */}
-                    {formState.unit_id && (
+                    {formState?.unit_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Lecturer *
@@ -1991,16 +1765,16 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                         </label>
                         <input
                           type="text"
-                          value={formState.lecturer}
+                          value={formState?.lecturer || ""}
                           onChange={(e) => setFormState((prev) => (prev ? { ...prev, lecturer: e.target.value } : null))}
                           className="w-full border rounded p-2"
                           placeholder="Select a unit first to auto-populate lecturer"
                           required
                         />
-                        {formState.lecturer && (
+                        {formState?.lecturer && (
                           <div className="text-xs text-green-600 mt-1">✅ Lecturer: {formState.lecturer}</div>
                         )}
-                        {!formState.lecturer && formState.unit_id && (
+                        {!formState?.lecturer && formState?.unit_id && (
                           <div className="text-xs text-orange-600 mt-1">
                             ⚠️ No lecturer assigned to this unit. Please enter manually.
                           </div>
@@ -2009,7 +1783,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                     )}
 
                     {/* Number of Students */}
-                    {formState.unit_id && (
+                    {formState?.unit_id && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Number of Students *
@@ -2017,21 +1791,21 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
                         </label>
                         <input
                           type="number"
-                          value={formState.no}
+                          value={formState?.no || ""}
                           onChange={(e) =>
                             setFormState((prev) => (prev ? { ...prev, no: Number(e.target.value) } : null))
                           }
                           className="w-full border rounded p-2"
                           min="1"
                           required
-                          readOnly={!!formState.group_id}
+                          readOnly={!!formState?.group_id}
                         />
-                        {formState.group_id && (
+                        {formState?.group_id && (
                           <div className="text-xs text-green-600 mt-1">
                             ✅ Student count auto-populated from group selection.
                           </div>
                         )}
-                        {!formState.group_id && (
+                        {!formState?.group_id && (
                           <div className="text-xs text-orange-600 mt-1">
                             ⚠️ Select a group to auto-populate student count, or enter manually.
                           </div>
@@ -2095,7 +1869,7 @@ const enhancedTimetableDisplay = Object.entries(organizedTimetables).map(([day, 
 
                       <Button
                         type="submit"
-                        disabled={isSubmitting || !formState.school_id || !formState.program_id || !formState.semester_id || !formState.class_id || !formState.unit_id}
+                        disabled={isSubmitting || !formState?.school_id || !formState?.program_id || !formState?.semester_id || !formState?.class_id || !formState?.unit_id}
                         className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSubmitting ? (
