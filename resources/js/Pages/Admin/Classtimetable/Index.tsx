@@ -85,7 +85,7 @@ interface FormState {
   class_id?: number | null
   group_id?: number | null
   school_id?: number | null
-  program_id?: number | null // Added program_id
+  program_id?: number | null
 }
 
 interface SchedulingConstraints {
@@ -95,6 +95,8 @@ interface SchedulingConstraints {
   maxHoursPerDay: number
   requireMixedMode: boolean
   avoidConsecutiveSlots: boolean
+  minimumRestMinutes: number
+  allowBackToBack: boolean
 }
 
 // Day ordering constant
@@ -136,21 +138,277 @@ const getVenueForTeachingMode = (teachingMode: string, classrooms: any[], studen
   return suitableClassroom ? suitableClassroom.name : classrooms[0]?.name || "TBD"
 }
 
-const validateGroupDailyConstraints = (
-  groupId: number | null,
-  day: string,
-  startTime: string,
-  endTime: string,
-  teachingMode: string,
+// ENHANCED CONFLICT DETECTION SYSTEM
+const detectAllScheduleConflicts = (timetableData: ClassTimetable[]) => {
+  const conflicts: any[] = []
+  
+  // Helper function to check time overlap
+  const hasTimeOverlap = (start1: string, end1: string, start2: string, end2: string) => {
+    const startMinutes1 = timeToMinutes(start1)
+    const endMinutes1 = timeToMinutes(end1)
+    const startMinutes2 = timeToMinutes(start2)
+    const endMinutes2 = timeToMinutes(end2)
+    
+    return startMinutes1 < endMinutes2 && startMinutes2 < endMinutes1
+  }
+  
+  // Helper function to check if sessions are back-to-back (no rest time)
+  const areBackToBack = (end1: string, start2: string) => {
+    const endMinutes1 = timeToMinutes(end1)
+    const startMinutes2 = timeToMinutes(start2)
+    return Math.abs(startMinutes2 - endMinutes1) < 15 // Less than 15 minutes break
+  }
+  
+  // 1. LECTURER CONFLICTS
+  const lecturerSchedules: { [key: string]: ClassTimetable[] } = {}
+  timetableData.forEach(session => {
+    if (!session.lecturer) return
+    
+    const key = `${session.lecturer}_${session.day}`
+    if (!lecturerSchedules[key]) {
+      lecturerSchedules[key] = []
+    }
+    lecturerSchedules[key].push(session)
+  })
+  
+  Object.entries(lecturerSchedules).forEach(([key, sessions]) => {
+    const [lecturer, day] = key.split('_')
+    
+    // Sort sessions by start time
+    sessions.sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time))
+    
+    for (let i = 0; i < sessions.length; i++) {
+      for (let j = i + 1; j < sessions.length; j++) {
+        const session1 = sessions[i]
+        const session2 = sessions[j]
+        
+        // Check for overlapping sessions
+        if (hasTimeOverlap(session1.start_time, session1.end_time, session2.start_time, session2.end_time)) {
+          conflicts.push({
+            type: "lecturer_overlap",
+            severity: "high",
+            description: `${lecturer} has overlapping classes on ${day}: ${session1.unit_code} (${session1.start_time}-${session1.end_time}) conflicts with ${session2.unit_code} (${session2.start_time}-${session2.end_time})`,
+            affectedSessions: [session1, session2],
+            lecturer,
+            day,
+            recommendation: "Reschedule one of the sessions to a different time slot"
+          })
+        }
+        
+        // Check for back-to-back sessions (insufficient rest)
+        else if (areBackToBack(session1.end_time, session2.start_time)) {
+          conflicts.push({
+            type: "lecturer_no_rest",
+            severity: "medium",
+            description: `${lecturer} has back-to-back classes on ${day} with insufficient rest time: ${session1.unit_code} ends at ${session1.end_time}, ${session2.unit_code} starts at ${session2.start_time}`,
+            affectedSessions: [session1, session2],
+            lecturer,
+            day,
+            recommendation: "Add at least 15 minutes break between sessions"
+          })
+        }
+      }
+    }
+  })
+  
+  // 2. CLASS/GROUP CONFLICTS (Same unit for different sections at same time)
+  const classUnitSchedules: { [key: string]: ClassTimetable[] } = {}
+  timetableData.forEach(session => {
+    if (!session.unit_code) return
+    
+    const key = `${session.unit_code}_${session.day}_${session.start_time}_${session.end_time}`
+    if (!classUnitSchedules[key]) {
+      classUnitSchedules[key] = []
+    }
+    classUnitSchedules[key].push(session)
+  })
+  
+  Object.entries(classUnitSchedules).forEach(([key, sessions]) => {
+    if (sessions.length > 1) {
+      // Check if same unit is scheduled for different sections/groups at same time
+      const uniqueClasses = new Set(sessions.map(s => `${s.class_name}_${s.group_name || 'main'}`))
+      
+      if (uniqueClasses.size > 1) {
+        conflicts.push({
+          type: "unit_multi_section_conflict",
+          severity: "high",
+          description: `Unit ${sessions[0].unit_code} is scheduled simultaneously for multiple sections: ${sessions.map(s => `${s.class_name} ${s.group_name || ''}`).join(', ')} on ${sessions[0].day} at ${sessions[0].start_time}-${sessions[0].end_time}`,
+          affectedSessions: sessions,
+          unit_code: sessions[0].unit_code,
+          day: sessions[0].day,
+          recommendation: "Schedule different sections at different times"
+        })
+      }
+    }
+  })
+  
+  // 3. VENUE CONFLICTS
+  const venueSchedules: { [key: string]: ClassTimetable[] } = {}
+  timetableData.forEach(session => {
+    if (!session.venue || session.venue === 'Remote') return
+    
+    const key = `${session.venue}_${session.day}`
+    if (!venueSchedules[key]) {
+      venueSchedules[key] = []
+    }
+    venueSchedules[key].push(session)
+  })
+  
+  Object.entries(venueSchedules).forEach(([key, sessions]) => {
+    const [venue, day] = key.split('_')
+    
+    for (let i = 0; i < sessions.length; i++) {
+      for (let j = i + 1; j < sessions.length; j++) {
+        const session1 = sessions[i]
+        const session2 = sessions[j]
+        
+        if (hasTimeOverlap(session1.start_time, session1.end_time, session2.start_time, session2.end_time)) {
+          conflicts.push({
+            type: "venue_conflict",
+            severity: "high",
+            description: `Venue ${venue} is double-booked on ${day}: ${session1.unit_code} (${session1.start_time}-${session1.end_time}) and ${session2.unit_code} (${session2.start_time}-${session2.end_time})`,
+            affectedSessions: [session1, session2],
+            venue,
+            day,
+            recommendation: "Assign one session to a different venue"
+          })
+        }
+      }
+    }
+  })
+  
+  // 4. STUDENT GROUP CONFLICTS
+  const groupSchedules: { [key: string]: ClassTimetable[] } = {}
+  timetableData.forEach(session => {
+    if (!session.group_id && !session.class_id) return
+    
+    const groupKey = session.group_id || session.class_id
+    const key = `${groupKey}_${session.day}`
+    if (!groupSchedules[key]) {
+      groupSchedules[key] = []
+    }
+    groupSchedules[key].push(session)
+  })
+  
+  Object.entries(groupSchedules).forEach(([key, sessions]) => {
+    const [groupId, day] = key.split('_')
+    
+    // Sort sessions by start time
+    sessions.sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time))
+    
+    for (let i = 0; i < sessions.length; i++) {
+      for (let j = i + 1; j < sessions.length; j++) {
+        const session1 = sessions[i]
+        const session2 = sessions[j]
+        
+        // Check for overlapping sessions
+        if (hasTimeOverlap(session1.start_time, session1.end_time, session2.start_time, session2.end_time)) {
+          conflicts.push({
+            type: "student_group_overlap",
+            severity: "high",
+            description: `Student group has overlapping classes on ${day}: ${session1.unit_code} (${session1.start_time}-${session1.end_time}) conflicts with ${session2.unit_code} (${session2.start_time}-${session2.end_time})`,
+            affectedSessions: [session1, session2],
+            group_id: groupId,
+            day,
+            recommendation: "Reschedule one session to avoid student conflicts"
+          })
+        }
+        
+        // Check for back-to-back sessions (students need rest too)
+        else if (areBackToBack(session1.end_time, session2.start_time)) {
+          conflicts.push({
+            type: "student_no_rest",
+            severity: "medium",
+            description: `Students have back-to-back classes on ${day} with insufficient break: ${session1.unit_code} ends at ${session1.end_time}, ${session2.unit_code} starts at ${session2.start_time}`,
+            affectedSessions: [session1, session2],
+            group_id: groupId,
+            day,
+            recommendation: "Add break time between sessions for student wellbeing"
+          })
+        }
+      }
+    }
+  })
+  
+  // 5. TEACHING MODE CONFLICTS (Physical and Online for same class simultaneously)
+  const modeConflicts: { [key: string]: ClassTimetable[] } = {}
+  timetableData.forEach(session => {
+    const classKey = session.class_name || session.class_id
+    if (!classKey) return
+    
+    const timeKey = `${session.day}_${session.start_time}_${session.end_time}`
+    const key = `${classKey}_${timeKey}`
+    
+    if (!modeConflicts[key]) {
+      modeConflicts[key] = []
+    }
+    modeConflicts[key].push(session)
+  })
+  
+  Object.entries(modeConflicts).forEach(([key, sessions]) => {
+    if (sessions.length > 1) {
+      const modes = [...new Set(sessions.map(s => s.teaching_mode))]
+      if (modes.length > 1) {
+        conflicts.push({
+          type: "mixed_mode_conflict",
+          severity: "medium",
+          description: `Class has mixed teaching modes at the same time: ${sessions.map(s => `${s.unit_code} (${s.teaching_mode})`).join(', ')} on ${sessions[0].day} at ${sessions[0].start_time}-${sessions[0].end_time}`,
+          affectedSessions: sessions,
+          class_name: sessions[0].class_name,
+          day: sessions[0].day,
+          recommendation: "Ensure consistent teaching mode for simultaneous class sessions"
+        })
+      }
+    }
+  })
+  
+  return conflicts
+}
+
+// Enhanced validation function
+const validateFormWithEnhancedConstraints = (
+  data: FormState,
   classTimetables: ClassTimetable[],
   constraints: SchedulingConstraints,
   excludeId?: number,
 ) => {
-  if (!groupId || !day || !startTime || !endTime || !teachingMode) {
-    return { isValid: true, message: "", warnings: [] }
+  if (!data.group_id || !data.day || !data.start_time || !data.end_time || !data.teaching_mode) {
+    return { isValid: true, message: "", warnings: [], conflicts: [] }
   }
 
-  const groupDaySlots = classTimetables.filter((ct) => ct.group_id === groupId && ct.day === day && ct.id !== excludeId)
+  // Create temporary timetable with new data for validation
+  const tempTimetables = [...classTimetables]
+  if (excludeId) {
+    const index = tempTimetables.findIndex(ct => ct.id === excludeId)
+    if (index !== -1) {
+      tempTimetables[index] = data as ClassTimetable
+    }
+  } else {
+    tempTimetables.push(data as ClassTimetable)
+  }
+  
+  // Run enhanced conflict detection
+  const allConflicts = detectAllScheduleConflicts(tempTimetables)
+  
+  // Filter conflicts that involve the current session
+  const relevantConflicts = allConflicts.filter(conflict => 
+    conflict.affectedSessions.some((session: ClassTimetable) => 
+      (session.id === data.id) || 
+      (session.unit_code === data.unit_code && session.day === data.day && 
+       session.start_time === data.start_time && session.end_time === data.end_time)
+    )
+  )
+  
+  const errors = relevantConflicts
+    .filter(c => c.severity === 'high')
+    .map(c => c.description)
+    
+  const warnings = relevantConflicts
+    .filter(c => c.severity === 'medium')
+    .map(c => c.description)
+
+  // Original group daily constraints
+  const groupDaySlots = classTimetables.filter((ct) => ct.group_id === data.group_id && ct.day === data.day && ct.id !== excludeId)
 
   const physicalCount = groupDaySlots.filter((ct) => ct.teaching_mode === "physical").length
   const onlineCount = groupDaySlots.filter((ct) => ct.teaching_mode === "online").length
@@ -159,19 +417,16 @@ const validateGroupDailyConstraints = (
     return total + calculateDuration(ct.start_time, ct.end_time)
   }, 0)
 
-  const newSlotHours = calculateDuration(startTime, endTime)
+  const newSlotHours = calculateDuration(data.start_time, data.end_time)
   const totalHours = totalHoursAssigned + newSlotHours
 
-  const errors: string[] = []
-  const warnings: string[] = []
-
-  if (teachingMode === "physical" && physicalCount >= constraints.maxPhysicalPerDay) {
+  if (data.teaching_mode === "physical" && physicalCount >= constraints.maxPhysicalPerDay) {
     errors.push(
       `Group cannot have more than ${constraints.maxPhysicalPerDay} physical classes per day. Current: ${physicalCount}`,
     )
   }
 
-  if (teachingMode === "online" && onlineCount >= constraints.maxOnlinePerDay) {
+  if (data.teaching_mode === "online" && onlineCount >= constraints.maxOnlinePerDay) {
     errors.push(
       `Group cannot have more than ${constraints.maxOnlinePerDay} online classes per day. Current: ${onlineCount}`,
     )
@@ -182,14 +437,15 @@ const validateGroupDailyConstraints = (
       `Group cannot have more than ${constraints.maxHoursPerDay} hours per day. Total would be ${totalHours.toFixed(1)} hours`,
     )
   }
-
+  
   return {
     isValid: errors.length === 0,
     message: errors.join("; "),
     warnings: warnings,
+    conflicts: relevantConflicts,
     stats: {
-      physicalCount: physicalCount + (teachingMode === "physical" ? 1 : 0),
-      onlineCount: onlineCount + (teachingMode === "online" ? 1 : 0),
+      physicalCount: physicalCount + (data.teaching_mode === "physical" ? 1 : 0),
+      onlineCount: onlineCount + (data.teaching_mode === "online" ? 1 : 0),
       totalHours: totalHours,
     },
   }
@@ -240,6 +496,7 @@ const EnhancedClassTimetable = () => {
   const classes = useMemo(() => (Array.isArray(pageProps.classes) ? pageProps.classes : []), [pageProps.classes])
   const groups = useMemo(() => (Array.isArray(pageProps.groups) ? pageProps.groups : []), [pageProps.groups])
 
+  // Enhanced constraints with rest time validation
   const constraints = useMemo(
     () =>
       pageProps.constraints || {
@@ -249,6 +506,8 @@ const EnhancedClassTimetable = () => {
         maxHoursPerDay: 5,
         requireMixedMode: true,
         avoidConsecutiveSlots: true,
+        minimumRestMinutes: 15,
+        allowBackToBack: false,
       },
     [pageProps.constraints],
   )
@@ -262,8 +521,8 @@ const EnhancedClassTimetable = () => {
   const [searchValue, setSearchValue] = useState(search)
   const [rowsPerPage, setRowsPerPage] = useState(perPage)
   const [filteredUnits, setFilteredUnits] = useState<any[]>([])
-  const [filteredPrograms, setFilteredPrograms] = useState<any[]>([]) // NEW
-  const [filteredClasses, setFilteredClasses] = useState<any[]>([])   // NEW
+  const [filteredPrograms, setFilteredPrograms] = useState<any[]>([])
+  const [filteredClasses, setFilteredClasses] = useState<any[]>([])
   const [capacityWarning, setCapacityWarning] = useState<string | null>(null)
   const [conflictWarning, setConflictWarning] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -306,46 +565,9 @@ const EnhancedClassTimetable = () => {
     return orderedTimetables
   }, [classTimetables.data])
 
-  // FIXED: Conflict detection with correct variable references
+  // Enhanced conflict detection
   const detectScheduleConflicts = useCallback((timetableData: ClassTimetable[]) => {
-    const conflicts: any[] = []
-    const lecturerSlots: { [key: string]: ClassTimetable[] } = {}
-
-    timetableData.forEach((ct) => {
-      if (!ct.lecturer) return
-      const key = `${ct.lecturer}_${ct.day}`
-      if (!lecturerSlots[key]) {
-        lecturerSlots[key] = []
-      }
-      lecturerSlots[key].push(ct)
-    })
-
-    Object.entries(lecturerSlots).forEach(([key, slots]) => {
-      if (slots.length > 1) {
-        const [lecturer, day] = key.split("_")
-        for (let i = 0; i < slots.length; i++) {
-          for (let j = i + 1; j < slots.length; j++) {
-            const start1 = timeToMinutes(slots[i].start_time)
-            const end1 = timeToMinutes(slots[i].end_time)  // FIXED: was slots[j].end_time
-            const start2 = timeToMinutes(slots[j].start_time)
-            const end2 = timeToMinutes(slots[j].end_time)
-
-            if (start1 < end2 && start2 < end1) {
-              conflicts.push({
-                type: "lecturer_conflict",
-                severity: "high",
-                description: `${lecturer} has overlapping classes on ${day}`,
-                affectedSessions: [slots[i], slots[j]],
-                lecturer,
-                day,
-              })
-            }
-          }
-        }
-      }
-    })
-
-    return conflicts
+    return detectAllScheduleConflicts(timetableData)
   }, [])
 
   useEffect(() => {
@@ -357,18 +579,15 @@ const EnhancedClassTimetable = () => {
     }
   }, [classTimetables.data, detectScheduleConflicts])
 
+  // Enhanced form validation
   const validateFormWithConstraints = useCallback(
     (data: FormState) => {
       if (!data.group_id || !data.day || !data.start_time || !data.end_time || !data.teaching_mode) {
-        return { isValid: true, message: "", warnings: [] }
+        return { isValid: true, message: "", warnings: [], conflicts: [] }
       }
 
-      return validateGroupDailyConstraints(
-        data.group_id,
-        data.day,
-        data.start_time,
-        data.end_time,
-        data.teaching_mode,
+      return validateFormWithEnhancedConstraints(
+        data,
         classTimetables.data,
         constraints,
         data.id !== 0 ? data.id : undefined,
@@ -400,7 +619,6 @@ const EnhancedClassTimetable = () => {
     }
   }, [formState, validateFormWithConstraints])
 
-  // FIXED: Cleanup useEffect to prevent null access errors
   useEffect(() => {
     if (!isModalOpen) {
       setFormState(null)
@@ -414,7 +632,6 @@ const EnhancedClassTimetable = () => {
     }
   }, [isModalOpen])
 
-  // FIXED: Handle school change with null checks
   const handleSchoolChange = useCallback(
     async (schoolId) => {
       if (!formState) {
@@ -441,7 +658,6 @@ const EnhancedClassTimetable = () => {
           : null,
       )
 
-      // Reset dependent dropdowns
       setFilteredPrograms([])
       setFilteredClasses([])
       setFilteredGroups([])
@@ -455,7 +671,6 @@ const EnhancedClassTimetable = () => {
       setErrorMessage(null)
 
       try {
-        // Fetch programs for the selected school
         const response = await axios.get("/admin/api/timetable/programs/by-school", {
           params: {
             school_id: numericSchoolId,
@@ -479,7 +694,6 @@ const EnhancedClassTimetable = () => {
     [formState],
   )
 
-  // FIXED: Handle program change with null checks
   const handleProgramChange = useCallback(
     async (programId) => {
       if (!formState) {
@@ -505,7 +719,6 @@ const EnhancedClassTimetable = () => {
           : null,
       )
 
-      // Reset dependent dropdowns
       setFilteredClasses([])
       setFilteredGroups([])
       setFilteredUnits([])
@@ -518,7 +731,6 @@ const EnhancedClassTimetable = () => {
       setErrorMessage(null)
 
       try {
-        // Fetch classes for the selected program and semester
         const response = await axios.get("/admin/api/timetable/classes/by-program", {
           params: {
             program_id: numericProgramId,
@@ -555,8 +767,8 @@ const EnhancedClassTimetable = () => {
       setErrorMessage(null)
       setUnitLecturers([])
       setFilteredGroups([])
-      setFilteredPrograms([]) // Reset filtered programs
-      setFilteredClasses([])  // Reset filtered classes
+      setFilteredPrograms([])
+      setFilteredClasses([])
 
       if (type === "conflicts") {
         setShowConflictAnalysis(true)
