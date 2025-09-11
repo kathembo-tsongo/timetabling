@@ -124,7 +124,7 @@ const ClassesIndex: React.FC = () => {
   const [semesterFilter, setSemesterFilter] = useState(filters.semester_id?.toString() || 'all');
   const [programFilter, setProgramFilter] = useState(filters.program_id?.toString() || 'all');
   const [yearFilter, setYearFilter] = useState(filters.year_level?.toString() || 'all');
-  const [itemsPerPage, setItemsPerPage] = useState(filters.per_page || 15);
+  const [itemsPerPage, setItemsPerPage] = useState(filters.per_page || 10);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   // Error handling
   useEffect(() => {
