@@ -127,12 +127,12 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/users/{user}/roles', [RoleManagementController::class, 'removeUserRole'])->name('users.roles.remove');
         Route::post('/users/roles/bulk-assign', [RoleManagementController::class, 'bulkAssignRole'])->name('users.roles.bulk');
 
-        // Admin Units Routes
-        Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
-        Route::post('/units', [UnitController::class, 'Store'])->name('admin.units.store');
-        Route::get('/units/create', [UnitController::class, 'Create'])->name('admin.units.create');
-        Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('admin.units.assign-semesters');
-        Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('admin.units.assign-semester');
+        // Units Routes
+        Route::get('/units', [UnitController::class, 'index'])->name('units.index');
+        Route::post('/units', [UnitController::class, 'Store'])->name('units.store');
+        Route::get('/units/create', [UnitController::class, 'Create'])->name('units.create');
+        Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('units.assign-semesters');
+        Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('units.assign-semester');
         Route::post('/units/remove-semester', [UnitController::class, 'removeFromSemester'])->name('admin.units.remove-semester');
         Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
         Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
@@ -219,104 +219,104 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/classrooms/{classroom}', [ClassroomController::class, 'destroy'])->name('admin.classrooms.destroy');
 
        // classtimetables - EXISTING ROUTES (keep these)
-Route::get('/classtimetable', [ClassTimetableController::class, 'index'])->name('admin.classtimetable.index');
-Route::post('/classtimetable', [ClassTimetableController::class, 'store'])->name('admin.classtimetable.store');
-Route::get('/classtimetable/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetable.create');
-Route::get('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'show'])->name('admin.classtimetable.show');
-Route::get('/classtimetable/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetable.edit');
-Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
-Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
+        Route::get('/classtimetable', [ClassTimetableController::class, 'index'])->name('admin.classtimetable.index');
+        Route::post('/classtimetable', [ClassTimetableController::class, 'store'])->name('admin.classtimetable.store');
+        Route::get('/classtimetable/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetable.create');
+        Route::get('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'show'])->name('admin.classtimetable.show');
+        Route::get('/classtimetable/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetable.edit');
+        Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
+        Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
 
-// ADD THESE ADDITIONAL ROUTES (with 's') to match your React component
-Route::get('/classtimetables', [ClassTimetableController::class, 'index'])->name('admin.classtimetables.index');
-Route::post('/classtimetables', [ClassTimetableController::class, 'store'])->name('admin.classtimetables.store');
-Route::get('/classtimetables/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetables.create');
-Route::get('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'show'])->name('admin.classtimetables.show');
-Route::get('/classtimetables/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetables.edit');
-Route::put('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetables.update');
-Route::delete('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetables.destroy');
+        // ADD THESE ADDITIONAL ROUTES (with 's') to match your React component
+        Route::get('/classtimetables', [ClassTimetableController::class, 'index'])->name('admin.classtimetables.index');
+        Route::post('/classtimetables', [ClassTimetableController::class, 'store'])->name('admin.classtimetables.store');
+        Route::get('/classtimetables/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetables.create');
+        Route::get('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'show'])->name('admin.classtimetables.show');
+        Route::get('/classtimetables/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetables.edit');
+        Route::put('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetables.update');
+        Route::delete('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetables.destroy');
 
-Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
-    Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
-    Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
+        Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
+            Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
+            Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
     
-    // Change this to match your controller method signature and React component call
-    Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
+         // Change this to match your controller method signature and React component call
+            Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
     
-    // Update route should also match the pattern if you're using unitId and semesterId
-    Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
+            // Update route should also match the pattern if you're using unitId and semesterId
+            Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
     
-    // API endpoints for filtering
-    Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
-    Route::get('/programs-by-school', [LecturerAssignmentController::class, 'getProgramsBySchool'])->name('programs-by-school');
-    Route::get('/classes-by-program-semester', [LecturerAssignmentController::class, 'getClassesByProgramSemester'])->name('classes-by-program-semester');
-    Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
-});
+            // API endpoints for filtering
+            Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
+            Route::get('/programs-by-school', [LecturerAssignmentController::class, 'getProgramsBySchool'])->name('programs-by-school');
+            Route::get('/classes-by-program-semester', [LecturerAssignmentController::class, 'getClassesByProgramSemester'])->name('classes-by-program-semester');
+            Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
+        });
 
         // System Settings
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
         Route::put('/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
             
         // API Routes for AJAX calls
-Route::prefix('api')->group(function () {
-    // Enrollment-specific routes
-    Route::get('/enrollment/units/by-class', [EnrollmentController::class, 'getUnitsForClass']);
-    Route::get('/class-capacity', [EnrollmentController::class, 'getClassCapacityInfo']);
+        Route::prefix('api')->group(function () {
+            // Enrollment-specific routes
+            Route::get('/enrollment/units/by-class', [EnrollmentController::class, 'getUnitsForClass']);
+            Route::get('/class-capacity', [EnrollmentController::class, 'getClassCapacityInfo']);
     
-    // Timetable-specific routes
-    Route::get('/timetable/units/by-class', [ClassTimetableController::class, 'getUnitsByClass']);
-    Route::get('/timetable/groups/by-class', [ClassTimetableController::class, 'getGroupsByClass']);
-    Route::get('/timetable/groups/by-class-with-counts', [ClassTimetableController::class, 'getGroupsByClassWithCounts']);
-    Route::get('/timetable/lecturer-for-unit/{unitId}/{semesterId}', [ClassTimetableController::class, 'getLecturerForUnit']);
-    Route::get('/timetable/debug-class-data', [ClassTimetableController::class, 'debugClassData']);
+            // Timetable-specific routes
+            Route::get('/timetable/units/by-class', [ClassTimetableController::class, 'getUnitsByClass']);
+            Route::get('/timetable/groups/by-class', [ClassTimetableController::class, 'getGroupsByClass']);
+            Route::get('/timetable/groups/by-class-with-counts', [ClassTimetableController::class, 'getGroupsByClassWithCounts']);
+            Route::get('/timetable/lecturer-for-unit/{unitId}/{semesterId}', [ClassTimetableController::class, 'getLecturerForUnit']);
+            Route::get('/timetable/debug-class-data', [ClassTimetableController::class, 'debugClassData']);
     
-    // ✅ NEW: Cascading dropdown routes for timetable creation
-    Route::get('/timetable/programs/by-school', [ClassTimetableController::class, 'getProgramsBySchool']);
-    Route::get('/timetable/classes/by-program', [ClassTimetableController::class, 'getClassesByProgram']);
+            // ✅ NEW: Cascading dropdown routes for timetable creation
+            Route::get('/timetable/programs/by-school', [ClassTimetableController::class, 'getProgramsBySchool']);
+            Route::get('/timetable/classes/by-program', [ClassTimetableController::class, 'getClassesByProgram']);
     
-    // General class routes
-    Route::get('/classes/by-program-semester', function(Request $request) {
-        $request->validate([
-            'program_id' => 'required|exists:programs,id',
-            'semester_id' => 'required|exists:semesters,id',
-        ]);
+            // General class routes
+            Route::get('/classes/by-program-semester', function(Request $request) {
+                $request->validate([
+                    'program_id' => 'required|exists:programs,id',
+                    'semester_id' => 'required|exists:semesters,id',
+            ]);
 
-        try {
-            $classes = ClassModel::where('program_id', $request->program_id)
-                ->where('semester_id', $request->semester_id)
-                ->where('is_active', true)
-                ->select('id', 'name', 'section', 'year_level', 'capacity')
-                ->orderBy('name')
-                ->orderBy('section')
-                ->get()
-                ->map(function($class) {
-                    return [
-                        'id' => $class->id,
-                        'name' => $class->name,
-                        'section' => $class->section,
-                        'display_name' => "{$class->name} Section {$class->section}",
-                        'year_level' => $class->year_level,
-                        'capacity' => $class->capacity,
-                    ];
-                });
+                try {
+                    $classes = ClassModel::where('program_id', $request->program_id)
+                        ->where('semester_id', $request->semester_id)
+                        ->where('is_active', true)
+                        ->select('id', 'name', 'section', 'year_level', 'capacity')
+                        ->orderBy('name')
+                        ->orderBy('section')
+                        ->get()
+                        ->map(function($class) {
+                            return [
+                                'id' => $class->id,
+                                'name' => $class->name,
+                                'section' => $class->section,
+                                'display_name' => "{$class->name} Section {$class->section}",
+                                'year_level' => $class->year_level,
+                                'capacity' => $class->capacity,
+                            ];
+                     });
 
-            return response()->json($classes);
-        } catch (\Exception $e) {
-            Log::error('Error fetching classes: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch classes'], 500);
-        }
+                        return response()->json($classes);
+                    } catch (\Exception $e) {
+                        Log::error('Error fetching classes: ' . $e->getMessage());
+                    return response()->json(['error' => 'Failed to fetch classes'], 500);
+            }
+        });
+    
+            Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
+            Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
+            Route::get('/schools/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
+    
+            // Lecturer assignment routes
+            Route::get('/lecturerassignments/lecturers', [LecturerAssignmentController::class, 'getAvailableLecturers']);
+            Route::get('/lecturerassignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
+            Route::get('/lecturerassignments/units', [LecturerAssignmentController::class, 'getFilteredUnits']);
+            Route::get('/lecturerassignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
     });
-    
-    Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
-    Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
-    Route::get('/schools/all', [SchoolController::class, 'getAllSchools'])->name('admin.schools.api.all');
-    
-    // Lecturer assignment routes
-    Route::get('/lecturerassignments/lecturers', [LecturerAssignmentController::class, 'getAvailableLecturers']);
-    Route::get('/lecturerassignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
-    Route::get('/lecturerassignments/units', [LecturerAssignmentController::class, 'getFilteredUnits']);
-    Route::get('/lecturerassignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
-});
     // ===============================================================
     // SCHOOL PROGRAMS MANAGEMENT
     // ===============================================================
@@ -361,7 +361,14 @@ Route::prefix('api')->group(function () {
 
         // Close admin prefix group
     });
-    // Close authenticated middleware group
+
+    
+});
+
+// STUDENT ROUTES
+Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function () {
+    Route::get('/', [DashboardController::class, 'studentDashboard'])->name('student.dashboard');
+    // Additional student-specific routes can be added here
 });
 
 // ===============================================================
