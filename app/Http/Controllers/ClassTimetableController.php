@@ -50,7 +50,7 @@ class ClassTimetableController extends Controller
     $perPage = $request->input('per_page', 100);
     $search = $request->input('search', '');
 
-    // ✅ ENHANCED: Fetch class timetables with lecturer names and enhanced group info
+    // ✅ ENHANCED: Fetch class timetables with comprehensive search capabilities
     $classTimetables = ClassTimetable::query()
         ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
         ->leftJoin('semesters', 'class_timetable.semester_id', '=', 'semesters.id')
@@ -65,6 +65,10 @@ class ClassTimetableController extends Controller
             'units.code as unit_code',
             'units.name as unit_name',
             'semesters.name as semester_name',
+            'programs.code as program_code',
+            'programs.name as program_name',
+            'schools.code as school_code',
+            'schools.name as school_name',
             // ✅ ADD THESE MISSING FIELDS:
             DB::raw("CASE 
                 WHEN classes.section IS NOT NULL AND classes.year_level IS NOT NULL 
@@ -75,6 +79,8 @@ class ClassTimetableController extends Controller
                 THEN CONCAT(classes.name, ' (Year ', classes.year_level, ')')
                 ELSE classes.name 
                 END as class_name"),
+            'classes.section as class_section',
+            'classes.year_level as class_year_level',
             'groups.name as group_name',
             // ✅ Display lecturer full name
             DB::raw("CASE 
@@ -90,92 +96,120 @@ class ClassTimetableController extends Controller
                   ->orWhere('units.code', 'like', "%{$search}%")
                   ->orWhere('units.name', 'like', "%{$search}%")
                   ->orWhere('class_timetable.venue', 'like', "%{$search}%")
+                  // ✅ ENHANCED: Add comprehensive class and section search
+                  ->orWhere('classes.name', 'like', "%{$search}%")
+                  ->orWhere('classes.section', 'like', "%{$search}%")
+                  ->orWhere('classes.year_level', 'like', "%{$search}%")
+                  // ✅ Search combined class display name
+                  ->orWhere(DB::raw("CASE 
+                      WHEN classes.section IS NOT NULL AND classes.year_level IS NOT NULL 
+                      THEN CONCAT(classes.name, ' - Section ', classes.section, ' (Year ', classes.year_level, ')')
+                      WHEN classes.section IS NOT NULL 
+                      THEN CONCAT(classes.name, ' - Section ', classes.section)
+                      WHEN classes.year_level IS NOT NULL 
+                      THEN CONCAT(classes.name, ' (Year ', classes.year_level, ')')
+                      ELSE classes.name 
+                      END"), 'like', "%{$search}%")
+                  // ✅ Search programs and schools
+                  ->orWhere('programs.code', 'like', "%{$search}%")
+                  ->orWhere('programs.name', 'like', "%{$search}%")
+                  ->orWhere('schools.code', 'like', "%{$search}%")
+                  ->orWhere('schools.name', 'like', "%{$search}%")
+                  // ✅ Search groups
+                  ->orWhere('groups.name', 'like', "%{$search}%")
+                  // ✅ Search lecturers (both code and full name)
                   ->orWhere('users.first_name', 'like', "%{$search}%")
                   ->orWhere('users.last_name', 'like', "%{$search}%")
-                  ->orWhere('class_timetable.lecturer', 'like', "%{$search}%");
+                  ->orWhere('class_timetable.lecturer', 'like', "%{$search}%")
+                  ->orWhere(DB::raw("CONCAT(users.first_name, ' ', users.last_name)"), 'like', "%{$search}%")
+                  // ✅ Search teaching mode
+                  ->orWhere('class_timetable.teaching_mode', 'like', "%{$search}%")
+                  // ✅ Search time ranges
+                  ->orWhere('class_timetable.start_time', 'like', "%{$search}%")
+                  ->orWhere('class_timetable.end_time', 'like', "%{$search}%");
             });
         })
         ->orderBy('class_timetable.day')
         ->orderBy('class_timetable.start_time')
         ->paginate($perPage);
 
-        // ✅ ENHANCED: Fetch lecturers with full names for dropdown
-        $lecturers = User::role('Lecturer')
-            ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
-            ->get();
+    // ✅ ENHANCED: Fetch lecturers with full names for dropdown
+    $lecturers = User::role('Lecturer')
+        ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
+        ->get();
 
-        $semesters = Semester::all();
-        $classrooms = Classroom::all();
-        $classtimeSlots = ClassTimeSlot::all();
-        $allUnits = Unit::select('id', 'code', 'name', 'semester_id', 'credit_hours')->get();
-        
-        // ✅ ENHANCED: Classes with section and year level info
-        $classes = ClassModel::select('id', 'name', 'section', 'year_level', 'program_id')
-            ->get()
-            ->map(function ($class) {
-                $displayName = $class->name;
-                if ($class->section) {
-                    $displayName .= ' - Section ' . $class->section;
-                }
-                if ($class->year_level) {
-                    $displayName .= ' (Year ' . $class->year_level . ')';
-                }
-                
-                return [
-                    'id' => $class->id,
-                    'name' => $class->name,
-                    'display_name' => $displayName,
-                    'section' => $class->section,
-                    'year_level' => $class->year_level,
-                    'program_id' => $class->program_id
-                ];
-            });
+    $semesters = Semester::all();
+    $classrooms = Classroom::all();
+    $classtimeSlots = ClassTimeSlot::all();
+    $allUnits = Unit::select('id', 'code', 'name', 'semester_id', 'credit_hours')->get();
+    
+    // ✅ ENHANCED: Classes with section and year level info
+    $classes = ClassModel::select('id', 'name', 'section', 'year_level', 'program_id')
+        ->get()
+        ->map(function ($class) {
+            $displayName = $class->name;
+            if ($class->section) {
+                $displayName .= ' - Section ' . $class->section;
+            }
+            if ($class->year_level) {
+                $displayName .= ' (Year ' . $class->year_level . ')';
+            }
+            
+            return [
+                'id' => $class->id,
+                'name' => $class->name,
+                'display_name' => $displayName,
+                'section' => $class->section,
+                'year_level' => $class->year_level,
+                'program_id' => $class->program_id
+            ];
+        });
 
-        // ✅ REAL DATA: Fetch groups with actual student counts from enrollments table
-        $groups = Group::select('id', 'name', 'class_id', 'capacity')
-            ->get()
-            ->map(function ($group) {
-                $actualStudentCount = DB::table('enrollments')
-                    ->where('group_id', $group->id)
-                    ->distinct('student_code')
-                    ->count('student_code');
+    // ✅ REAL DATA: Fetch groups with actual student counts from enrollments table
+    $groups = Group::select('id', 'name', 'class_id', 'capacity')
+        ->get()
+        ->map(function ($group) {
+            $actualStudentCount = DB::table('enrollments')
+                ->where('group_id', $group->id)
+                ->distinct('student_code')
+                ->count('student_code');
 
-                return [
-                    'id' => $group->id,
-                    'name' => $group->name,
-                    'class_id' => $group->class_id,
-                    'student_count' => $actualStudentCount,
-                    'capacity' => $group->capacity
-                ];
-            });
+            return [
+                'id' => $group->id,
+                'name' => $group->name,
+                'class_id' => $group->class_id,
+                'student_count' => $actualStudentCount,
+                'capacity' => $group->capacity
+            ];
+        });
 
-        $programs = DB::table('programs')->select('id', 'code', 'name')->get();
-        $schools = DB::table('schools')->select('id', 'name', 'code')->get();
+    $programs = DB::table('programs')->select('id', 'code', 'name')->get();
+    $schools = DB::table('schools')->select('id', 'name', 'code')->get();
 
-        return Inertia::render('Admin/Classtimetable/Index', [
-            'classTimetables' => $classTimetables,
-            'lecturers' => $lecturers,
-            'perPage' => $perPage,
-            'search' => $search,
-            'semesters' => $semesters,
-            'classrooms' => $classrooms,
-            'classtimeSlots' => $classtimeSlots,
-            'units' => $allUnits,
-            'enrollments' => [],
-            'classes' => $classes,
-            'groups' => $groups,
-            'programs' => $programs,
-            'schools' => $schools,
-            'can' => [
-                'create' => $user->can('create-classtimetables'),
-                'edit' => $user->can('update-classtimetables'),
-                'delete' => $user->can('delete-classtimetables'),
-                'process' => $user->can('process-classtimetables'),
-                'solve_conflicts' => $user->can('solve-class-conflicts'),
-                'download' => $user->can('download-classtimetables'),
-            ],
-        ]);
-    }
+    return Inertia::render('Admin/Classtimetable/Index', [
+        'classTimetables' => $classTimetables,
+        'lecturers' => $lecturers,
+        'perPage' => $perPage,
+        'search' => $search,
+        'semesters' => $semesters,
+        'classrooms' => $classrooms,
+        'classtimeSlots' => $classtimeSlots,
+        'units' => $allUnits,
+        'enrollments' => [],
+        'classes' => $classes,
+        'groups' => $groups,
+        'programs' => $programs,
+        'schools' => $schools,
+        'can' => [
+            'create' => $user->can('create-classtimetables'),
+            'edit' => $user->can('update-classtimetables'),
+            'delete' => $user->can('delete-classtimetables'),
+            'process' => $user->can('process-classtimetables'),
+            'solve_conflicts' => $user->can('solve-class-conflicts'),
+            'download' => $user->can('download-classtimetables'),
+        ],
+    ]);
+}
 
     /**
      * ✅ FIXED: Get groups by class with CORRECT student counts - WORKING VERSION
