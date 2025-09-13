@@ -6,6 +6,7 @@ use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SemesterController;
+use App\Http\Controllers\StudentController;
 use App\Http\Controllers\SchoolController;
 use App\Http\Controllers\ProgramController;
 use App\Http\Controllers\UserController;
@@ -366,9 +367,13 @@ Route::middleware(['auth'])->group(function () {
 });
 
 // STUDENT ROUTES
+
 Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function () {
-    Route::get('/', [DashboardController::class, 'studentDashboard'])->name('student.dashboard');
-    // Additional student-specific routes can be added here
+    Route::get('/', [StudentController::class, 'studentDashboard'])->name('student.dashboard');
+    Route::get('/enrollments', [StudentController::class, 'myEnrollments'])->name('student.enrollments');
+    Route::get('/exams', [StudentController::class, 'myExams'])->name('student.exams');
+    Route::get('/timetable', [StudentController::class, 'myTimetable'])->name('student.timetable');
+    Route::get('/profile', [StudentController::class, 'profile'])->name('student.profile');
 });
 
 // ===============================================================

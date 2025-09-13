@@ -64,3 +64,30 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+
+
+## COMMANDS TO REFEER TO:
+
+1. Check if a student with a specific code is enrolled in any units for the current active semester using Laravel Tinker.
+
+php artisan tinker
+
+$user = User::where('code', 'BBIT0001')->first();
+$currentSemester = Semester::where('is_active', true)->first();
+
+// Check enrollments
+$enrollments = Enrollment::where('student_code', $user->code)
+    ->where('semester_id', $currentSemester->id)
+    ->with(['unit.school'])
+    ->get();
+
+echo "Student: " . $user->code . "\n";
+echo "Current Semester: " . $currentSemester->name . "\n";
+echo "Enrollments count: " . $enrollments->count() . "\n";
+
+foreach($enrollments as $enrollment) {
+    echo "- " . $enrollment->unit->code . " - " . $enrollment->unit->name . "\n";
+}
+
+==============================================================================

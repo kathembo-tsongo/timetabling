@@ -492,7 +492,7 @@ export default function Sidebar() {
       items: [
         {
           label: "My Timetable",
-          href: "/my-timetable",
+          href: "/student/timetable",
           icon: Calendar,
           type: 'link'
         },
