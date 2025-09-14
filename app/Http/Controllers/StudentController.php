@@ -179,12 +179,8 @@ public function studentDashboard(Request $request)
 
 public function myTimetable(Request $request)
 {
-    
     $user = $request->user();
-
-Log::info('myTimetable method called', ['url' => $request->fullUrl()]);
-    
-    
+    Log::info('myTimetable method called', ['url' => $request->fullUrl()]);
     
     // Get current active semester
     $currentSemester = Semester::where('is_active', true)->first();
@@ -195,6 +191,12 @@ Log::info('myTimetable method called', ['url' => $request->fullUrl()]);
     // Get selected semester (default to current)
     $selectedSemesterId = $request->input('semester_id', $currentSemester->id ?? null);
     
+    // Get student's class information from enrollments table
+    $enrollment = Enrollment::where('student_code', $user->code)
+        ->where('semester_id', $selectedSemesterId)
+        ->first();
+    $studentClassId = $enrollment->class_id ?? null;
+    
     // Get student's enrolled units
     $enrolledUnits = Enrollment::where('student_code', $user->code)
         ->where('semester_id', $selectedSemesterId)
@@ -203,9 +205,17 @@ Log::info('myTimetable method called', ['url' => $request->fullUrl()]);
     
     $enrolledUnitIds = $enrolledUnits->pluck('unit.id')->filter()->toArray();
     
+    // Get class information if student has a class assigned
+    $classInfo = null;
+    if ($studentClassId) {
+        $classInfo = DB::table('classes')->where('id', $studentClassId)->first();
+    }
+    
     // Log for debugging
     Log::info('MyTimetable Debug', [
         'student_code' => $user->code,
+        'student_class_id' => $studentClassId,
+        'class_info' => $classInfo,
         'semester_id' => $selectedSemesterId,
         'enrolled_units_count' => $enrolledUnits->count(),
         'enrolled_unit_ids' => $enrolledUnitIds
@@ -213,16 +223,20 @@ Log::info('myTimetable method called', ['url' => $request->fullUrl()]);
     
     $classTimetables = collect();
     
-    if (!empty($enrolledUnitIds)) {
+    if (!empty($enrolledUnitIds) && $studentClassId) {
         $classTimetables = DB::table('class_timetable')
             ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
             ->leftJoin('users', 'users.code', '=', 'class_timetable.lecturer')
+            ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
             ->whereIn('class_timetable.unit_id', $enrolledUnitIds)
             ->where('class_timetable.semester_id', $selectedSemesterId)
+            ->where('class_timetable.class_id', $studentClassId) // Filter by student's specific class
             ->select(
                 'class_timetable.*',
                 'units.code as unit_code',
                 'units.name as unit_name',
+                'classes.name as class_name',
+                'classes.section as class_section',
                 DB::raw("COALESCE(CONCAT(users.first_name, ' ', users.last_name), class_timetable.lecturer) as lecturer_name")
             )
             ->orderBy('class_timetable.day')
@@ -232,23 +246,39 @@ Log::info('myTimetable method called', ['url' => $request->fullUrl()]);
         // Log the results
         Log::info('Timetables Retrieved', [
             'count' => $classTimetables->count(),
+            'filters_applied' => [
+                'class_id' => $studentClassId,
+                'class_name' => $classInfo->name ?? 'Unknown',
+                'section' => $classInfo->section ?? 'Unknown',
+                'units' => $enrolledUnitIds
+            ],
             'first_few' => $classTimetables->take(3)->toArray()
+        ]);
+    } else {
+        Log::warning('Cannot fetch personalized timetable', [
+            'student_code' => $user->code,
+            'has_enrolled_units' => !empty($enrolledUnitIds),
+            'has_class_assigned' => !is_null($studentClassId),
+            'enrolled_units_count' => count($enrolledUnitIds),
+            'class_id' => $studentClassId
         ]);
     }
     
     return Inertia::render('Student/ClassTimetable', [
-    'classTimetables' => [
-        'data' => $classTimetables
-    ],
-    'enrolledUnits' => $enrolledUnits,
-    'currentSemester' => $currentSemester,
-    'semesters' => Semester::orderBy('name')->get(), // Add this
-    'selectedSemesterId' => (int)$selectedSemesterId,
-    'studentInfo' => [
-        'name' => $user->first_name . ' ' . $user->last_name,
-        'code' => $user->code
-    ]
-]);
+        'classTimetables' => [
+            'data' => $classTimetables
+        ],
+        'enrolledUnits' => $enrolledUnits,
+        'currentSemester' => $currentSemester,
+        'semesters' => Semester::orderBy('name')->get(),
+        'selectedSemesterId' => (int)$selectedSemesterId,
+        'studentInfo' => [
+            'name' => $user->first_name . ' ' . $user->last_name,
+            'code' => $user->code,
+            'class_name' => $classInfo->name ?? null,
+            'section' => $classInfo->section ?? null
+        ]
+    ]);
 }
 /**
  * Display the student's exam schedule

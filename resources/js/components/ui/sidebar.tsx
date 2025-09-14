@@ -489,17 +489,23 @@ export default function Sidebar() {
     },
     {
       title: "Student Portal",
-      items: [
+      items: [        
         {
-          label: "My Timetable",
+          label: "Enrollment",
+          href: "/enroll",
+          icon: ClipboardList,
+          type: 'link'
+        },
+        {
+          label: "My Class Timetable",
           href: "/student/timetable",
           icon: Calendar,
           type: 'link'
         },
         {
-          label: "Enrollment",
-          href: "/enroll",
-          icon: ClipboardList,
+          label: "My Exam Timetable",
+          href: "/student/exam-timetable",
+          icon: Calendar,
           type: 'link'
         }
       ],

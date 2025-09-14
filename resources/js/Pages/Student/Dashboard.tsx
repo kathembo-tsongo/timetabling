@@ -412,7 +412,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                 <div className="p-6">
                   <div className="space-y-3">
                     <a 
-                      href="/my-timetable" 
+                      href="/student/timetable" 
                       className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl hover:shadow-md transition-all duration-200 group"
                     >
                       <div className="flex items-center space-x-3">
