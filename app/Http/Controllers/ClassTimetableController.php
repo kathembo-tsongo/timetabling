@@ -1665,64 +1665,23 @@ public function update(Request $request, $id)
         'classtimeslot_id' => 'nullable|integer',
     ]);
 
-    DB::beginTransaction();
-    
     try {
-        // ✅ OPTIMIZATION 2: Use findOrFail with specific columns only
-        $timetable = ClassTimetable::select([
-            'id', 'unit_id', 'semester_id', 'class_id', 'group_id', 
-            'day', 'start_time', 'end_time', 'venue', 'location',
-            'no', 'lecturer', 'teaching_mode', 'program_id', 'school_id'
-        ])->findOrFail($id);
+        // Find the timetable record (single query)
+        $timetable = ClassTimetable::findOrFail($id);
         
-        \Log::info('Updating class timetable (optimized)', ['id' => $id]);
+        Log::info('Updating class timetable', ['id' => $id]);
 
-        // ✅ OPTIMIZATION 3: Cache frequently accessed data
-        static $cachedUnits = [];
-        static $cachedClasses = [];
-        static $cachedTimeSlots = [];
-
-        // Get unit with caching
-        if (!isset($cachedUnits[$request->unit_id])) {
-            $cachedUnits[$request->unit_id] = Unit::select('id', 'code')->find($request->unit_id);
-        }
-        $unit = $cachedUnits[$request->unit_id];
-
-        if (!$unit) {
-            throw new \Exception("Unit not found with ID: {$request->unit_id}");
-        }
-
-        // Get class with caching (only if needed)
-        $class = null;
-        $programId = $request->program_id;
-        $schoolId = $request->school_id;
-        
-        if (!$programId || !$schoolId) {
-            if (!isset($cachedClasses[$request->class_id])) {
-                $cachedClasses[$request->class_id] = ClassModel::select('id', 'program_id', 'school_id')
-                    ->find($request->class_id);
-            }
-            $class = $cachedClasses[$request->class_id];
-            
-            $programId = $programId ?: ($class ? $class->program_id : null);
-            $schoolId = $schoolId ?: ($class ? $class->school_id : null);
-        }
-
-        // ✅ OPTIMIZATION 4: Handle time slot logic efficiently
+        // Handle time slot data only if classtimeslot_id is provided (conditional query)
         $day = $request->day;
         $startTime = $request->start_time;
         $endTime = $request->end_time;
 
-        // Only query time slot if classtimeslot_id is provided
-        if ($request->classtimeslot_id) {
-            if (!isset($cachedTimeSlots[$request->classtimeslot_id])) {
-                $cachedTimeSlots[$request->classtimeslot_id] = DB::table('class_time_slots')
-                    ->select('day', 'start_time', 'end_time')
-                    ->where('id', $request->classtimeslot_id)
-                    ->first();
-            }
+        if ($request->classtimeslot_id && $request->classtimeslot_id != $timetable->classtimeslot_id) {
+            $timeSlot = DB::table('class_time_slots')
+                ->select('day', 'start_time', 'end_time')
+                ->where('id', $request->classtimeslot_id)
+                ->first();
             
-            $timeSlot = $cachedTimeSlots[$request->classtimeslot_id];
             if ($timeSlot) {
                 $day = $timeSlot->day;
                 $startTime = $timeSlot->start_time;
@@ -1730,106 +1689,72 @@ public function update(Request $request, $id)
             }
         }
 
-        // ✅ OPTIMIZATION 5: Simplified teaching mode determination
-        $teachingMode = $request->teaching_mode;
-        if ($startTime && $endTime && !$teachingMode) {
-            try {
-                $duration = \Carbon\Carbon::parse($startTime)->diffInHours(\Carbon\Carbon::parse($endTime));
-                $teachingMode = $duration >= 2 ? 'physical' : 'online';
-            } catch (\Exception $e) {
-                $teachingMode = 'physical'; // Safe fallback
-            }
-        }
-        $teachingMode = $teachingMode ?: 'physical';
+        // Simple teaching mode assignment
+        $teachingMode = $request->teaching_mode ?: 'physical';
 
-        // ✅ OPTIMIZATION 6: Simplified venue assignment
+        // Simple venue assignment
         $venue = $request->venue;
-        $location = $request->location;
-        
         if (!$venue) {
-            if ($teachingMode === 'online') {
-                $venue = 'Remote';
-                $location = 'Online';
-            } else {
-                // Use a cached query for suitable classroom
-                static $cachedClassrooms = null;
-                if ($cachedClassrooms === null) {
-                    $cachedClassrooms = Classroom::select('name', 'location', 'capacity')
-                        ->orderBy('capacity', 'asc')
-                        ->get()
-                        ->keyBy('name');
-                }
-                
-                $suitableClassroom = $cachedClassrooms->where('capacity', '>=', $request->no)->first();
-                $venue = $suitableClassroom ? $suitableClassroom->name : 'TBD';
-                $location = $suitableClassroom ? $suitableClassroom->location : 'Physical';
-            }
+            $venue = ($teachingMode === 'online') ? 'Remote' : 'TBD';
         }
 
-        // ✅ OPTIMIZATION 7: Batch update with only changed fields
-        $updateData = [];
+        $location = $request->location;
+        if (!$location) {
+            $location = ($teachingMode === 'online') ? 'Online' : 'Physical';
+        }
+
+        // Direct update with all data at once (single update query)
+        $updateData = [
+            'unit_id' => $request->unit_id,
+            'semester_id' => $request->semester_id,
+            'class_id' => $request->class_id,
+            'group_id' => $request->group_id,
+            'venue' => $venue,
+            'location' => $location,
+            'no' => $request->no,
+            'lecturer' => $request->lecturer,
+            'teaching_mode' => $teachingMode,
+            'updated_at' => now(),
+        ];
+
+        // Add time fields if provided
+        if ($day) $updateData['day'] = $day;
+        if ($startTime) $updateData['start_time'] = $startTime;
+        if ($endTime) $updateData['end_time'] = $endTime;
+        if ($request->program_id) $updateData['program_id'] = $request->program_id;
+        if ($request->school_id) $updateData['school_id'] = $request->school_id;
+
+        // Single update query
+        $timetable->update($updateData);
         
-        // Only include fields that have actually changed
-        if ($timetable->day !== $day) $updateData['day'] = $day;
-        if ($timetable->unit_id !== $unit->id) $updateData['unit_id'] = $unit->id;
-        if ($timetable->semester_id !== $request->semester_id) $updateData['semester_id'] = $request->semester_id;
-        if ($timetable->class_id !== $request->class_id) $updateData['class_id'] = $request->class_id;
-        if ($timetable->group_id !== $request->group_id) $updateData['group_id'] = $request->group_id ?: null;
-        if ($timetable->venue !== $venue) $updateData['venue'] = $venue;
-        if ($timetable->location !== $location) $updateData['location'] = $location;
-        if ($timetable->no !== $request->no) $updateData['no'] = $request->no;
-        if ($timetable->lecturer !== $request->lecturer) $updateData['lecturer'] = $request->lecturer;
-        if ($timetable->start_time !== $startTime) $updateData['start_time'] = $startTime;
-        if ($timetable->end_time !== $endTime) $updateData['end_time'] = $endTime;
-        if ($timetable->teaching_mode !== $teachingMode) $updateData['teaching_mode'] = $teachingMode;
-        if ($timetable->program_id !== $programId) $updateData['program_id'] = $programId;
-        if ($timetable->school_id !== $schoolId) $updateData['school_id'] = $schoolId;
-
-        // Only update if there are actual changes
-        if (!empty($updateData)) {
-            $updateData['updated_at'] = now();
-            $timetable->update($updateData);
-            
-            \Log::info('Class timetable updated successfully (optimized)', [
-                'id' => $id,
-                'changes' => array_keys($updateData),
-                'unit_code' => $unit->code,
-                'teaching_mode' => $teachingMode,
-                'venue' => $venue,
-            ]);
-        } else {
-            \Log::info('No changes detected, skipping update', ['id' => $id]);
-        }
-
-        DB::commit();
+        Log::info('Class timetable updated successfully', [
+            'id' => $id,
+            'unit_id' => $request->unit_id,
+            'teaching_mode' => $teachingMode,
+            'venue' => $venue,
+        ]);
 
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
                 'message' => 'Class timetable updated successfully.',
-                'data' => $timetable->fresh(['unit:id,code,name', 'semester:id,name'])
+                'data' => $timetable->only(['id', 'day', 'start_time', 'end_time', 'venue', 'teaching_mode']) // Return minimal data
             ]);
         }
 
         return redirect()->back()->with('success', 'Class timetable updated successfully.');
 
     } catch (\Exception $e) {
-        DB::rollback();
-        
-        \Log::error('Failed to update class timetable (optimized): ' . $e->getMessage(), [
+        Log::error('Failed to update class timetable: ' . $e->getMessage(), [
             'id' => $id,
-            'request_data' => $request->only([
-                'unit_id', 'semester_id', 'class_id', 'day', 'start_time', 'end_time'
-            ]),
-            'exception_line' => $e->getLine(),
-            'exception_file' => $e->getFile()
+            'unit_id' => $request->unit_id,
+            'error_line' => $e->getLine(),
         ]);
 
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update class timetable: ' . $e->getMessage(),
-                'errors' => ['error' => $e->getMessage()]
             ], 500);
         }
 
@@ -1838,7 +1763,6 @@ public function update(Request $request, $id)
             ->withInput();
     }
 }
-
 /**
  * ✅ NEW: Optimized bulk update method for multiple timetables
  */

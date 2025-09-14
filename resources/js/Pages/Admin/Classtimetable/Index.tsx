@@ -755,72 +755,91 @@ const EnhancedClassTimetable = () => {
     [formState],
   )
 
-  const handleOpenModal = useCallback(
-    (
-      type: "view" | "edit" | "delete" | "create" | "conflicts" | "csp_solver",
-      classtimetable: ClassTimetable | null,
-    ) => {
-      setModalType(type)
-      setSelectedClassTimetable(classtimetable)
-      setCapacityWarning(null)
-      setConflictWarning(null)
-      setErrorMessage(null)
-      setUnitLecturers([])
-      setFilteredGroups([])
+  // Replace your existing handleOpenModal function with this enhanced version:
+
+const handleOpenModal = useCallback(
+  async (
+    type: "view" | "edit" | "delete" | "create" | "conflicts" | "csp_solver",
+    classtimetable: ClassTimetable | null,
+  ) => {
+    setModalType(type)
+    setSelectedClassTimetable(classtimetable)
+    setCapacityWarning(null)
+    setConflictWarning(null)
+    setErrorMessage(null)
+    setUnitLecturers([])
+    setFilteredGroups([])
+    setFilteredPrograms([])
+    setFilteredClasses([])
+    setFilteredUnits([])
+
+    if (type === "conflicts") {
+      setShowConflictAnalysis(true)
+      setIsModalOpen(true)
+      return
+    }
+
+    if (type === "csp_solver") {
+      setIsModalOpen(true)
+      return
+    }
+
+    if (type === "create") {
+      setFormState({
+        id: 0,
+        day: "",
+        enrollment_id: 0,
+        venue: "",
+        location: "",
+        no: 0,
+        lecturer: "",
+        start_time: "",
+        end_time: "",
+        teaching_mode: "physical",
+        semester_id: 0,
+        unit_id: 0,
+        unit_code: "",
+        unit_name: "",
+        classtimeslot_id: 0,
+        lecturer_id: null,
+        lecturer_name: "",
+        class_id: null,
+        group_id: null,
+        school_id: null,
+        program_id: null,
+      })
+      setFilteredUnits([])
       setFilteredPrograms([])
       setFilteredClasses([])
+    } else if (classtimetable && type === "edit") {
+      // For EDIT mode, we need to pre-populate ALL the dependent dropdowns
+      setIsLoading(true)
 
-      if (type === "conflicts") {
-        setShowConflictAnalysis(true)
-        setIsModalOpen(true)
-        return
-      }
-
-      if (type === "csp_solver") {
-        setIsModalOpen(true)
-        return
-      }
-
-      if (type === "create") {
-        setFormState({
-          id: 0,
-          day: "",
-          enrollment_id: 0,
-          venue: "",
-          location: "",
-          no: 0,
-          lecturer: "",
-          start_time: "",
-          end_time: "",
-          teaching_mode: "physical",
-          semester_id: 0,
-          unit_id: 0,
-          unit_code: "",
-          unit_name: "",
-          classtimeslot_id: 0,
-          lecturer_id: null,
-          lecturer_name: "",
-          class_id: null,
-          group_id: null,
-          school_id: null,
-          program_id: null, // Initialize program_id
-        })
-        setFilteredUnits([])
-        setFilteredPrograms([]) // Reset filtered programs
-        setFilteredClasses([])  // Reset filtered classes
-      } else if (classtimetable) {
+      try {
         const unit = units.find((u) => u.code === classtimetable.unit_code)
+        
+        // Find the matching time slot based on day, start_time, and end_time
         const classtimeSlot = classtimeSlots.find(
           (ts) =>
             ts.day === classtimetable.day &&
             ts.start_time === classtimetable.start_time &&
             ts.end_time === classtimetable.end_time,
         )
+        
         const unitEnrollment = enrollments.find(
           (e) =>
             e.unit_code === classtimetable.unit_code && Number(e.semester_id) === Number(classtimetable.semester_id),
         )
 
+        console.log("Time slot matching for edit:", {
+          existing_day: classtimetable.day,
+          existing_start: classtimetable.start_time,
+          existing_end: classtimetable.end_time,
+          found_slot: classtimeSlot,
+          all_slots_count: classtimeSlots.length
+        })
+
+        // Set initial form state with proper time slot ID
         setFormState({
           ...classtimetable,
           enrollment_id: unitEnrollment?.id || 0,
@@ -831,24 +850,138 @@ const EnhancedClassTimetable = () => {
           class_id: classtimetable.class_id || null,
           group_id: classtimetable.group_id || null,
           teaching_mode: classtimetable.teaching_mode || "physical",
-          program_id: classtimetable.program_id || null, // Initialize program_id from existing data
+          program_id: classtimetable.program_id || null,
+          school_id: classtimetable.school_id || null,
+          // Ensure time fields are properly set
+          day: classtimetable.day,
+          start_time: classtimetable.start_time,
+          end_time: classtimetable.end_time,
+          venue: classtimetable.venue,
+          location: classtimetable.location,
         })
 
-        if (classtimetable.semester_id) {
-          const semesterUnits = units.filter((unit) => unit.semester_id === classtimetable.semester_id)
-          setFilteredUnits(semesterUnits)
+        // Log the classtimeslot_id that was set
+        if (classtimeSlot) {
+          console.log("Time slot found and set:", {
+            id: classtimeSlot.id,
+            day: classtimeSlot.day,
+            time: `${classtimeSlot.start_time}-${classtimeSlot.end_time}`
+          })
+        } else {
+          console.warn("No matching time slot found for existing timetable:", {
+            day: classtimetable.day,
+            start_time: classtimetable.start_time,
+            end_time: classtimetable.end_time
+          })
         }
 
+        // 1. Pre-populate PROGRAMS based on school_id
+        if (classtimetable.school_id) {
+          try {
+            const programsResponse = await axios.get("/admin/api/timetable/programs/by-school", {
+              params: { school_id: classtimetable.school_id },
+            })
+            if (programsResponse.data && programsResponse.data.length > 0) {
+              setFilteredPrograms(programsResponse.data)
+            }
+          } catch (error) {
+            console.error("Error fetching programs for edit:", error)
+          }
+        }
+
+        // 2. Pre-populate CLASSES based on program_id and semester_id
+        if (classtimetable.program_id && classtimetable.semester_id) {
+          try {
+            const classesResponse = await axios.get("/admin/api/timetable/classes/by-program", {
+              params: {
+                program_id: classtimetable.program_id,
+                semester_id: classtimetable.semester_id,
+              },
+            })
+            if (classesResponse.data && classesResponse.data.length > 0) {
+              setFilteredClasses(classesResponse.data)
+            }
+          } catch (error) {
+            console.error("Error fetching classes for edit:", error)
+          }
+        }
+
+        // 3. Pre-populate UNITS based on class_id and semester_id
+        if (classtimetable.class_id && classtimetable.semester_id) {
+          try {
+            const unitsResponse = await axios.get("/admin/api/timetable/units/by-class", {
+              params: {
+                class_id: classtimetable.class_id,
+                semester_id: classtimetable.semester_id,
+              },
+            })
+            if (unitsResponse.data && unitsResponse.data.length > 0) {
+              const unitsWithDetails = unitsResponse.data.map((unit) => ({
+                ...unit,
+                student_count: unit.student_count || 0,
+                lecturer_name: unit.lecturer_name || unit.lecturerName || "",
+                credit_hours: unit.credit_hours || 3,
+              }))
+              setFilteredUnits(unitsWithDetails)
+            }
+          } catch (error) {
+            console.error("Error fetching units for edit:", error)
+          }
+        }
+
+        // 4. Pre-populate GROUPS based on class_id
         if (classtimetable.class_id) {
           const filteredGroupsForClass = groups.filter((group) => group.class_id === classtimetable.class_id)
           setFilteredGroups(filteredGroupsForClass)
         }
-      }
 
-      setIsModalOpen(true)
-    },
-    [units, classtimeSlots, enrollments, groups],
-  )
+        console.log("Edit modal pre-population completed:", {
+          school_id: classtimetable.school_id,
+          program_id: classtimetable.program_id,
+          class_id: classtimetable.class_id,
+          unit_id: unit?.id,
+          semester_id: classtimetable.semester_id,
+        })
+
+      } catch (error) {
+        console.error("Error in handleOpenModal for edit:", error)
+        setErrorMessage("Failed to load existing timetable data for editing.")
+      } finally {
+        setIsLoading(false)
+      }
+    } else if (classtimetable && type === "view") {
+      // For VIEW mode, just set the basic form state
+      const unit = units.find((u) => u.code === classtimetable.unit_code)
+      const classtimeSlot = classtimeSlots.find(
+        (ts) =>
+          ts.day === classtimetable.day &&
+          ts.start_time === classtimetable.start_time &&
+          ts.end_time === classtimetable.end_time,
+      )
+      const unitEnrollment = enrollments.find(
+        (e) =>
+          e.unit_code === classtimetable.unit_code && Number(e.semester_id) === Number(classtimetable.semester_id),
+      )
+
+      setFormState({
+        ...classtimetable,
+        enrollment_id: unitEnrollment?.id || 0,
+        unit_id: unit?.id || 0,
+        classtimeslot_id: classtimeSlot?.id || 0,
+        lecturer_id: unitEnrollment?.lecturer_code ? Number(unitEnrollment.lecturer_code) : null,
+        lecturer_name: unitEnrollment?.lecturer_name || "",
+        class_id: classtimetable.class_id || null,
+        group_id: classtimetable.group_id || null,
+        teaching_mode: classtimetable.teaching_mode || "physical",
+        program_id: classtimetable.program_id || null,
+        school_id: classtimetable.school_id || null,
+      })
+    }
+
+    setIsModalOpen(true)
+  },
+  [units, classtimeSlots, enrollments, groups],
+)
 
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false)
@@ -939,139 +1072,176 @@ const EnhancedClassTimetable = () => {
   )
 
   const handleSubmitForm = useCallback(
-    (data: FormState) => {
-      console.log("Form submission started with data:", data)
+  (data: FormState) => {
+    console.log("Form submission started with data:", data)
 
-      if (!data.school_id) {
-        toast.error("Please select a school before submitting.")
+    if (!data.school_id) {
+      toast.error("Please select a school before submitting.")
+      return
+    }
+
+    if (!data.program_id) {
+      toast.error("Please select a program before submitting.")
+      return
+    }
+
+    if (!data.class_id) {
+      toast.error("Please select a class before submitting.")
+      return
+    }
+
+    if (!data.semester_id) {
+      toast.error("Please select a semester before submitting.")
+      return
+    }
+
+    if (!data.unit_id) {
+      toast.error("Please select a unit before submitting.")
+      return
+    }
+
+    if (!data.day || !data.start_time || !data.end_time) {
+      toast.error("Please select a time slot before submitting.")
+      return
+    }
+
+    if (!data.venue) {
+      toast.error("Please select a venue before submitting.")
+      return
+    }
+
+    if (!data.lecturer) {
+      toast.error("Please enter a lecturer name before submitting.")
+      return
+    }
+
+    if (data.group_id && data.teaching_mode) {
+      const validation = validateFormWithConstraints(data)
+      if (!validation.isValid) {
+        toast.error(validation.message)
         return
       }
 
-      if (!data.program_id) {
-        toast.error("Please select a program before submitting.")
-        return
+      if (validation.warnings.length > 0) {
+        validation.warnings.forEach((warning) => toast(warning, { icon: "⚠️" }))
       }
+    }
 
-      if (!data.class_id) {
-        toast.error("Please select a class before submitting.")
-        return
+    const timeoutId = setTimeout(() => {
+      console.warn("Form submission timeout - resetting loading state")
+      setIsSubmitting(false)
+      toast.error("Request timed out. Please try again.")
+    }, 30000)
+
+    const formattedData: any = {
+      semester_id: Number(data.semester_id),
+      school_id: Number(data.school_id),
+      program_id: Number(data.program_id),
+      class_id: Number(data.class_id),
+      group_id: data.group_id ? Number(data.group_id) : null,
+      unit_id: Number(data.unit_id),
+      day: data.day,
+      start_time: formatTimeToHi(data.start_time),
+      end_time: formatTimeToHi(data.end_time),
+      venue: data.venue,
+      location: data.location,
+      lecturer: data.lecturer,
+      no: Number(data.no),
+      teaching_mode: data.teaching_mode || "physical",
+      classtimeslot_id: data.classtimeslot_id ? Number(data.classtimeslot_id) : null,
+    }
+
+    Object.keys(formattedData).forEach((key) => {
+      if (formattedData[key] === undefined || formattedData[key] === "") {
+        delete formattedData[key]
       }
+    })
 
-      if (!data.semester_id) {
-        toast.error("Please select a semester before submitting.")
-        return
-      }
+    console.log("Submitting formatted data:", formattedData)
 
-      if (!data.unit_id) {
-        toast.error("Please select a unit before submitting.")
-        return
-      }
+    setIsSubmitting(true)
 
-      if (!data.day || !data.start_time || !data.end_time) {
-        toast.error("Please select a time slot before submitting.")
-        return
-      }
+    const handleError = (errors: any) => {
+      console.error("Request failed with errors:", errors)
+      let msg = "Operation failed."
+      let specificErrors = []
 
-      if (!data.venue) {
-        toast.error("Please select a venue before submitting.")
-        return
-      }
-
-      if (!data.lecturer) {
-        toast.error("Please enter a lecturer name before submitting.")
-        return
-      }
-
-      if (data.group_id && data.teaching_mode) {
-        const validation = validateFormWithConstraints(data)
-        if (!validation.isValid) {
-          toast.error(validation.message)
-          return
+      if (errors && typeof errors === "object") {
+        // Handle validation errors
+        if (errors.errors && typeof errors.errors === "object") {
+          specificErrors = Object.entries(errors.errors).map(([field, fieldErrors]) => {
+            const errorList = Array.isArray(fieldErrors) ? fieldErrors : [fieldErrors]
+            return `${field}: ${errorList.join(', ')}`
+          })
+          msg = specificErrors.join('; ')
         }
-
-        if (validation.warnings.length > 0) {
-          validation.warnings.forEach((warning) => toast(warning, { icon: "⚠️" }))
+        // Handle other error messages
+        else if (errors.message) {
+          msg = errors.message
+        } else if (errors.error) {
+          msg = errors.error
+        } else {
+          const errorMsgs = Object.values(errors).flat().filter(Boolean)
+          if (errorMsgs.length > 0) {
+            msg = errorMsgs.join(" ")
+          }
         }
+      } else if (typeof errors === "string") {
+        msg = errors
       }
 
-      const timeoutId = setTimeout(() => {
-        console.warn("Form submission timeout - resetting loading state")
-        setIsSubmitting(false)
-        toast.error("Request timed out. Please try again.")
-      }, 30000)
-
-      const formattedData: any = {
-        semester_id: Number(data.semester_id),
-        school_id: Number(data.school_id),
-        program_id: Number(data.program_id), // Include program_id
-        class_id: Number(data.class_id),
-        group_id: data.group_id ? Number(data.group_id) : null,
-        unit_id: Number(data.unit_id),
-        day: data.day,
-        start_time: formatTimeToHi(data.start_time),
-        end_time: formatTimeToHi(data.end_time),
-        venue: data.venue,
-        location: data.location,
-        lecturer: data.lecturer,
-        no: Number(data.no),
-        teaching_mode: data.teaching_mode || "physical",
-        classtimeslot_id: data.classtimeslot_id ? Number(data.classtimeslot_id) : null,
-      }
-
-      Object.keys(formattedData).forEach((key) => {
-        if (formattedData[key] === undefined || formattedData[key] === "") {
-          delete formattedData[key]
-        }
-      })
-
-      console.log("Submitting formatted data with program_id:", formattedData)
-
-      setIsSubmitting(true)
-
-      if (data.id === 0 || !data.id) {
-        console.log("Creating new timetable...")
-
-        router.post(`/admin/classtimetable`, formattedData, {
-          onSuccess: (response) => {
-            console.log("Create successful:", response)
-            toast.success("Class timetable created successfully.")
-            handleCloseModal()
-            router.reload({ only: ["classTimetables"] })
-          },
-          onError: (errors: any) => {
-            console.error("Create failed with errors:", errors)
-            let msg = "Failed to create class timetable."
-
-            if (errors && typeof errors === "object") {
-              if (errors.error) {
-                msg = errors.error
-              } else if (errors.message) {
-                msg = errors.message
-              } else {
-                const errorMsgs = Object.values(errors).flat().filter(Boolean).join(" ")
-                if (errorMsgs) msg = errorMsgs
-              }
-            } else if (typeof errors === "string") {
-              msg = errors
-            }
-
-            toast.error(msg)
-          },
-          onFinish: () => {
-            console.log("Update request finished")
-            clearTimeout(timeoutId)
-            setIsSubmitting(false)
-          },
-          onBefore: () => {
-            console.log("Update request starting")
-            return true
-          },
+      toast.error(msg)
+      
+      // Show specific field errors if available
+      if (specificErrors.length > 0) {
+        specificErrors.forEach((error, index) => {
+          setTimeout(() => {
+            toast.error(error, { duration: 5000 })
+          }, index * 1000)
         })
       }
-    },
-    [validateFormWithConstraints, handleCloseModal],
-  )
+    }
 
+    if (data.id === 0 || !data.id) {
+      // CREATE NEW RECORD
+      console.log("Creating new timetable...")
+
+      router.post(`/admin/classtimetable`, formattedData, {
+        onSuccess: (response) => {
+          console.log("Create successful:", response)
+          toast.success("Class timetable created successfully.")
+          handleCloseModal()
+          router.reload({ only: ["classTimetables"] })
+        },
+        onError: handleError,
+        onFinish: () => {
+          console.log("Create request finished")
+          clearTimeout(timeoutId)
+          setIsSubmitting(false)
+        },
+      })
+    } else {
+      // UPDATE EXISTING RECORD
+      console.log("Updating existing timetable with ID:", data.id)
+
+      router.put(`/admin/classtimetable/${data.id}`, formattedData, {
+        onSuccess: (response) => {
+          console.log("Update successful:", response)
+          toast.success("Class timetable updated successfully.")
+          handleCloseModal()
+          router.reload({ only: ["classTimetables"] })
+        },
+        onError: handleError,
+        onFinish: () => {
+          console.log("Update request finished")
+          clearTimeout(timeoutId)
+          setIsSubmitting(false)
+        },
+      })
+    }
+  },
+  [validateFormWithConstraints, handleCloseModal],
+)
   // FIXED: Handle semester change with null checks
   const handleSemesterChange = useCallback(
     (semesterId) => {
@@ -1619,6 +1789,14 @@ const EnhancedClassTimetable = () => {
                                       >
                                         <Eye className="w-3 h-3" />
                                       </Button>
+                                      {can.edit && (
+                                        <Button
+                                          onClick={() => handleOpenModal("edit", ct)}
+                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 mr-1"
+                                        >
+                                        <Edit className="w-3 h-3" />
+                                        </Button>
+                                      )}
                                       {can.delete && (
                                         <Button
                                           onClick={() => handleDelete(ct.id)}
