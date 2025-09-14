@@ -1131,7 +1131,7 @@ const handleOpenModal = useCallback(
       console.warn("Form submission timeout - resetting loading state")
       setIsSubmitting(false)
       toast.error("Request timed out. Please try again.")
-    }, 30000)
+    }, 10000)
 
     const formattedData: any = {
       semester_id: Number(data.semester_id),

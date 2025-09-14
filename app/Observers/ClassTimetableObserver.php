@@ -37,7 +37,7 @@ class ClassTimetableObserver
     private function cleanVenueText($venue)
     {
         // Remove all instances of "(Updated)" from the venue
-        $cleanVenue = preg_replace('/\s*$$Updated$$\s*/', '', $venue);
+        $cleanVenue = preg_replace('/\s*\(Updated\)\s*/', '', $venue);
         // Trim extra spaces
         return trim($cleanVenue);
     }
@@ -48,7 +48,10 @@ class ClassTimetableObserver
     public function updated(ClassTimetable $classTimetable): void
     {
         $this->debugToFile('Class Timetable Observer triggered', [
-            'class_id' => $classTimetable->id,
+            'timetable_id' => $classTimetable->id,
+            'class_id' => $classTimetable->class_id,
+            'unit_id' => $classTimetable->unit_id,
+            'semester_id' => $classTimetable->semester_id,
             'dirty' => $classTimetable->getDirty(),
             'original' => $classTimetable->getOriginal()
         ]);
@@ -93,6 +96,7 @@ class ClassTimetableObserver
     
     /**
      * Notify students and lecturers about class timetable changes.
+     * FIXED: Now filters by class_id to respect sections
      */
     private function notifyStudentsAndLecturers(ClassTimetable $classTimetable, array $changes): void
     {
@@ -101,19 +105,33 @@ class ClassTimetableObserver
             // Load relationships if not already loaded
             $classTimetable->load(['unit', 'semester']);
             
-            // Find all enrollments for this unit and semester
-            $enrollments = Enrollment::where('unit_id', $classTimetable->unit_id)
+            // CRITICAL FIX: Filter by class_id to only get students in THIS specific section
+            $enrollments = Enrollment::where('class_id', $classTimetable->class_id)  // Changed from unit_id
                 ->where('semester_id', $classTimetable->semester_id)
+                ->where('status', 'enrolled')  // Added status filter
                 ->get();
                 
-            $this->debugToFile('Enrollments found', [
-                'count' => $enrollments->count()
+            $this->debugToFile('Enrollments found (SECTION-SPECIFIC)', [
+                'class_id' => $classTimetable->class_id,
+                'count' => $enrollments->count(),
+                'enrollment_details' => $enrollments->map(function($e) {
+                    return [
+                        'student_code' => $e->student_code,
+                        'class_id' => $e->class_id,
+                        'unit_id' => $e->unit_id
+                    ];
+                })->take(5)->toArray()
             ]);
             
             if ($enrollments->isEmpty()) {
-                $this->debugToFile('No enrollments found, skipping notifications');
+                $this->debugToFile('No enrollments found for this specific section', [
+                    'class_id' => $classTimetable->class_id,
+                    'unit_id' => $classTimetable->unit_id,
+                    'semester_id' => $classTimetable->semester_id
+                ]);
                 Log::info("No enrollments found for class update notification", [
-                    'class_id' => $classTimetable->id,
+                    'timetable_id' => $classTimetable->id,
+                    'class_id' => $classTimetable->class_id,
                     'unit_id' => $classTimetable->unit_id,
                     'semester_id' => $classTimetable->semester_id
                 ]);
@@ -121,9 +139,9 @@ class ClassTimetableObserver
             }
             
             // Extract student codes and lecturer code
-            $studentCodes = $enrollments->pluck('student_code')->toArray();
+            $studentCodes = $enrollments->pluck('student_code')->unique()->toArray();
             
-            // Find the lecturer code - it should be the same for all enrollments in this unit/semester
+            // Find the lecturer code - it should be the same for all enrollments in this class
             $lecturerCode = null;
             foreach ($enrollments as $enrollment) {
                 if (!empty($enrollment->lecturer_code)) {
@@ -134,11 +152,14 @@ class ClassTimetableObserver
             
             $this->debugToFile('Student and lecturer codes found', [
                 'student_count' => count($studentCodes),
-                'lecturer_code' => $lecturerCode
+                'student_codes' => $studentCodes,
+                'lecturer_code' => $lecturerCode,
+                'class_id' => $classTimetable->class_id
             ]);
             
             // Get all students with these codes
-            $students = User::whereIn('code', $studentCodes)->get();
+            $students = User::whereIn('code', $studentCodes)            
+                      ->get();
             
             // Get the lecturer if a code was found
             $lecturer = null;
@@ -148,27 +169,39 @@ class ClassTimetableObserver
                 if ($lecturer) {
                     $this->debugToFile('Lecturer found', [
                         'id' => $lecturer->id,
-                        'email' => $lecturer->email
+                        'email' => $lecturer->email,
+                        'code' => $lecturer->code
                     ]);
                 } else {
                     $this->debugToFile('Lecturer not found for code: ' . $lecturerCode);
                 }
             }
             
-            $this->debugToFile('Students found', [
+            $this->debugToFile('Students found for this section', [
                 'count' => $students->count(),
-                'first_few' => $students->take(3)->pluck('email')->toArray()
+                'emails' => $students->pluck('email')->toArray(),
+                'class_id' => $classTimetable->class_id
             ]);
             
             if ($students->isEmpty() && !$lecturer) {
-                $this->debugToFile('No students or lecturer found, skipping notifications');
+                $this->debugToFile('No students or lecturer found for this section', [
+                    'class_id' => $classTimetable->class_id
+                ]);
                 Log::info("No recipients found for class update notification", [
-                    'class_id' => $classTimetable->id
+                    'timetable_id' => $classTimetable->id,
+                    'class_id' => $classTimetable->class_id
                 ]);
                 return;
             }
             
             $this->debugToFile('Preparing notification data');
+            
+            // Get class section info for better messaging
+            $classInfo = \DB::table('classes')->where('id', $classTimetable->class_id)->first();
+            $sectionText = '';
+            if ($classInfo && $classInfo->section) {
+                $sectionText = " Section {$classInfo->section}";
+            }
             
             // Clean venue text to prevent duplicate text
             $venue = $this->cleanVenueText($classTimetable->venue);
@@ -200,10 +233,10 @@ class ClassTimetableObserver
                     
                     // Prepare notification data with personalized greeting for lecturer
                     $data = [
-                        'subject' => "Important: Class Schedule Update for {$classTimetable->unit->code}",
+                        'subject' => "Important: Class Schedule Update for {$classTimetable->unit->code}{$sectionText}",
                         'greeting' => "Hello {$firstName}",
-                        'message' => "There has been an update to your class schedule for {$classTimetable->unit->code} - {$classTimetable->unit->name}. Please review the changes below:",
-                        'class_details' => "Unit: {$classTimetable->unit->code} - {$classTimetable->unit->name}\n" .
+                        'message' => "There has been an update to your class schedule for {$classTimetable->unit->code} - {$classTimetable->unit->name}{$sectionText}. Please review the changes below:",
+                        'class_details' => "Unit: {$classTimetable->unit->code} - {$classTimetable->unit->name}{$sectionText}\n" .
                                           "Day: {$classTimetable->day}\n" .
                                           "Time: {$classTimetable->start_time} - {$classTimetable->end_time}\n" .
                                           "Venue: {$venueDisplay}",
@@ -221,7 +254,8 @@ class ClassTimetableObserver
                     Log::info("Sent class update notification to lecturer", [
                         'lecturer_code' => $lecturer->code,
                         'lecturer_email' => $lecturer->email,
-                        'class_id' => $classTimetable->id
+                        'timetable_id' => $classTimetable->id,
+                        'class_id' => $classTimetable->class_id
                     ]);
                     
                     // Log to notification_logs table
@@ -239,7 +273,7 @@ class ClassTimetableObserver
                 }
             }
             
-            // Then, notify all students
+            // Then, notify all students in this specific section
             foreach ($students as $student) {
                 try {
                     // Get the student's first name
@@ -248,10 +282,10 @@ class ClassTimetableObserver
                     
                     // Prepare notification data with personalized greeting
                     $data = [
-                        'subject' => "Important: Class Schedule Update for {$classTimetable->unit->code}",
+                        'subject' => "Important: Class Schedule Update for {$classTimetable->unit->code}{$sectionText}",
                         'greeting' => "Hello {$firstName}",
-                        'message' => "There has been an update to your class schedule for {$classTimetable->unit->code} - {$classTimetable->unit->name}. Please review the changes below:",
-                        'class_details' => "Unit: {$classTimetable->unit->code} - {$classTimetable->unit->name}\n" .
+                        'message' => "There has been an update to your class schedule for {$classTimetable->unit->code} - {$classTimetable->unit->name}{$sectionText}. Please review the changes below:",
+                        'class_details' => "Unit: {$classTimetable->unit->code} - {$classTimetable->unit->name}{$sectionText}\n" .
                                           "Day: {$classTimetable->day}\n" .
                                           "Time: {$classTimetable->start_time} - {$classTimetable->end_time}\n" .
                                           "Venue: {$venueDisplay}",
@@ -259,7 +293,7 @@ class ClassTimetableObserver
                         'closing' => 'Please make note of these changes and adjust your schedule accordingly. If you have any questions, please contact your instructor.'
                     ];
                     
-                    $this->debugToFile("Sending to student {$student->id} ({$student->email})");
+                    $this->debugToFile("Sending to student {$student->id} ({$student->email}) for section");
                     $student->notify(new ClassTimetableUpdate($data));
                     
                     $this->debugToFile("Notification sent successfully to {$student->email}");
@@ -268,7 +302,8 @@ class ClassTimetableObserver
                     Log::info("Sent class update notification to student", [
                         'student_code' => $student->code,
                         'student_email' => $student->email,
-                        'class_id' => $classTimetable->id
+                        'timetable_id' => $classTimetable->id,
+                        'class_id' => $classTimetable->class_id
                     ]);
                     
                     // Log to notification_logs table
@@ -286,7 +321,7 @@ class ClassTimetableObserver
                 }
             }
             
-            $this->debugToFile("All notifications processed: {$notificationsSent} sent, {$notificationsFailed} failed");
+            $this->debugToFile("All notifications processed for class_id {$classTimetable->class_id}: {$notificationsSent} sent, {$notificationsFailed} failed");
             
         } catch (\Exception $e) {
             $this->debugToFile("Error in notifyStudentsAndLecturers method", [
@@ -295,7 +330,8 @@ class ClassTimetableObserver
             ]);
             
             Log::error("Failed to send class update notifications", [
-                'class_id' => $classTimetable->id,
+                'timetable_id' => $classTimetable->id,
+                'class_id' => $classTimetable->class_id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -310,7 +346,8 @@ class ClassTimetableObserver
         try {
             $this->debugToFile("Logging notification to database", [
                 'user_id' => $user->id,
-                'class_id' => $classTimetable->id,
+                'timetable_id' => $classTimetable->id,
+                'class_id' => $classTimetable->class_id,
                 'success' => $success,
                 'is_lecturer' => $isLecturer
             ]);
@@ -323,7 +360,8 @@ class ClassTimetableObserver
                 'success' => $success,
                 'error_message' => $errorMessage,
                 'data' => json_encode([
-                    'class_id' => $classTimetable->id,
+                    'timetable_id' => $classTimetable->id,
+                    'class_id' => $classTimetable->class_id,
                     'unit_code' => $classTimetable->unit->code ?? null,
                     'unit_name' => $classTimetable->unit->name ?? null,
                     'is_lecturer' => $isLecturer

@@ -1646,17 +1646,17 @@ public function getUnitsByClass(Request $request)
      */
 public function update(Request $request, $id)
 {
-    // Validate incoming request data
+    // OPTIMIZATION 1: Streamlined validation
     $request->validate([
-        'day' => 'nullable|string|max:20',
         'unit_id' => 'required|integer',
         'semester_id' => 'required|integer', 
         'class_id' => 'required|integer',
+        'no' => 'required|integer|min:1|max:1000',
+        'lecturer' => 'required|string|max:255',
+        'day' => 'nullable|string|max:20',
         'group_id' => 'nullable|integer',
         'venue' => 'nullable|string|max:100',
         'location' => 'nullable|string|max:100',
-        'no' => 'required|integer|min:1|max:1000',
-        'lecturer' => 'required|string|max:255',
         'start_time' => 'nullable|string|max:8',
         'end_time' => 'nullable|string|max:8',
         'teaching_mode' => 'nullable|in:physical,online',
@@ -1666,102 +1666,298 @@ public function update(Request $request, $id)
     ]);
 
     try {
-        // Find the timetable record (single query)
+        DB::beginTransaction();
+        
+        // Find the timetable entry
         $timetable = ClassTimetable::findOrFail($id);
         
-        Log::info('Updating class timetable', ['id' => $id]);
-
-        // Handle time slot data only if classtimeslot_id is provided (conditional query)
-        $day = $request->day;
-        $startTime = $request->start_time;
-        $endTime = $request->end_time;
-
-        if ($request->classtimeslot_id && $request->classtimeslot_id != $timetable->classtimeslot_id) {
-            $timeSlot = DB::table('class_time_slots')
-                ->select('day', 'start_time', 'end_time')
-                ->where('id', $request->classtimeslot_id)
-                ->first();
-            
-            if ($timeSlot) {
-                $day = $timeSlot->day;
-                $startTime = $timeSlot->start_time;
-                $endTime = $timeSlot->end_time;
-            }
-        }
-
-        // Simple teaching mode assignment
-        $teachingMode = $request->teaching_mode ?: 'physical';
-
-        // Simple venue assignment
-        $venue = $request->venue;
-        if (!$venue) {
-            $venue = ($teachingMode === 'online') ? 'Remote' : 'TBD';
-        }
-
-        $location = $request->location;
-        if (!$location) {
-            $location = ($teachingMode === 'online') ? 'Online' : 'Physical';
-        }
-
-        // Direct update with all data at once (single update query)
+        // Store original data for comparison (to determine what changed)
+        $originalData = [
+            'day' => $timetable->day,
+            'start_time' => $timetable->start_time,
+            'end_time' => $timetable->end_time,
+            'venue' => $timetable->venue,
+            'location' => $timetable->location,
+            'lecturer' => $timetable->lecturer,
+            'teaching_mode' => $timetable->teaching_mode,
+        ];
+        
+        // Prepare update data efficiently
         $updateData = [
             'unit_id' => $request->unit_id,
             'semester_id' => $request->semester_id,
             'class_id' => $request->class_id,
-            'group_id' => $request->group_id,
-            'venue' => $venue,
-            'location' => $location,
             'no' => $request->no,
             'lecturer' => $request->lecturer,
-            'teaching_mode' => $teachingMode,
             'updated_at' => now(),
         ];
-
-        // Add time fields if provided
-        if ($day) $updateData['day'] = $day;
-        if ($startTime) $updateData['start_time'] = $startTime;
-        if ($endTime) $updateData['end_time'] = $endTime;
-        if ($request->program_id) $updateData['program_id'] = $request->program_id;
-        if ($request->school_id) $updateData['school_id'] = $request->school_id;
-
-        // Single update query
-        $timetable->update($updateData);
         
-        Log::info('Class timetable updated successfully', [
-            'id' => $id,
-            'unit_id' => $request->unit_id,
-            'teaching_mode' => $teachingMode,
-            'venue' => $venue,
-        ]);
+        // Handle time slot data
+        $timeSlotId = $request->classtimeslot_id;
+        if ($timeSlotId && $timeSlotId != $timetable->classtimeslot_id) {
+            $timeSlot = DB::selectOne(
+                'SELECT day, start_time, end_time FROM class_time_slots WHERE id = ?', 
+                [$timeSlotId]
+            );
+            
+            if ($timeSlot) {
+                $updateData['day'] = $timeSlot->day;
+                $updateData['start_time'] = $timeSlot->start_time;
+                $updateData['end_time'] = $timeSlot->end_time;
+                $updateData['classtimeslot_id'] = $timeSlotId;
+            }
+        } else {
+            if ($request->day) $updateData['day'] = $request->day;
+            if ($request->start_time) $updateData['start_time'] = $request->start_time;
+            if ($request->end_time) $updateData['end_time'] = $request->end_time;
+        }
+        
+        // Handle teaching mode and related fields
+        $teachingMode = $request->teaching_mode ?: 'physical';
+        $updateData['teaching_mode'] = $teachingMode;
+        
+        $updateData['venue'] = $request->venue ?: ($teachingMode === 'online' ? 'Remote' : 'TBD');
+        $updateData['location'] = $request->location ?: ($teachingMode === 'online' ? 'Online' : 'Physical');
+        
+        // Add optional fields
+        $optionalFields = ['group_id', 'program_id', 'school_id'];
+        foreach ($optionalFields as $field) {
+            if ($request->has($field) && !is_null($request->$field)) {
+                $updateData[$field] = $request->$field;
+            }
+        }
 
+        // Perform the update
+        $result = $timetable->update($updateData);
+        
+        if (!$result && !$timetable->wasChanged()) {
+            throw new \Exception('No changes were made to the timetable');
+        }
+        
+        // Refresh model to get updated data
+        $timetable->refresh();
+        
+        DB::commit();
+
+        // OPTIMIZATION 2: Queue notifications AFTER successful update
+        // This prevents notifications if update fails
+        $this->queueTimetableNotifications($timetable, $originalData, $updateData);
+
+        // Fast response
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'Class timetable updated successfully.',
-                'data' => $timetable->only(['id', 'day', 'start_time', 'end_time', 'venue', 'teaching_mode']) // Return minimal data
-            ]);
+                'message' => 'Class timetable updated successfully. Notifications are being sent.',
+                'data' => [
+                    'id' => $timetable->id,
+                    'day' => $timetable->day,
+                    'start_time' => $timetable->start_time,
+                    'end_time' => $timetable->end_time,
+                    'venue' => $timetable->venue,
+                    'teaching_mode' => $timetable->teaching_mode
+                ]
+            ], 200, [], JSON_UNESCAPED_UNICODE);
         }
 
-        return redirect()->back()->with('success', 'Class timetable updated successfully.');
+        return redirect()->back()->with('success', 'Class timetable updated successfully. Notifications are being sent.');
 
     } catch (\Exception $e) {
-        Log::error('Failed to update class timetable: ' . $e->getMessage(), [
-            'id' => $id,
-            'unit_id' => $request->unit_id,
-            'error_line' => $e->getLine(),
-        ]);
-
+        DB::rollback();
+        
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update class timetable: ' . $e->getMessage(),
-            ], 500);
+                'message' => 'Failed to update: ' . $e->getMessage(),
+            ], 500, [], JSON_UNESCAPED_UNICODE);
         }
 
         return redirect()->back()
-            ->withErrors(['error' => 'Failed to update class timetable: ' . $e->getMessage()])
+            ->withErrors(['error' => 'Failed to update: ' . $e->getMessage()])
             ->withInput();
     }
+}
+
+/**
+ * Queue notifications for affected students efficiently
+ */
+private function queueTimetableNotifications($timetable, $originalData, $updateData)
+{
+    try {
+        // OPTIMIZATION 3: Single query to get all affected students - FIXED SECTION FILTERING
+        $studentsQuery = DB::table('students as s')
+            ->join('enrollments as e', 's.id', '=', 'e.student_id')
+            ->where('e.class_id', $timetable->class_id)
+            ->where('e.semester_id', $timetable->semester_id)
+            ->where('s.status', 'active'); // Only active students
+            
+        // CRITICAL: Always filter by group_id (section) when it exists
+        // This ensures Section A students don't get Section B notifications
+        if ($timetable->group_id) {
+            $studentsQuery->where('e.group_id', $timetable->group_id);
+        } else {
+            // If no group_id, only notify students with no specific group assignment
+            $studentsQuery->whereNull('e.group_id');
+        }
+        
+        // Get student emails and names efficiently
+        $students = $studentsQuery
+            ->select('s.id', 's.email', 's.first_name', 's.last_name', 's.code as reg_number', 'e.class_id as student_class_id')
+            ->distinct()
+            ->get();
+            
+        if ($students->isEmpty()) {
+            \Log::info('No students found for timetable notification', [
+                'timetable_id' => $timetable->id,
+                'timetable_class_id' => $timetable->class_id,
+                'semester_id' => $timetable->semester_id
+            ]);
+            return;
+        }
+
+        // CRITICAL: Log exactly who will receive notifications
+        \Log::info('Timetable notification targeting', [
+            'timetable_id' => $timetable->id,
+            'timetable_class_id' => $timetable->class_id,
+            'students_to_notify' => $students->map(function($student) {
+                return [
+                    'student_code' => $student->reg_number,
+                    'email' => $student->email,
+                    'enrolled_in_class_id' => $student->student_class_id
+                ];
+            })->toArray()
+        ]);
+
+        // OPTIMIZATION 4: Determine what changed for targeted messaging
+        $changes = $this->determineChanges($originalData, $updateData);
+        
+        // OPTIMIZATION 5: Get additional context data in one query
+        $contextData = DB::table('units as u')
+            ->join('classes as c', 'c.id', '=', DB::raw($timetable->class_id))
+            ->join('semesters as sem', 'sem.id', '=', DB::raw($timetable->semester_id))
+            ->where('u.id', $timetable->unit_id)
+            ->select(
+                'u.unit_name', 
+                'u.unit_code',
+                'c.class_name',
+                'sem.semester_name'
+            )
+            ->first();
+            
+        // OPTIMIZATION 6: Queue notifications in batches for better performance
+        $notificationData = [
+            'timetable_id' => $timetable->id,
+            'unit_name' => $contextData->unit_name ?? 'Unknown Unit',
+            'unit_code' => $contextData->unit_code ?? '',
+            'class_name' => $contextData->class_name ?? 'Unknown Class',
+            'semester_name' => $contextData->semester_name ?? 'Unknown Semester',
+            'lecturer' => $timetable->lecturer,
+            'day' => $timetable->day,
+            'start_time' => $timetable->start_time,
+            'end_time' => $timetable->end_time,
+            'venue' => $timetable->venue,
+            'location' => $timetable->location,
+            'teaching_mode' => $timetable->teaching_mode,
+            'changes' => $changes,
+            'updated_at' => $timetable->updated_at->format('Y-m-d H:i:s')
+        ];
+
+        // Queue notification job for each student
+        foreach ($students as $student) {
+            \Queue::push(new \App\Jobs\TimetableUpdateNotification([
+                'student' => [
+                    'id' => $student->id,
+                    'email' => $student->email,
+                    'name' => trim($student->first_name . ' ' . $student->last_name),
+                    'reg_number' => $student->reg_number
+                ],
+                'timetable' => $notificationData
+            ]));
+        }
+
+        \Log::info('Timetable update notifications queued', [
+            'timetable_id' => $timetable->id,
+            'students_count' => $students->count(),
+            'changes' => array_keys($changes)
+        ]);
+
+    } catch (\Exception $e) {
+        // Don't fail the main update if notifications fail
+        \Log::error('Failed to queue timetable notifications', [
+            'timetable_id' => $timetable->id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+}
+
+/**
+ * Determine what fields changed for targeted messaging
+ */
+private function determineChanges($originalData, $updateData)
+{
+    $changes = [];
+    
+    $trackableFields = [
+        'day' => 'Day',
+        'start_time' => 'Start Time', 
+        'end_time' => 'End Time',
+        'venue' => 'Venue',
+        'location' => 'Location',
+        'lecturer' => 'Lecturer',
+        'teaching_mode' => 'Teaching Mode'
+    ];
+    
+    foreach ($trackableFields as $field => $label) {
+        if (isset($updateData[$field]) && $originalData[$field] !== $updateData[$field]) {
+            $changes[$field] = [
+                'label' => $label,
+                'from' => $originalData[$field],
+                'to' => $updateData[$field]
+            ];
+        }
+    }
+    
+    return $changes;
+}
+
+
+/**
+ * Format class details for notification
+ */
+private function formatClassDetails($timetable, $contextData)
+{
+    return sprintf(
+        "Unit: %s - %s Day: %s Time: %s - %s Venue: %s (%s)",
+        $contextData->unit_code ?? '',
+        $contextData->unit_name ?? '',
+        $timetable->day ?? '',
+        $timetable->start_time ?? '',
+        $timetable->end_time ?? '',
+        $timetable->venue ?? '',
+        $timetable->location ?? ''
+    );
+}
+
+/**
+ * Format changes for notification
+ */
+private function formatChanges($changes)
+{
+    if (empty($changes)) {
+        return 'No specific changes recorded.';
+    }
+
+    $changeText = '';
+    foreach ($changes as $field => $change) {
+        $changeText .= sprintf(
+            "%s: Changed from \"%s\" to \"%s\" - ",
+            $change['label'],
+            $change['from'] ?? 'Not set',
+            $change['to'] ?? 'Not set'
+        );
+    }
+
+    return rtrim($changeText, ' - ');
 }
 /**
  * ✅ NEW: Optimized bulk update method for multiple timetables
