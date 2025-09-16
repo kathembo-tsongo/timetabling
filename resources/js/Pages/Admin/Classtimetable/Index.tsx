@@ -1471,7 +1471,7 @@ const handleOpenModal = useCallback(
     toast.promise(
       new Promise((resolve) => {
         const link = document.createElement("a")
-        link.href = "/download-classtimetable"
+        link.href = "/admin/download-classtimetable"
         link.setAttribute("download", "classtimetable.pdf")
         link.setAttribute("target", "_blank")
         document.body.appendChild(link)

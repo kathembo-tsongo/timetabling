@@ -122,7 +122,7 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/permissions/{permission}', [DynamicPermissionController::class, 'update'])->name('permissions.update');
         Route::delete('/permissions/{permission}', [DynamicPermissionController::class, 'destroy'])->name('permissions.destroy');
     
-        // User Role Management - CHANGE THIS ROUTE
+        // User Role Management
         Route::get('/users/roles', [RoleManagementController::class, 'index'])->name('users.roles.index');
         Route::put('/users/{user}/roles', [RoleManagementController::class, 'updateUserRole'])->name('users.roles.update');
         Route::delete('/users/{user}/roles', [RoleManagementController::class, 'removeUserRole'])->name('users.roles.remove');
@@ -140,7 +140,6 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
         Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
         
-        
         // Users Management
         Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
         Route::get('/users/create',[UserController::class, 'create'])->name('admin.users.create');
@@ -150,6 +149,7 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('admin.users.destroy');
         Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete'])->name('admin.users.bulk-delete');
         
+        // Dynamic Roles
         Route::prefix('roles')->name('roles.')->group(function () {
             Route::get('/dynamic', [DynamicRoleController::class, 'index'])->name('dynamic');
             Route::post('/', [DynamicRoleController::class, 'store'])->name('store');
@@ -158,6 +158,7 @@ Route::middleware(['auth'])->group(function () {
             Route::put('/{role}/permissions', [DynamicRoleController::class, 'updatePermissions'])->name('update-permissions');
             Route::delete('/{role}', [DynamicRoleController::class, 'destroy'])->name('destroy');
         });
+
         // Semesters
         Route::get('/semesters', [SemesterController::class, 'index'])->name('admin.semesters.index');
         Route::post('/semesters', [SemesterController::class, 'store'])->name('admin.semesters.store');
@@ -212,6 +213,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/classes/{class}/edit', [ClassController::class, 'edit'])->name('admin.classes.edit');
         Route::put('/classes/{class}', [ClassController::class, 'update'])->name('admin.classes.update');
         Route::delete('/classes/{class}', [ClassController::class, 'destroy'])->name('admin.classes.destroy');
+
         // Classrooms Management Routes
         Route::get('/classrooms', [ClassroomController::class, 'index'])->name('admin.classrooms.index');
         Route::post('/classrooms', [ClassroomController::class, 'store'])->name('admin.classrooms.store');
@@ -219,7 +221,11 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classrooms/{classroom}', [ClassroomController::class, 'update'])->name('admin.classrooms.update');
         Route::delete('/classrooms/{classroom}', [ClassroomController::class, 'destroy'])->name('admin.classrooms.destroy');
 
-       // classtimetables - EXISTING ROUTES (keep these)
+        // ===============================================================
+        // CLASS TIMETABLES - MAIN ROUTES
+        // ===============================================================
+        
+        // Primary classtimetable routes (without 's')
         Route::get('/classtimetable', [ClassTimetableController::class, 'index'])->name('admin.classtimetable.index');
         Route::post('/classtimetable', [ClassTimetableController::class, 'store'])->name('admin.classtimetable.store');
         Route::get('/classtimetable/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetable.create');
@@ -227,8 +233,11 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/classtimetable/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetable.edit');
         Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
         Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
-
-        // ADD THESE ADDITIONAL ROUTES (with 's') to match your React component
+        
+        // PDF Download Route - WORKING
+        Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadPDF'])->name('classtimetable.download');
+        
+        // Alternative classtimetables routes (with 's') for React component compatibility
         Route::get('/classtimetables', [ClassTimetableController::class, 'index'])->name('admin.classtimetables.index');
         Route::post('/classtimetables', [ClassTimetableController::class, 'store'])->name('admin.classtimetables.store');
         Route::get('/classtimetables/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetables.create');
@@ -236,15 +245,15 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/classtimetables/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetables.edit');
         Route::put('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetables.update');
         Route::delete('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetables.destroy');
-
+        
+        // ===============================================================
+        // LECTURER ASSIGNMENTS
+        // ===============================================================
+        
         Route::prefix('lecturerassignment')->name('lecturerassignment.')->group(function () {
             Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
             Route::post('/', [LecturerAssignmentController::class, 'store'])->name('store');
-    
-         // Change this to match your controller method signature and React component call
             Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->name('destroy');
-    
-            // Update route should also match the pattern if you're using unitId and semesterId
             Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->name('update');
     
             // API endpoints for filtering
@@ -258,7 +267,10 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
         Route::put('/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
             
-        // API Routes for AJAX calls
+        // ===============================================================
+        // API ROUTES FOR AJAX CALLS
+        // ===============================================================
+        
         Route::prefix('api')->group(function () {
             // Enrollment-specific routes
             Route::get('/enrollment/units/by-class', [EnrollmentController::class, 'getUnitsForClass']);
@@ -271,7 +283,7 @@ Route::middleware(['auth'])->group(function () {
             Route::get('/timetable/lecturer-for-unit/{unitId}/{semesterId}', [ClassTimetableController::class, 'getLecturerForUnit']);
             Route::get('/timetable/debug-class-data', [ClassTimetableController::class, 'debugClassData']);
     
-            // ✅ NEW: Cascading dropdown routes for timetable creation
+            // Cascading dropdown routes for timetable creation
             Route::get('/timetable/programs/by-school', [ClassTimetableController::class, 'getProgramsBySchool']);
             Route::get('/timetable/classes/by-program', [ClassTimetableController::class, 'getClassesByProgram']);
     
@@ -280,7 +292,7 @@ Route::middleware(['auth'])->group(function () {
                 $request->validate([
                     'program_id' => 'required|exists:programs,id',
                     'semester_id' => 'required|exists:semesters,id',
-            ]);
+                ]);
 
                 try {
                     $classes = ClassModel::where('program_id', $request->program_id)
@@ -299,14 +311,14 @@ Route::middleware(['auth'])->group(function () {
                                 'year_level' => $class->year_level,
                                 'capacity' => $class->capacity,
                             ];
-                     });
+                        });
 
-                        return response()->json($classes);
-                    } catch (\Exception $e) {
-                        Log::error('Error fetching classes: ' . $e->getMessage());
+                    return response()->json($classes);
+                } catch (\Exception $e) {
+                    Log::error('Error fetching classes: ' . $e->getMessage());
                     return response()->json(['error' => 'Failed to fetch classes'], 500);
-            }
-        });
+                }
+            });
     
             Route::get('/classes/available-names', [ClassController::class, 'getAvailableClassNames']);
             Route::get('/classes/available-sections-for-class', [ClassController::class, 'getAvailableSectionsForClass']);
@@ -317,7 +329,9 @@ Route::middleware(['auth'])->group(function () {
             Route::get('/lecturerassignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
             Route::get('/lecturerassignments/units', [LecturerAssignmentController::class, 'getFilteredUnits']);
             Route::get('/lecturerassignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
-    });
+        });    
+    }); // Close admin prefix group
+
     // ===============================================================
     // SCHOOL PROGRAMS MANAGEMENT
     // ===============================================================
@@ -360,13 +374,11 @@ Route::middleware(['auth'])->group(function () {
         })->name('api.all');
     });
 
-        // Close admin prefix group
-    });
+}); // Close main authenticated routes group
 
-    
-});
-
+// ===============================================================
 // STUDENT ROUTES
+// ===============================================================
 
 Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function () {
     Route::get('/', [StudentController::class, 'studentDashboard'])->name('student.dashboard');

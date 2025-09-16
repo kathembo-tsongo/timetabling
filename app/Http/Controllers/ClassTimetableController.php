@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
 
+
 class ClassTimetableController extends Controller
 {
     // Enhanced scheduling constraints
@@ -2582,82 +2583,90 @@ public function getClassesByProgram(Request $request)
      * Download the class timetable as a PDF.
      */
     public function downloadPDF(Request $request)
-    {
-        try {
-            // Ensure the view file exists
-            if (!view()->exists('classtimetables.pdf')) {
-                \Log::error('PDF template not found: classtimetables.pdf');
-                return redirect()->back()->with('error', 'PDF template not found. Please contact the administrator.');
-            }
+{
+    try {
+        // Build the query
+        $query = ClassTimetable::query()
+            ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
+            ->leftJoin('semesters', 'class_timetable.semester_id', '=', 'semesters.id')
+            ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
+            ->leftJoin('groups', 'class_timetable.group_id', '=', 'groups.id')
+            ->leftJoin('users', 'users.code', '=', 'class_timetable.lecturer')
+            ->select(
+                'class_timetable.*',
+                'units.name as unit_name',
+                'units.code as unit_code',
+                'semesters.name as semester_name',
+                'classes.name as class_name',
+                'groups.name as group_name',
+                DB::raw("CASE 
+                    WHEN users.id IS NOT NULL 
+                    THEN CONCAT(users.first_name, ' ', users.last_name) 
+                    ELSE class_timetable.lecturer 
+                    END as lecturer")
+            );
 
-            // Fetch class timetables
-            $query = ClassTimetable::query()
-                ->join('units', 'class_timetable.unit_id', '=', 'units.id')
-                ->join('semesters', 'class_timetable.semester_id', '=', 'semesters.id')
-                ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
-                ->leftJoin('groups', 'class_timetable.group_id', '=', 'groups.id')
-                ->leftJoin('class_time_slots', function ($join) {
-                    $join->on('class_timetable.day', '=', 'class_time_slots.day')
-                        ->on('class_timetable.start_time', '=', 'class_time_slots.start_time')
-                        ->on('class_timetable.end_time', '=', 'class_time_slots.end_time');
-                })
-                ->select(
-                    'class_timetable.*',
-                    'units.name as unit_name',
-                    'units.code as unit_code',
-                    'semesters.name as semester_name',
-                    'classes.name as class_name',
-                    'groups.name as group_name',
-                    'class_time_slots.status as mode_of_teaching'
-                );
-
-            if ($request->has('semester_id')) {
-                $query->where('class_timetable.semester_id', $request->semester_id);
-            }
-
-            if ($request->has('class_id')) {
-                $query->where('class_timetable.class_id', $request->class_id);
-            }
-
-            if ($request->has('group_id')) {
-                $query->where('class_timetable.group_id', $request->group_id);
-            }
-
-            $classTimetables = $query->orderBy('class_timetable.day')
-                ->orderBy('class_timetable.start_time')
-                ->get();
-
-            // Log the data being passed to the view for debugging
-            \Log::info('Generating PDF with data:', [
-                'count' => $classTimetables->count(),
-                'filters' => $request->only(['semester_id', 'class_id', 'group_id'])
-            ]);
-
-            // Generate PDF
-            $pdf = Pdf::loadView('classtimetables.pdf', [
-                'classTimetables' => $classTimetables,
-                'title' => 'Class Timetable',
-                'generatedAt' => now()->format('Y-m-d H:i:s'),
-                'filters' => $request->only(['semester_id', 'class_id', 'group_id'])
-            ]);
-
-            // Set paper size and orientation
-            $pdf->setPaper('a4', 'landscape');
-
-            // Return the PDF for download
-            return $pdf->download('class-timetable-' . now()->format('Y-m-d') . '.pdf');
-        } catch (\Exception $e) {
-            // Log detailed error information
-            \Log::error('Failed to generate PDF: ' . $e->getMessage(), [
-                'exception' => $e,
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            // Return a more informative error response
-            return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
+        // Apply filters if provided
+        if ($request->has('semester_id') && !empty($request->semester_id)) {
+            $query->where('class_timetable.semester_id', $request->semester_id);
         }
-    }
+        if ($request->has('class_id') && !empty($request->class_id)) {
+            $query->where('class_timetable.class_id', $request->class_id);
+        }
+        if ($request->has('group_id') && !empty($request->group_id)) {
+            $query->where('class_timetable.group_id', $request->group_id);
+        }
 
+        // Get the data
+        $classTimetables = $query->orderBy('class_timetable.day')
+            ->orderBy('class_timetable.start_time')
+            ->get();
+
+        \Log::info('PDF data retrieved', [
+            'count' => $classTimetables->count(),
+            'sample_data' => $classTimetables->take(2)->toArray()
+        ]);
+
+        // Prepare the view data
+        $viewData = [
+            'classTimetables' => $classTimetables,
+            'title' => 'Class Timetable',
+            'generatedAt' => now()->format('Y-m-d H:i:s'),
+            'filters' => $request->only(['semester_id', 'class_id', 'group_id'])
+        ];
+
+        // Generate PDF using the corrected approach
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('classtimetables.pdf', $viewData);
+        
+        // Configure PDF settings
+        $pdf->setPaper('a4', 'landscape');
+        $pdf->setOptions([
+            'dpi' => 150,
+            'defaultFont' => 'DejaVu Sans',
+            'isRemoteEnabled' => true,
+            'debugKeepTemp' => false
+        ]);
+
+        // Generate filename
+        $filename = 'class-timetable-' . now()->format('Y-m-d-His') . '.pdf';
+
+        \Log::info('PDF generated successfully', ['filename' => $filename]);
+
+        // Return PDF download
+        return $pdf->download($filename);
+
+    } catch (\Exception $e) {
+        \Log::error('PDF generation failed', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        // Return error response instead of redirect to avoid HTML content
+        return response()->json([
+            'error' => 'PDF generation failed: ' . $e->getMessage()
+        ], 500);
+    }
+}
     /**
      * Helper method to detect conflicts in the timetable
      */
