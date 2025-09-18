@@ -6,6 +6,7 @@ use App\Models\ClassTimetable;
 use App\Models\Unit;
 use App\Models\User;
 use App\Models\Semester;
+use App\Models\Classes;
 use App\Models\Enrollment;
 use App\Models\ClassTimeSlot;
 use App\Models\Classroom;
@@ -2579,31 +2580,250 @@ public function getClassesByProgram(Request $request)
         ]);
     }
 }
-    /**
-     * Download the class timetable as a PDF.
-     */
-    public function downloadPDF(Request $request)
+
+/**
+ * Download student's personalized timetable as PDF
+ */
+/**
+ * Download student's personalized timetable as PDF
+ */
+/**
+ * Download student's personalized timetable as PDF
+ */
+public function downloadStudentPDF(Request $request)
 {
     try {
-        // Build the query
+        $user = auth()->user();
+        
+        if (!$user || !$user->hasRole('Student')) {
+            return response()->json(['error' => 'Unauthorized access'], 403);
+        }
+
+        if (!$user->code) {
+            return response()->json(['error' => 'Student code not found'], 400);
+        }
+
+        \Log::info('Student PDF download requested', [
+            'student_code' => $user->code,
+            'student_name' => $user->first_name . ' ' . $user->last_name,
+            'request_params' => $request->all()
+        ]);
+
+        // Get semester (from request or current active semester)
+        $semesterId = $request->input('semester_id');
+        
+        if (!$semesterId) {
+            $currentSemester = \App\Models\Semester::where('is_active', true)->first();
+            $semesterId = $currentSemester ? $currentSemester->id : null;
+        }
+
+        if (!$semesterId) {
+            return response()->json(['error' => 'No semester specified'], 400);
+        }
+
+        // Get student's enrollments for the semester
+        $enrollments = \App\Models\Enrollment::where('student_code', $user->code)
+            ->where('semester_id', $semesterId)
+            ->with(['unit', 'semester'])
+            ->get();
+
+        if ($enrollments->isEmpty()) {
+            return response()->json(['error' => 'No enrollments found for this semester'], 404);
+        }
+
+        // Get enrolled unit IDs
+        $enrolledUnitIds = $enrollments->pluck('unit_id')->filter()->toArray();
+        
+        // Get student's class information to filter by section
+        $studentClassId = $enrollments->first()->class_id ?? null;
+        $studentClass = null;
+        $studentSection = null;
+        
+        if ($studentClassId) {
+            // Get the student's class information
+            $studentClass = \DB::table('classes')->where('id', $studentClassId)->first();
+            if ($studentClass) {
+                $studentSection = $studentClass->section;
+            }
+        }
+
+        \Log::info('Student enrollment data', [
+            'student_code' => $user->code,
+            'semester_id' => $semesterId,
+            'enrolled_units' => $enrolledUnitIds,
+            'student_class_id' => $studentClassId,
+            'student_section' => $studentSection
+        ]);
+
+        // Build query for student's specific timetable - ONLY their section
         $query = ClassTimetable::query()
+            ->whereIn('class_timetable.unit_id', $enrolledUnitIds)
+            ->where('class_timetable.semester_id', $semesterId)
             ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
             ->leftJoin('semesters', 'class_timetable.semester_id', '=', 'semesters.id')
             ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
             ->leftJoin('groups', 'class_timetable.group_id', '=', 'groups.id')
             ->leftJoin('users', 'users.code', '=', 'class_timetable.lecturer')
+            ->leftJoin('programs', 'classes.program_id', '=', 'programs.id')
             ->select(
                 'class_timetable.*',
                 'units.name as unit_name',
                 'units.code as unit_code',
                 'semesters.name as semester_name',
                 'classes.name as class_name',
+                'classes.section as class_section',
+                'classes.year_level as class_year_level',
                 'groups.name as group_name',
+                'programs.name as program_name',
+                'programs.code as program_code',
                 DB::raw("CASE 
                     WHEN users.id IS NOT NULL 
                     THEN CONCAT(users.first_name, ' ', users.last_name) 
                     ELSE class_timetable.lecturer 
-                    END as lecturer")
+                    END as lecturer_name"),
+                DB::raw("'Active' as status")
+            );
+
+        // CRITICAL: Filter by student's specific class/section ONLY
+        if ($studentClassId) {
+            // Student has a specific class assigned - show only their class timetable
+            $query->where('class_timetable.class_id', $studentClassId);
+        } else {
+            // Fallback: if no class_id, try to filter by section if we have it
+            if ($studentSection) {
+                $query->whereHas('class', function($q) use ($studentSection) {
+                    $q->where('section', $studentSection);
+                });
+            } else {
+                // Last resort: show all timetables for enrolled units (original behavior)
+                // This shouldn't happen in a well-configured system
+                \Log::warning('Student has no class_id or section information', [
+                    'student_code' => $user->code,
+                    'semester_id' => $semesterId
+                ]);
+            }
+        }
+
+        // Get the student's personalized timetable data
+        $classTimetables = $query->orderByRaw("
+            CASE class_timetable.day 
+                WHEN 'Monday' THEN 1 
+                WHEN 'Tuesday' THEN 2 
+                WHEN 'Wednesday' THEN 3 
+                WHEN 'Thursday' THEN 4 
+                WHEN 'Friday' THEN 5 
+                WHEN 'Saturday' THEN 6 
+                WHEN 'Sunday' THEN 7 
+                ELSE 8 
+            END
+        ")
+        ->orderBy('class_timetable.start_time')
+        ->get();
+
+        \Log::info('Student timetable data retrieved', [
+            'student_code' => $user->code,
+            'timetable_count' => $classTimetables->count(),
+            'semester_id' => $semesterId
+        ]);
+
+        // Get semester info
+        $semester = \App\Models\Semester::find($semesterId);
+
+        // Prepare the view data with student-specific information
+        $viewData = [
+            'classTimetables' => $classTimetables,
+            'title' => 'My Class Timetable',
+            'generatedAt' => now()->format('Y-m-d H:i:s'),
+            'student' => [
+                'name' => $user->first_name . ' ' . $user->last_name,
+                'code' => $user->code,
+                'email' => $user->email,
+                'class_name' => $studentClass ? $studentClass->name : null,
+                'section' => $studentSection
+            ],
+            'semester' => [
+                'name' => $semester ? $semester->name : 'Unknown Semester',
+                'id' => $semesterId
+            ],
+            'filters' => [
+                'student_code' => $user->code,
+                'semester_id' => $semesterId,
+                'class_id' => $studentClassId,
+                'section' => $studentSection
+            ]
+        ];
+
+        // Generate PDF with student-specific template
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('classtimetables.student', $viewData);
+        
+        // Configure PDF settings
+        $pdf->setPaper('a4', 'landscape');
+        $pdf->setOptions([
+            'dpi' => 150,
+            'defaultFont' => 'DejaVu Sans',
+            'isRemoteEnabled' => true,
+            'debugKeepTemp' => false
+        ]);
+
+        // Generate personalized filename
+        $filename = 'my-timetable-' . $user->code . '-' . now()->format('Y-m-d-His') . '.pdf';
+
+        \Log::info('Student PDF generated successfully', [
+            'filename' => $filename,
+            'student_code' => $user->code,
+            'record_count' => $classTimetables->count()
+        ]);
+
+        return $pdf->download($filename);
+
+    } catch (\Exception $e) {
+        \Log::error('Student PDF generation failed', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+            'student_code' => auth()->user()->code ?? 'unknown',
+            'request_params' => $request->all()
+        ]);
+
+        return response()->json([
+            'error' => 'Failed to generate your timetable PDF: ' . $e->getMessage()
+        ], 500);
+    }
+}
+    /**
+     * Download the class timetable as a PDF.
+     */
+    public function downloadPDF(Request $request)
+{
+    try {
+        // Build the query with proper joins to match the real data structure
+        $query = ClassTimetable::query()
+            ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
+            ->leftJoin('semesters', 'class_timetable.semester_id', '=', 'semesters.id')
+            ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
+            ->leftJoin('groups', 'class_timetable.group_id', '=', 'groups.id')
+            ->leftJoin('users', 'users.code', '=', 'class_timetable.lecturer')
+            ->leftJoin('programs', 'classes.program_id', '=', 'programs.id')
+            ->leftJoin('schools', 'programs.school_id', '=', 'schools.id')
+            ->select(
+                'class_timetable.*',
+                'units.name as unit_name',
+                'units.code as unit_code',
+                'semesters.name as semester_name',
+                'classes.name as class_name',
+                'classes.section as class_section',
+                'classes.year_level as class_year_level',
+                'groups.name as group_name',
+                'programs.name as program_name',
+                'programs.code as program_code',
+                'schools.name as school_name',
+                // Handle lecturer name display
+                DB::raw("CASE 
+                    WHEN users.id IS NOT NULL 
+                    THEN CONCAT(users.first_name, ' ', users.last_name) 
+                    ELSE class_timetable.lecturer 
+                    END as lecturer"),
+                // Add status field (you may need to adjust this based on your actual status logic)
+                DB::raw("'Active' as status")
             );
 
         // Apply filters if provided
@@ -2616,15 +2836,32 @@ public function getClassesByProgram(Request $request)
         if ($request->has('group_id') && !empty($request->group_id)) {
             $query->where('class_timetable.group_id', $request->group_id);
         }
+        if ($request->has('program_id') && !empty($request->program_id)) {
+            $query->where('classes.program_id', $request->program_id);
+        }
+        if ($request->has('school_id') && !empty($request->school_id)) {
+            $query->where('programs.school_id', $request->school_id);
+        }
 
-        // Get the data
-        $classTimetables = $query->orderBy('class_timetable.day')
-            ->orderBy('class_timetable.start_time')
-            ->get();
+        // Get the data ordered by day and time
+        $classTimetables = $query->orderByRaw("
+            CASE class_timetable.day 
+                WHEN 'Monday' THEN 1 
+                WHEN 'Tuesday' THEN 2 
+                WHEN 'Wednesday' THEN 3 
+                WHEN 'Thursday' THEN 4 
+                WHEN 'Friday' THEN 5 
+                WHEN 'Saturday' THEN 6 
+                WHEN 'Sunday' THEN 7 
+                ELSE 8 
+            END
+        ")
+        ->orderBy('class_timetable.start_time')
+        ->get();
 
-        \Log::info('PDF data retrieved', [
+        \Log::info('PDF data retrieved successfully', [
             'count' => $classTimetables->count(),
-            'sample_data' => $classTimetables->take(2)->toArray()
+            'sample_fields' => $classTimetables->first() ? array_keys($classTimetables->first()->toArray()) : []
         ]);
 
         // Prepare the view data
@@ -2632,10 +2869,10 @@ public function getClassesByProgram(Request $request)
             'classTimetables' => $classTimetables,
             'title' => 'Class Timetable',
             'generatedAt' => now()->format('Y-m-d H:i:s'),
-            'filters' => $request->only(['semester_id', 'class_id', 'group_id'])
+            'filters' => array_filter($request->only(['semester_id', 'class_id', 'group_id', 'program_id', 'school_id']))
         ];
 
-        // Generate PDF using the corrected approach
+        // Generate PDF
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('classtimetables.pdf', $viewData);
         
         // Configure PDF settings
@@ -2647,10 +2884,13 @@ public function getClassesByProgram(Request $request)
             'debugKeepTemp' => false
         ]);
 
-        // Generate filename
+        // Generate filename with timestamp
         $filename = 'class-timetable-' . now()->format('Y-m-d-His') . '.pdf';
 
-        \Log::info('PDF generated successfully', ['filename' => $filename]);
+        \Log::info('PDF generated successfully', [
+            'filename' => $filename,
+            'record_count' => $classTimetables->count()
+        ]);
 
         // Return PDF download
         return $pdf->download($filename);
@@ -2658,10 +2898,10 @@ public function getClassesByProgram(Request $request)
     } catch (\Exception $e) {
         \Log::error('PDF generation failed', [
             'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+            'trace' => $e->getTraceAsString(),
+            'request_params' => $request->all()
         ]);
 
-        // Return error response instead of redirect to avoid HTML content
         return response()->json([
             'error' => 'PDF generation failed: ' . $e->getMessage()
         ], 500);

@@ -47,11 +47,7 @@ interface ClassTimetable {
   school_id?: number | null
   created_at?: string | null
   updated_at?: string | null
-  unit_code?: string
-  unit_name?: string
-  semester_name?: string
-  class_name?: string
-  group_name?: string
+  
   status?: string
   credit_hours?: number
 }

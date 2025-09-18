@@ -62,9 +62,9 @@ export default function StudentTimetable({
     })
   }
 
-  const handleDownload = () => {
-    window.open(`/student/timetable/download?semester_id=${selectedSemesterId}`, "_blank")
-  }
+const handleDownload = () => {
+  window.open(`/student/download-classtimetable?semester_id=${selectedSemesterId}`, "_blank")
+}
 
   const timetableData = classTimetables?.data || []
   

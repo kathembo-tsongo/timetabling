@@ -385,6 +385,8 @@ Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function (
     Route::get('/enrollments', [StudentController::class, 'myEnrollments'])->name('student.enrollments');
     Route::get('/exams', [StudentController::class, 'myExams'])->name('student.exams');
     Route::get('/timetable', [StudentController::class, 'myTimetable'])->name('student.timetable');
+    Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadStudentPDF'])->name('classtimetable.download');
+
     Route::get('/profile', [StudentController::class, 'profile'])->name('student.profile');
 });
 
