@@ -12,6 +12,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\ClassController;
+use App\Http\Controllers\StudentController;
 use App\Http\Controllers\LecturerAssignmentController;
 use App\Http\Controllers\ClassTimetableController;
 use App\Http\Controllers\ClassroomController;
@@ -286,6 +287,18 @@ Route::get('/lecturerassignments/available-units', [LecturerAssignmentController
 });
 });
 });
+
+Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function () {
+    Route::get('/', [StudentController::class, 'studentDashboard'])->name('student.dashboard');
+    Route::get('/enrollments', [StudentController::class, 'myEnrollments'])->name('student.enrollments');
+    Route::post('/enrollments', [StudentController::class, 'enrollInUnit'])->name('student.enrollments.store');
+    Route::get('/exams', [StudentController::class, 'myExams'])->name('student.exams');
+    Route::get('/timetable', [StudentController::class, 'myTimetable'])->name('student.timetable');
+    Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadStudentPDF'])->name('classtimetable.download');
+
+    Route::get('/profile', [StudentController::class, 'profile'])->name('student.profile');
+});
+
 
 // ===============================================================
 // SCHOOL PROGRAMS MANAGEMENT
