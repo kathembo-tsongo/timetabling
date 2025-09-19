@@ -5,382 +5,687 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB; 
+use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
 use App\Models\User;
 use App\Models\Unit;
+use App\Models\ClassModel;
 use App\Models\Enrollment;
 use App\Models\Semester;
+use App\Models\UnitAssignment;
+use App\Models\School;
+use App\Models\Program;
 use Inertia\Inertia;
 
 class StudentController extends Controller
 {
     /**
-     * Display the student's enrollments
+     * Show available units for student enrollment (MAIN ENROLLMENT PAGE)
      */
-    /**
- * Display the student's enrollments
- */
-public function myEnrollments(Request $request)
-{
-    $user = $request->user();
-    
-    // Get current semester
-    $currentSemester = Semester::where('is_active', true)->first();
-    if (!$currentSemester) {
-        $currentSemester = Semester::latest()->first();
-    }
-    
-    $selectedSemesterId = $request->input('semester_id', $currentSemester->id);
-    
-    // Get student's current enrollments
-    $enrolledUnits = Enrollment::where('student_code', $user->code)
-        ->where('semester_id', $selectedSemesterId)
-        ->with(['unit.school', 'semester', 'group'])
-        ->get();
-    
-    // Get enrolled unit IDs to exclude from available units
-    $enrolledUnitIds = $enrolledUnits->pluck('unit_id')->toArray();
-    
-    // Get available units for enrollment
-    $availableUnits = Unit::where('semester_id', $selectedSemesterId)
-        ->where('is_active', true)
-        ->whereNotIn('id', $enrolledUnitIds)
-        ->with(['school', 'program'])
-        ->get();
-    
-    // ADD THIS DEBUG LOGGING
-    Log::info('Student Enrollments Debug', [
-        'student_code' => $user->code,
-        'semester_id' => $selectedSemesterId,
-        'enrolled_units_count' => $enrolledUnits->count(),
-        'enrolled_unit_ids' => $enrolledUnitIds,
-        'available_units_count' => $availableUnits->count(),
-        'total_active_units' => Unit::where('is_active', true)->where('semester_id', $selectedSemesterId)->count(),
-        'current_semester' => $currentSemester ? $currentSemester->name : 'None'
-    ]);
-    
-    return Inertia::render('Student/Enrollments', [
-        'enrollments' => [
-            'data' => $enrolledUnits
-        ],
-        'availableUnits' => $availableUnits,
-        'currentSemester' => $currentSemester,
-        'selectedSemesterId' => (int)$selectedSemesterId,
-        'userRoles' => [
-            'isStudent' => true,
-            'isAdmin' => false,
-            'isLecturer' => false,
-        ]
-    ]);
-}
-public function enrollInUnit(Request $request)
-{
-    try {
-        $request->validate([
-            'unit_id' => 'required|exists:units,id',
-            'semester_id' => 'required|exists:semesters,id'
-        ]);
+    public function showAvailableUnits(Request $request)
+    {
+        $student = auth()->user();
         
-        $user = $request->user();
+        // Get current active semester
+        $currentSemester = Semester::where('is_active', true)->first();
         
-        // Check if already enrolled
-        $existingEnrollment = Enrollment::where('student_code', $user->code)
-            ->where('unit_id', $request->unit_id)
-            ->where('semester_id', $request->semester_id)
-            ->first();
-        
-        if ($existingEnrollment) {
-            return back()->with('error', 'You are already enrolled in this unit.');
+        // If no active semester, get the latest one
+        if (!$currentSemester) {
+            $currentSemester = Semester::latest()->first();
         }
         
-        // Get student's class_id from existing enrollment or assign a default
-        $studentClassId = Enrollment::where('student_code', $user->code)->value('class_id');
+        // Get all required data for the enrollment modal
+        $schools = School::orderBy('name')->get();
+        $programs = Program::with('school')->orderBy('name')->get();
+        $semesters = Semester::orderBy('name')->get();
+        $classes = ClassModel::with(['program', 'semester'])
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->orderBy('section')
+            ->get();
         
-        // Create enrollment
-        Enrollment::create([
-            'student_code' => $user->code,
-            'unit_id' => $request->unit_id,
-            'semester_id' => $request->semester_id,
-            'class_id' => $studentClassId, // ADD THIS IF YOUR TABLE HAS class_id
-            'status' => 'active',
-            'enrollment_date' => now()
-        ]);
-        
-        Log::info('Student enrolled successfully', [
-            'student_code' => $user->code,
-            'unit_id' => $request->unit_id,
-            'semester_id' => $request->semester_id
-        ]);
-        
-        return back()->with('success', 'Successfully enrolled in the unit!');
-        
-    } catch (\Exception $e) {
-        Log::error('Enrollment failed', [
-            'student_code' => $user->code ?? 'unknown',
-            'error' => $e->getMessage(),
-            'request_data' => $request->all()
-        ]);
-        
-        return back()->with('error', 'Failed to enroll: ' . $e->getMessage());
-    }
-}
-/**
- * Display the student dashboard
- */
-public function studentDashboard(Request $request)
-{
-    $user = $request->user();
-    
-    // Get current active semester
-    $currentSemester = Semester::where('is_active', true)->first();
-    if (!$currentSemester) {
-        $currentSemester = Semester::latest()->first();
-    }
-    
-    $enrolledUnits = collect();
-    $upcomingExams = collect();
-    
-    if ($currentSemester) {
-        // Get student's enrolled units for current semester
-        $enrolledUnits = Enrollment::where('student_code', $user->code)
+        // If still no semester, create a default response with all the modal data
+        if (!$currentSemester) {
+            $currentSemester = (object) [
+                'id' => 0,
+                'name' => 'No Active Semester',
+                'is_active' => false,
+                'year' => date('Y')
+            ];
+            
+            return Inertia::render('Student/Enrollments', [
+                'availableUnits' => [],
+                'currentEnrollments' => [],
+                'currentSemester' => $currentSemester,
+                'student' => $student->load(['school', 'program']),
+                'stats' => [
+                    'enrolled_units' => 0,
+                    'total_credits' => 0
+                ],
+                // Add all data needed for the modal
+                'schools' => $schools,
+                'programs' => $programs,
+                'semesters' => $semesters,
+                'classes' => $classes,
+                'enrollments' => ['data' => []], 
+                'selectedSemesterId' => 0,
+                'userRoles' => [
+                    'isStudent' => true,
+                    'isAdmin' => false,
+                    'isLecturer' => false,
+                ],
+                'flash' => [
+                    'error' => 'No active semester found. Please contact administration.'
+                ]
+            ]);
+        }
+
+        // Get student's school and program
+        $studentSchoolId = $student->school_id;
+        $studentProgramId = $student->program_id;
+
+        // Get available classes for the student's program and current semester
+        $availableClasses = ClassModel::with(['program.school'])
+            ->where('program_id', $studentProgramId)
             ->where('semester_id', $currentSemester->id)
-            ->with(['unit.school'])
-            ->get()
-            ->map(function ($enrollment) {
+            ->where('is_active', true)
+            ->get();
+
+        // Get units that are assigned to these classes and not already enrolled by student
+        $enrolledUnitIds = Enrollment::where('student_code', $student->code)
+            ->where('semester_id', $currentSemester->id)
+            ->whereIn('status', ['enrolled', 'completed'])
+            ->pluck('unit_id')
+            ->toArray();
+
+        $availableUnits = collect();
+        
+        foreach ($availableClasses as $class) {
+            // Check if class has capacity
+            $currentEnrollments = Enrollment::where('class_id', $class->id)
+                ->where('semester_id', $currentSemester->id)
+                ->where('status', 'enrolled')
+                ->distinct('student_code')
+                ->count();
+
+            if ($currentEnrollments >= $class->capacity) {
+                continue; // Skip full classes
+            }
+
+            // Get units assigned to this class
+            $classUnits = Unit::with(['school', 'program'])
+                ->whereHas('assignments', function($query) use ($class, $currentSemester) {
+                    $query->where('class_id', $class->id)
+                          ->where('semester_id', $currentSemester->id)
+                          ->where('is_active', true);
+                })
+                ->whereNotIn('id', $enrolledUnitIds)
+                ->where('is_active', true)
+                ->get()
+                ->map(function($unit) use ($class) {
+                    // Add school_name and program_name for frontend compatibility
+                    $unit->school_name = $unit->school->name ?? 'Unknown';
+                    $unit->program_name = $unit->program->name ?? 'Unknown';
+                    $unit->available_class = $class;
+                    return $unit;
+                });
+
+            $availableUnits = $availableUnits->concat($classUnits);
+        }
+
+        // Remove duplicates and group by unit
+        $availableUnits = $availableUnits->groupBy('id')->map(function($units) {
+            $unit = $units->first();
+            $unit->available_classes = $units->pluck('available_class')->map(function($class) {
+                // Get current enrollment count for each class
+                $currentEnrollments = Enrollment::where('class_id', $class->id)
+                    ->where('semester_id', $class->semester_id)
+                    ->where('status', 'enrolled')
+                    ->distinct('student_code')
+                    ->count();
+                
                 return [
-                    'id' => $enrollment->unit->id,
-                    'code' => $enrollment->unit->code,
-                    'name' => $enrollment->unit->name,
-                    'school' => [
-                        'name' => $enrollment->unit->school->name ?? 'Unknown School'
-                    ]
+                    'id' => $class->id,
+                    'name' => $class->name,
+                    'section' => $class->section,
+                    'display_name' => "{$class->name} Section {$class->section}",
+                    'capacity' => $class->capacity,
+                    'current_enrollments' => $currentEnrollments,
+                    'available_spots' => $class->capacity - $currentEnrollments,
+                    'is_full' => $currentEnrollments >= $class->capacity
+                ];
+            });
+            return $unit;
+        })->values();
+
+        // Get student's current enrollments for the semester
+        $currentEnrollments = Enrollment::with(['unit', 'class', 'semester'])
+            ->where('student_code', $student->code)
+            ->where('semester_id', $currentSemester->id)
+            ->get()
+            ->map(function($enrollment) {
+                return [
+                    'id' => $enrollment->id,
+                    'unit' => [
+                        'code' => $enrollment->unit->code,
+                        'name' => $enrollment->unit->name,
+                    ],
+                    'semester' => [
+                        'name' => $enrollment->semester->name,
+                    ],
+                    'group' => [
+                        'name' => $enrollment->group_id ?: 'N/A'
+                    ],
+                    'status' => $enrollment->status,
+                    'enrollment_date' => $enrollment->enrollment_date,
                 ];
             });
 
-        // Get upcoming exams for enrolled units (if exam_timetables table exists)
-        $enrolledUnitIds = $enrolledUnits->pluck('id')->toArray();
+        return Inertia::render('Student/Enrollments', [
+            'availableUnits' => $availableUnits,
+            'currentEnrollments' => $currentEnrollments,
+            'currentSemester' => $currentSemester,
+            'student' => $student->load(['school', 'program']),
+            'stats' => [
+                'enrolled_units' => $currentEnrollments->where('status', 'enrolled')->count(),
+                'total_credits' => $currentEnrollments->where('status', 'enrolled')->sum(function($enrollment) {
+                    return $enrollment->unit->credit_hours ?? 0;
+                })
+            ],
+            // Add all data needed for the modal
+            'schools' => $schools,
+            'programs' => $programs,
+            'semesters' => $semesters,
+            'classes' => $classes,
+            // Keep compatibility with existing component structure
+            'enrollments' => ['data' => $currentEnrollments],
+            'selectedSemesterId' => $currentSemester->id,
+            'userRoles' => [
+                'isStudent' => true,
+                'isAdmin' => false,
+                'isLecturer' => false,
+            ]
+        ]);
+    }
+
+    /**
+     * Legacy method - redirects to main enrollment page
+     */
+    public function myEnrollments(Request $request)
+    {
+        return $this->showAvailableUnits($request);
+    }
+
+    /**
+     * Student self-enrollment
+     */
+    public function enrollInUnit(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'unit_ids' => 'required|array|min:1',
+            'unit_ids.*' => 'exists:units,id',
+            'class_id' => 'required|exists:classes,id',
+            'semester_id' => 'required|exists:semesters,id',
+            'student_code' => 'required|string'
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->with('error', 'Please fill all required fields and select at least one unit.');
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $student = auth()->user();
+            $semester = Semester::find($request->semester_id);
+
+            if (!$semester) {
+                return redirect()->back()
+                    ->with('error', 'Invalid semester selected.');
+            }
+
+            // Verify student is eligible for this class
+            $class = ClassModel::with(['program.school'])->find($request->class_id);
+
+            // Check if student's program matches class program (if student has program assigned)
+            if ($student->program_id && $student->program_id !== $class->program_id) {
+                DB::rollBack();
+                return redirect()->back()
+                    ->with('error', 'You can only enroll in classes for your program.');
+            }
+
+            // Check class capacity
+            $currentClassEnrollments = Enrollment::where('class_id', $request->class_id)
+                ->where('semester_id', $request->semester_id)
+                ->where('status', 'enrolled')
+                ->distinct('student_code')
+                ->count();
+
+            if ($currentClassEnrollments >= $class->capacity) {
+                DB::rollBack();
+                return redirect()->back()
+                    ->with('error', 'This class has reached its maximum capacity.');
+            }
+
+            // Check if student is already enrolled in this class for this semester
+            $existingClassEnrollment = Enrollment::where('student_code', $student->code)
+                ->where('class_id', $request->class_id)
+                ->where('semester_id', $request->semester_id)
+                ->exists();
+
+            if ($existingClassEnrollment) {
+                DB::rollBack();
+                return redirect()->back()
+                    ->with('error', 'You are already enrolled in this class for the selected semester.');
+            }
+
+            $createdCount = 0;
+            $skippedCount = 0;
+            $skippedUnits = [];
+
+            foreach ($request->unit_ids as $unitId) {
+                // Check if student is already enrolled in this unit for this semester
+                $existingEnrollment = Enrollment::where('student_code', $student->code)
+                    ->where('unit_id', $unitId)
+                    ->where('semester_id', $request->semester_id)
+                    ->whereIn('status', ['enrolled', 'completed'])
+                    ->first();
+
+                if ($existingEnrollment) {
+                    $skippedCount++;
+                    $unit = Unit::find($unitId);
+                    $skippedUnits[] = $unit->name;
+                    continue;
+                }
+
+                // Verify unit is assigned to this class
+                $unitAssignment = UnitAssignment::where('unit_id', $unitId)
+                    ->where('class_id', $request->class_id)
+                    ->where('semester_id', $request->semester_id)
+                    ->where('is_active', true)
+                    ->first();
+
+                if (!$unitAssignment) {
+                    $skippedCount++;
+                    $unit = Unit::find($unitId);
+                    $skippedUnits[] = $unit->name . ' (not assigned to this class)';
+                    continue;
+                }
+
+                // Get unit details for additional fields
+                $unit = Unit::find($unitId);
+
+                // Create enrollment
+                Enrollment::create([
+                    'student_code' => $student->code,
+                    'lecturer_code' => $unitAssignment->lecturer_code ?? '',
+                    'group_id' => '',
+                    'unit_id' => $unitId,
+                    'class_id' => $request->class_id,
+                    'semester_id' => $request->semester_id,
+                    'program_id' => $class->program_id,
+                    'school_id' => $student->school_id ?? $class->program->school_id ?? $unit->school_id,
+                    'status' => 'enrolled',
+                    'enrollment_date' => now()
+                ]);
+
+                $createdCount++;
+            }
+
+            // Update class student count
+            $this->updateClassStudentCount($request->class_id, $request->semester_id);
+
+            DB::commit();
+
+            if ($createdCount === 0) {
+                return redirect()->back()
+                    ->with('error', 'No enrollments were created. All selected units were either already enrolled or not available.');
+            }
+
+            $message = "{$createdCount} enrollments created successfully for {$class->name} Section {$class->section}.";
+            if ($skippedCount > 0) {
+                $message .= " {$skippedCount} units were skipped: " . implode(', ', $skippedUnits);
+            }
+
+            return redirect()->back()->with('success', $message);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Student enrollment error: ' . $e->getMessage());
+            return redirect()->back()
+                ->with('error', 'Failed to enroll. Please try again or contact support.');
+        }
+    }
+
+    /**
+     * Drop a unit (student self-drop)
+     */
+    public function dropUnit(Request $request, $enrollmentId)
+    {
+        try {
+            DB::beginTransaction();
+
+            $student = auth()->user();
+            $enrollment = Enrollment::where('id', $enrollmentId)
+                ->where('student_code', $student->code)
+                ->where('status', 'enrolled')
+                ->first();
+
+            if (!$enrollment) {
+                return redirect()->back()
+                    ->with('error', 'Enrollment not found or already processed.');
+            }
+
+            // Check if it's still within drop period
+            $enrollmentDate = Carbon::parse($enrollment->enrollment_date);
+            $daysSinceEnrollment = $enrollmentDate->diffInDays(now());
+            
+            $dropDeadlineDays = 14;
+            if ($daysSinceEnrollment > $dropDeadlineDays) {
+                return redirect()->back()
+                    ->with('error', "Drop period has expired. You can only drop units within {$dropDeadlineDays} days of enrollment.");
+            }
+
+            $enrollment->update(['status' => 'dropped']);
+
+            // Update class student count
+            $this->updateClassStudentCount($enrollment->class_id, $enrollment->semester_id);
+
+            DB::commit();
+
+            return redirect()->back()
+                ->with('success', 'Unit dropped successfully.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Student drop error: ' . $e->getMessage());
+            return redirect()->back()
+                ->with('error', 'Failed to drop unit. Please contact support.');
+        }
+    }
+
+    /**
+     * Get available classes for a specific unit
+     */
+    public function getAvailableClassesForUnit(Request $request, $unitId)
+    {
+        $request->merge(['unit_id' => $unitId]);
+        
+        $request->validate([
+            'unit_id' => 'required|exists:units,id'
+        ]);
+
+        $student = auth()->user();
+        $currentSemester = Semester::where('is_active', true)->first();
+
+        if (!$currentSemester) {
+            return response()->json(['error' => 'No active semester'], 400);
+        }
+
+        try {
+            $classes = ClassModel::whereHas('assignments', function($query) use ($request, $currentSemester) {
+                $query->where('unit_id', $request->unit_id)
+                      ->where('semester_id', $currentSemester->id)
+                      ->where('is_active', true);
+            })
+            ->where('program_id', $student->program_id)
+            ->where('is_active', true)
+            ->get()
+            ->map(function($class) use ($currentSemester) {
+                $currentEnrollments = Enrollment::where('class_id', $class->id)
+                    ->where('semester_id', $currentSemester->id)
+                    ->where('status', 'enrolled')
+                    ->distinct('student_code')
+                    ->count();
+
+                return [
+                    'id' => $class->id,
+                    'name' => $class->name,
+                    'section' => $class->section,
+                    'display_name' => "{$class->name} Section {$class->section}",
+                    'capacity' => $class->capacity,
+                    'current_enrollments' => $currentEnrollments,
+                    'available_spots' => $class->capacity - $currentEnrollments,
+                    'is_full' => $currentEnrollments >= $class->capacity
+                ];
+            })
+            ->filter(function($class) {
+                return !$class['is_full'];
+            })
+            ->values();
+
+            return response()->json($classes);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching available classes: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch classes'], 500);
+        }
+    }
+
+    /**
+     * Helper method to update class student count
+     */
+    private function updateClassStudentCount($classId, $semesterId)
+    {
+        try {
+            $studentCount = Enrollment::where('class_id', $classId)
+                ->where('semester_id', $semesterId)
+                ->where('status', 'enrolled')
+                ->distinct('student_code')
+                ->count();
+
+            ClassModel::where('id', $classId)
+                ->update(['students_count' => $studentCount]);
+                
+        } catch (\Exception $e) {
+            Log::error('Error updating class student count: ' . $e->getMessage());
+        }
+    }
+
+    // Keep all your existing methods below (studentDashboard, myTimetable, myExams, profile)
+    
+    public function studentDashboard(Request $request)
+    {
+        $user = $request->user();
+        
+        // Get current active semester
+        $currentSemester = Semester::where('is_active', true)->first();
+        if (!$currentSemester) {
+            $currentSemester = Semester::latest()->first();
+        }
+        
+        $enrolledUnits = collect();
+        $upcomingExams = collect();
+        
+        if ($currentSemester) {
+            // Get student's enrolled units for current semester
+            $enrolledUnits = Enrollment::where('student_code', $user->code)
+                ->where('semester_id', $currentSemester->id)
+                ->with(['unit.school'])
+                ->get()
+                ->map(function ($enrollment) {
+                    return [
+                        'id' => $enrollment->unit->id,
+                        'code' => $enrollment->unit->code,
+                        'name' => $enrollment->unit->name,
+                        'school' => [
+                            'name' => $enrollment->unit->school->name ?? 'Unknown School'
+                        ]
+                    ];
+                });
+
+            $enrolledUnitIds = $enrolledUnits->pluck('id')->toArray();
+            
+            if (!empty($enrolledUnitIds)) {
+                try {
+                    $upcomingExams = \DB::table('exam_timetables')
+                        ->join('units', 'exam_timetables.unit_id', '=', 'units.id')
+                        ->whereIn('exam_timetables.unit_id', $enrolledUnitIds)
+                        ->where('exam_timetables.date', '>=', now()->toDateString())
+                        ->orderBy('exam_timetables.date')
+                        ->orderBy('exam_timetables.start_time')
+                        ->select(
+                            'exam_timetables.id',
+                            'exam_timetables.date',
+                            'exam_timetables.day',
+                            'exam_timetables.start_time',
+                            'exam_timetables.end_time',
+                            'exam_timetables.venue',
+                            'units.code as unit_code',
+                            'units.name as unit_name'
+                        )
+                        ->get()
+                        ->map(function ($exam) {
+                            return [
+                                'id' => $exam->id,
+                                'date' => $exam->date,
+                                'day' => $exam->day,
+                                'start_time' => $exam->start_time,
+                                'end_time' => $exam->end_time,
+                                'venue' => $exam->venue,
+                                'unit' => [
+                                    'code' => $exam->unit_code,
+                                    'name' => $exam->unit_name
+                                ]
+                            ];
+                        });
+                } catch (\Exception $e) {
+                    Log::info('Exam timetables table not found or error occurred', ['error' => $e->getMessage()]);
+                    $upcomingExams = collect();
+                }
+            }
+        }
+
+        return Inertia::render('Student/Dashboard', [
+            'enrolledUnits' => $enrolledUnits,
+            'upcomingExams' => $upcomingExams,
+            'currentSemester' => $currentSemester ? [
+                'id' => $currentSemester->id,
+                'name' => $currentSemester->name,
+                'year' => $currentSemester->year ?? null,
+                'is_active' => $currentSemester->is_active
+            ] : null
+        ]);
+    }
+
+    public function myTimetable(Request $request)
+    {
+        $user = $request->user();
+        
+        $currentSemester = Semester::where('is_active', true)->first();
+        if (!$currentSemester) {
+            $currentSemester = Semester::latest()->first();
+        }
+        
+        $selectedSemesterId = $request->input('semester_id', $currentSemester->id ?? null);
+        
+        $enrollment = Enrollment::where('student_code', $user->code)
+            ->where('semester_id', $selectedSemesterId)
+            ->first();
+        $studentClassId = $enrollment->class_id ?? null;
+        
+        $enrolledUnits = Enrollment::where('student_code', $user->code)
+            ->where('semester_id', $selectedSemesterId)
+            ->with(['unit'])
+            ->get();
+        
+        $enrolledUnitIds = $enrolledUnits->pluck('unit.id')->filter()->toArray();
+        
+        $classInfo = null;
+        if ($studentClassId) {
+            $classInfo = DB::table('classes')->where('id', $studentClassId)->first();
+        }
+        
+        $classTimetables = collect();
+        
+        if (!empty($enrolledUnitIds) && $studentClassId) {
+            $classTimetables = DB::table('class_timetable')
+                ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
+                ->leftJoin('users', 'users.code', '=', 'class_timetable.lecturer')
+                ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
+                ->whereIn('class_timetable.unit_id', $enrolledUnitIds)
+                ->where('class_timetable.semester_id', $selectedSemesterId)
+                ->where('class_timetable.class_id', $studentClassId)
+                ->select(
+                    'class_timetable.*',
+                    'units.code as unit_code',
+                    'units.name as unit_name',
+                    'classes.name as class_name',
+                    'classes.section as class_section',
+                    DB::raw("COALESCE(CONCAT(users.first_name, ' ', users.last_name), class_timetable.lecturer) as lecturer_name")
+                )
+                ->orderBy('class_timetable.day')
+                ->orderBy('class_timetable.start_time')
+                ->get();
+        }
+        
+        return Inertia::render('Student/ClassTimetable', [
+            'classTimetables' => [
+                'data' => $classTimetables
+            ],
+            'enrolledUnits' => $enrolledUnits,
+            'currentSemester' => $currentSemester,
+            'semesters' => Semester::orderBy('name')->get(),
+            'selectedSemesterId' => (int)$selectedSemesterId,
+            'studentInfo' => [
+                'name' => $user->first_name . ' ' . $user->last_name,
+                'code' => $user->code,
+                'class_name' => $classInfo->name ?? null,
+                'section' => $classInfo->section ?? null
+            ]
+        ]);
+    }
+
+    public function myExams(Request $request)
+    {
+        $user = $request->user();
+        
+        $currentSemester = Semester::where('is_active', true)->first();
+        if (!$currentSemester) {
+            $currentSemester = Semester::latest()->first();
+        }
+        
+        $enrolledUnits = Enrollment::where('student_code', $user->code)
+            ->where('semester_id', $currentSemester->id ?? 1)
+            ->with(['unit'])
+            ->get();
+        
+        $enrolledUnitIds = $enrolledUnits->pluck('unit.id')->filter()->toArray();
+        
+        $upcomingExams = collect();
         
         if (!empty($enrolledUnitIds)) {
             try {
-                // Check if exam_timetables table exists
-                $upcomingExams = \DB::table('exam_timetables')
+                $upcomingExams = DB::table('exam_timetables')
                     ->join('units', 'exam_timetables.unit_id', '=', 'units.id')
                     ->whereIn('exam_timetables.unit_id', $enrolledUnitIds)
                     ->where('exam_timetables.date', '>=', now()->toDateString())
                     ->orderBy('exam_timetables.date')
                     ->orderBy('exam_timetables.start_time')
                     ->select(
-                        'exam_timetables.id',
-                        'exam_timetables.date',
-                        'exam_timetables.day',
-                        'exam_timetables.start_time',
-                        'exam_timetables.end_time',
-                        'exam_timetables.venue',
+                        'exam_timetables.*',
                         'units.code as unit_code',
                         'units.name as unit_name'
                     )
-                    ->get()
-                    ->map(function ($exam) {
-                        return [
-                            'id' => $exam->id,
-                            'date' => $exam->date,
-                            'day' => $exam->day,
-                            'start_time' => $exam->start_time,
-                            'end_time' => $exam->end_time,
-                            'venue' => $exam->venue,
-                            'unit' => [
-                                'code' => $exam->unit_code,
-                                'name' => $exam->unit_name
-                            ]
-                        ];
-                    });
+                    ->get();
             } catch (\Exception $e) {
-                // If exam_timetables table doesn't exist, use empty collection
-                Log::info('Exam timetables table not found or error occurred', ['error' => $e->getMessage()]);
-                $upcomingExams = collect();
+                Log::info('Exam timetables table not found', ['error' => $e->getMessage()]);
             }
         }
-    }
-
-    // Log for debugging
-    Log::info('Student dashboard data', [
-        'student_code' => $user->code,
-        'current_semester' => $currentSemester?->name,
-        'enrolled_units_count' => $enrolledUnits->count(),
-        'upcoming_exams_count' => $upcomingExams->count()
-    ]);
-
-    return Inertia::render('Student/Dashboard', [
-        'enrolledUnits' => $enrolledUnits,
-        'upcomingExams' => $upcomingExams,
-        'currentSemester' => $currentSemester ? [
-            'id' => $currentSemester->id,
-            'name' => $currentSemester->name,
-            'year' => $currentSemester->year ?? null,
-            'is_active' => $currentSemester->is_active
-        ] : null
-    ]);
-}
-
-public function myTimetable(Request $request)
-{
-    $user = $request->user();
-    Log::info('myTimetable method called', ['url' => $request->fullUrl()]);
-    
-    // Get current active semester
-    $currentSemester = Semester::where('is_active', true)->first();
-    if (!$currentSemester) {
-        $currentSemester = Semester::latest()->first();
-    }
-    
-    // Get selected semester (default to current)
-    $selectedSemesterId = $request->input('semester_id', $currentSemester->id ?? null);
-    
-    // Get student's class information from enrollments table
-    $enrollment = Enrollment::where('student_code', $user->code)
-        ->where('semester_id', $selectedSemesterId)
-        ->first();
-    $studentClassId = $enrollment->class_id ?? null;
-    
-    // Get student's enrolled units
-    $enrolledUnits = Enrollment::where('student_code', $user->code)
-        ->where('semester_id', $selectedSemesterId)
-        ->with(['unit'])
-        ->get();
-    
-    $enrolledUnitIds = $enrolledUnits->pluck('unit.id')->filter()->toArray();
-    
-    // Get class information if student has a class assigned
-    $classInfo = null;
-    if ($studentClassId) {
-        $classInfo = DB::table('classes')->where('id', $studentClassId)->first();
-    }
-    
-    // Log for debugging
-    Log::info('MyTimetable Debug', [
-        'student_code' => $user->code,
-        'student_class_id' => $studentClassId,
-        'class_info' => $classInfo,
-        'semester_id' => $selectedSemesterId,
-        'enrolled_units_count' => $enrolledUnits->count(),
-        'enrolled_unit_ids' => $enrolledUnitIds
-    ]);
-    
-    $classTimetables = collect();
-    
-    if (!empty($enrolledUnitIds) && $studentClassId) {
-        $classTimetables = DB::table('class_timetable')
-            ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
-            ->leftJoin('users', 'users.code', '=', 'class_timetable.lecturer')
-            ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
-            ->whereIn('class_timetable.unit_id', $enrolledUnitIds)
-            ->where('class_timetable.semester_id', $selectedSemesterId)
-            ->where('class_timetable.class_id', $studentClassId) // Filter by student's specific class
-            ->select(
-                'class_timetable.*',
-                'units.code as unit_code',
-                'units.name as unit_name',
-                'classes.name as class_name',
-                'classes.section as class_section',
-                DB::raw("COALESCE(CONCAT(users.first_name, ' ', users.last_name), class_timetable.lecturer) as lecturer_name")
-            )
-            ->orderBy('class_timetable.day')
-            ->orderBy('class_timetable.start_time')
-            ->get();
         
-        // Log the results
-        Log::info('Timetables Retrieved', [
-            'count' => $classTimetables->count(),
-            'filters_applied' => [
-                'class_id' => $studentClassId,
-                'class_name' => $classInfo->name ?? 'Unknown',
-                'section' => $classInfo->section ?? 'Unknown',
-                'units' => $enrolledUnitIds
-            ],
-            'first_few' => $classTimetables->take(3)->toArray()
-        ]);
-    } else {
-        Log::warning('Cannot fetch personalized timetable', [
-            'student_code' => $user->code,
-            'has_enrolled_units' => !empty($enrolledUnitIds),
-            'has_class_assigned' => !is_null($studentClassId),
-            'enrolled_units_count' => count($enrolledUnitIds),
-            'class_id' => $studentClassId
+        return Inertia::render('Student/Exams', [
+            'upcomingExams' => $upcomingExams,
+            'enrolledUnits' => $enrolledUnits,
+            'currentSemester' => $currentSemester
         ]);
     }
-    
-    return Inertia::render('Student/ClassTimetable', [
-        'classTimetables' => [
-            'data' => $classTimetables
-        ],
-        'enrolledUnits' => $enrolledUnits,
-        'currentSemester' => $currentSemester,
-        'semesters' => Semester::orderBy('name')->get(),
-        'selectedSemesterId' => (int)$selectedSemesterId,
-        'studentInfo' => [
-            'name' => $user->first_name . ' ' . $user->last_name,
-            'code' => $user->code,
-            'class_name' => $classInfo->name ?? null,
-            'section' => $classInfo->section ?? null
-        ]
-    ]);
-}
-/**
- * Display the student's exam schedule
- */
-public function myExams(Request $request)
-{
-    $user = $request->user();
-    
-    // Get current active semester
-    $currentSemester = Semester::where('is_active', true)->first();
-    if (!$currentSemester) {
-        $currentSemester = Semester::latest()->first();
-    }
-    
-    // Get student's enrolled units
-    $enrolledUnits = Enrollment::where('student_code', $user->code)
-        ->where('semester_id', $currentSemester->id ?? 1)
-        ->with(['unit'])
-        ->get();
-    
-    $enrolledUnitIds = $enrolledUnits->pluck('unit.id')->filter()->toArray();
-    
-    $upcomingExams = collect();
-    
-    if (!empty($enrolledUnitIds)) {
-        try {
-            $upcomingExams = DB::table('exam_timetables')
-                ->join('units', 'exam_timetables.unit_id', '=', 'units.id')
-                ->whereIn('exam_timetables.unit_id', $enrolledUnitIds)
-                ->where('exam_timetables.date', '>=', now()->toDateString())
-                ->orderBy('exam_timetables.date')
-                ->orderBy('exam_timetables.start_time')
-                ->select(
-                    'exam_timetables.*',
-                    'units.code as unit_code',
-                    'units.name as unit_name'
-                )
-                ->get();
-        } catch (\Exception $e) {
-            Log::info('Exam timetables table not found', ['error' => $e->getMessage()]);
-        }
-    }
-    
-    return Inertia::render('Student/Exams', [
-        'upcomingExams' => $upcomingExams,
-        'enrolledUnits' => $enrolledUnits,
-        'currentSemester' => $currentSemester
-    ]);
-}
 
-/**
- * Display the student's profile
- */
-public function profile(Request $request)
-{
+    public function profile(Request $request)
+    {
         $user = $request->user();
         
-        // Get student details with related data
         $student = User::with(['faculty', 'enrollments'])
             ->where('id', $user->id)
             ->first();
@@ -389,6 +694,4 @@ public function profile(Request $request)
             'student' => $student,
         ]);
     }
-
-    
 }

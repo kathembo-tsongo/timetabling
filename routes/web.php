@@ -288,19 +288,92 @@ Route::get('/lecturerassignments/available-units', [LecturerAssignmentController
 });
 });
 
+// ===============================================================
+// STUDENTS DASHBOARD & ROUTES
+// ===============================================================
+
 Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function () {
     Route::get('/', [StudentController::class, 'studentDashboard'])->name('student.dashboard');
-    Route::get('/enrollments', [StudentController::class, 'myEnrollments'])->name('student.enrollments');
+    
+    // Main enrollment page
+    Route::get('/enrollments', [StudentController::class, 'showAvailableUnits'])->name('student.enrollments');
+    
+    // Self-enrollment route
     Route::post('/enrollments', [StudentController::class, 'enrollInUnit'])->name('student.enrollments.store');
+    
+    // Drop unit route
+    Route::delete('/enrollments/{enrollment}', [StudentController::class, 'dropUnit'])->name('student.enrollments.drop');
+    
+    // FIXED: API endpoint for getting available classes for a unit - removed {unit} parameter
+    Route::get('/api/units/{unit}/classes', [StudentController::class, 'getAvailableClassesForUnit'])->name('student.units.classes');
+    
     Route::get('/exams', [StudentController::class, 'myExams'])->name('student.exams');
     Route::get('/timetable', [StudentController::class, 'myTimetable'])->name('student.timetable');
     Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadStudentPDF'])->name('classtimetable.download');
-
     Route::get('/profile', [StudentController::class, 'profile'])->name('student.profile');
+
+    // Add API routes for student enrollment
+    Route::prefix('api')->group(function () {
+        Route::get('/classes/by-program-semester', function(Request $request) {
+            $request->validate([
+                'program_id' => 'required|exists:programs,id',
+                'semester_id' => 'required|exists:semesters,id',
+            ]);
+
+            try {
+                $classes = ClassModel::where('program_id', $request->program_id)
+                    ->where('semester_id', $request->semester_id)
+                    ->where('is_active', true)
+                    ->select('id', 'name', 'section', 'year_level', 'capacity', 'program_id', 'semester_id')
+                    ->orderBy('name')
+                    ->orderBy('section')
+                    ->get()
+                    ->map(function($class) {
+                        return [
+                            'id' => $class->id,
+                            'name' => $class->name,
+                            'section' => $class->section,
+                            'display_name' => "{$class->name} Section {$class->section}",
+                            'year_level' => $class->year_level,
+                            'capacity' => $class->capacity,
+                            'program_id' => $class->program_id,
+                            'semester_id' => $class->semester_id,
+                        ];
+                    });
+
+                return response()->json($classes);
+            } catch (\Exception $e) {
+                Log::error('Error fetching classes for student: ' . $e->getMessage());
+                return response()->json(['error' => 'Failed to fetch classes'], 500);
+            }
+        });
+        
+        Route::get('/units/by-class', function(Request $request) {
+            $request->validate([
+                'class_id' => 'required|exists:classes,id',
+                'semester_id' => 'required|exists:semesters,id',
+            ]);
+
+            try {
+                $units = Unit::whereHas('assignments', function($query) use ($request) {
+                    $query->where('class_id', $request->class_id)
+                          ->where('semester_id', $request->semester_id)
+                          ->where('is_active', true);
+                })
+                ->with(['school', 'program'])
+                ->get();
+
+                return response()->json($units);
+            } catch (\Exception $e) {
+                Log::error('Error fetching units for student: ' . $e->getMessage());
+                return response()->json(['error' => 'Failed to fetch units'], 500);
+            }
+        });
+    });
+
 });
 
-
-// ===============================================================
+//===============================================================
 // SCHOOL PROGRAMS MANAGEMENT
 // ===============================================================
 
