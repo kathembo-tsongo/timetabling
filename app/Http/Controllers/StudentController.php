@@ -23,63 +23,107 @@ public function myEnrollments(Request $request)
 {
     $user = $request->user();
     
-    // Check if user has the Student role - TEMPORARILY COMMENT THIS OUT FOR DEBUGGING
-    // if (!$user->hasRole('Student')) {
-    //     abort(403, 'You must be a student to access this page.');
-    // }
-    
     // Get current semester
     $currentSemester = Semester::where('is_active', true)->first();
     if (!$currentSemester) {
         $currentSemester = Semester::latest()->first();
     }
     
-    // Get all semesters for filtering
-    $semesters = Semester::orderBy('name')->get();
+    $selectedSemesterId = $request->input('semester_id', $currentSemester->id);
     
-    // Find semesters where the student has enrollments
-    $studentSemesterIds = Enrollment::where('student_code', $user->code)
-        ->distinct()
-        ->pluck('semester_id')
-        ->toArray();
-    
-    // If student has enrollments, default to their first enrollment semester
-    // Otherwise use the current semester
-    $defaultSemesterId = !empty($studentSemesterIds) 
-        ? $studentSemesterIds[0] 
-        : $currentSemester->id;
-    
-    // Get selected semester (default to first semester with enrollments)
-    $selectedSemesterId = $request->input('semester_id', $defaultSemesterId);
-    
-    // Get student's enrolled units for the selected semester using student code
+    // Get student's current enrollments
     $enrolledUnits = Enrollment::where('student_code', $user->code)
         ->where('semester_id', $selectedSemesterId)
-        ->with(['unit.school', 'unit.lecturer', 'semester', 'lecturer', 'group'])
+        ->with(['unit.school', 'semester', 'group'])
         ->get();
-
-        
     
-    // For debugging
-    Log::info('Student enrollments', [
+    // Get enrolled unit IDs to exclude from available units
+    $enrolledUnitIds = $enrolledUnits->pluck('unit_id')->toArray();
+    
+    // Get available units for enrollment
+    $availableUnits = Unit::where('semester_id', $selectedSemesterId)
+        ->where('is_active', true)
+        ->whereNotIn('id', $enrolledUnitIds)
+        ->with(['school', 'program'])
+        ->get();
+    
+    // ADD THIS DEBUG LOGGING
+    Log::info('Student Enrollments Debug', [
         'student_code' => $user->code,
         'semester_id' => $selectedSemesterId,
-        'available_semesters' => $studentSemesterIds,
-        'count' => $enrolledUnits->count(),
-        'has_student_role' => $user->hasRole('Student')
+        'enrolled_units_count' => $enrolledUnits->count(),
+        'enrolled_unit_ids' => $enrolledUnitIds,
+        'available_units_count' => $availableUnits->count(),
+        'total_active_units' => Unit::where('is_active', true)->where('semester_id', $selectedSemesterId)->count(),
+        'current_semester' => $currentSemester ? $currentSemester->name : 'None'
     ]);
     
     return Inertia::render('Student/Enrollments', [
         'enrollments' => [
             'data' => $enrolledUnits
         ],
+        'availableUnits' => $availableUnits,
         'currentSemester' => $currentSemester,
-        'semesters' => $semesters,
         'selectedSemesterId' => (int)$selectedSemesterId,
-        'studentSemesters' => $studentSemesterIds, // Pass this to highlight semesters with enrollments
+        'userRoles' => [
+            'isStudent' => true,
+            'isAdmin' => false,
+            'isLecturer' => false,
+        ]
     ]);
 }
-   /**
+public function enrollInUnit(Request $request)
+{
+    try {
+        $request->validate([
+            'unit_id' => 'required|exists:units,id',
+            'semester_id' => 'required|exists:semesters,id'
+        ]);
+        
+        $user = $request->user();
+        
+        // Check if already enrolled
+        $existingEnrollment = Enrollment::where('student_code', $user->code)
+            ->where('unit_id', $request->unit_id)
+            ->where('semester_id', $request->semester_id)
+            ->first();
+        
+        if ($existingEnrollment) {
+            return back()->with('error', 'You are already enrolled in this unit.');
+        }
+        
+        // Get student's class_id from existing enrollment or assign a default
+        $studentClassId = Enrollment::where('student_code', $user->code)->value('class_id');
+        
+        // Create enrollment
+        Enrollment::create([
+            'student_code' => $user->code,
+            'unit_id' => $request->unit_id,
+            'semester_id' => $request->semester_id,
+            'class_id' => $studentClassId, // ADD THIS IF YOUR TABLE HAS class_id
+            'status' => 'active',
+            'enrollment_date' => now()
+        ]);
+        
+        Log::info('Student enrolled successfully', [
+            'student_code' => $user->code,
+            'unit_id' => $request->unit_id,
+            'semester_id' => $request->semester_id
+        ]);
+        
+        return back()->with('success', 'Successfully enrolled in the unit!');
+        
+    } catch (\Exception $e) {
+        Log::error('Enrollment failed', [
+            'student_code' => $user->code ?? 'unknown',
+            'error' => $e->getMessage(),
+            'request_data' => $request->all()
+        ]);
+        
+        return back()->with('error', 'Failed to enroll: ' . $e->getMessage());
+    }
+}
+/**
  * Display the student dashboard
  */
 public function studentDashboard(Request $request)

@@ -129,17 +129,16 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/users/roles/bulk-assign', [RoleManagementController::class, 'bulkAssignRole'])->name('users.roles.bulk');
 
         // Units Routes
-        Route::get('/units', [UnitController::class, 'index'])->name('units.index');
-        Route::post('/units', [UnitController::class, 'Store'])->name('units.store');
-        Route::get('/units/create', [UnitController::class, 'Create'])->name('units.create');
-        Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('units.assign-semesters');
-        Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('units.assign-semester');
-        Route::post('/units/remove-semester', [UnitController::class, 'removeFromSemester'])->name('admin.units.remove-semester');
-        Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
-        Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
-        Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
-        Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
-        
+        Route::get('/units', [UnitController::class, 'index'])->name('admin.units.index');
+Route::post('/units', [UnitController::class, 'Store'])->name('admin.units.store');
+Route::get('/units/create', [UnitController::class, 'Create'])->name('admin.units.create');
+Route::get('/units/assign-semesters', [UnitController::class, 'assignSemesters'])->name('admin.units.assign-semesters');
+Route::post('/units/assign-semester', [UnitController::class, 'assignToSemester'])->name('admin.units.assign-semester');
+Route::post('/units/remove-semester', [UnitController::class, 'removeFromSemester'])->name('admin.units.remove-semester');
+Route::get('/units/{unit}', [UnitController::class, 'Show'])->name('admin.units.show');
+Route::get('/units/{unit}/edit', [UnitController::class, 'Edit'])->name('admin.units.edit');
+Route::put('/units/{unit}', [UnitController::class, 'Update'])->name('admin.units.update');
+Route::delete('/units/{unit}', [UnitController::class, 'Destroy'])->name('admin.units.destroy');
         // Users Management
         Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
         Route::get('/users/create',[UserController::class, 'create'])->name('admin.users.create');
@@ -383,6 +382,7 @@ Route::middleware(['auth'])->group(function () {
 Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function () {
     Route::get('/', [StudentController::class, 'studentDashboard'])->name('student.dashboard');
     Route::get('/enrollments', [StudentController::class, 'myEnrollments'])->name('student.enrollments');
+    Route::post('/enrollments', [StudentController::class, 'enrollInUnit'])->name('student.enrollments.store');
     Route::get('/exams', [StudentController::class, 'myExams'])->name('student.exams');
     Route::get('/timetable', [StudentController::class, 'myTimetable'])->name('student.timetable');
     Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadStudentPDF'])->name('classtimetable.download');

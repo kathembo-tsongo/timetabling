@@ -291,6 +291,11 @@ class Unit extends Model
         return new UnitCollection($models);
     }
 
+    public function lecturer(): BelongsTo
+{
+    return $this->belongsTo(User::class, 'lecturer_id'); // or whatever the foreign key is
+}
+
 
 /**
  * Get lecturer assignment for a specific semester

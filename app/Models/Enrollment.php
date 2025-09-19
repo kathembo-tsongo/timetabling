@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo; 
 
 class Enrollment extends Model
 {
@@ -25,6 +26,11 @@ class Enrollment extends Model
     protected $casts = [
         'enrollment_date' => 'datetime',
     ];
+
+    public function lecturer(): BelongsTo
+{
+    return $this->belongsTo(User::class, 'lecturer_code', 'code'); 
+}
 
     /**
      * Get the student that owns the enrollment
@@ -59,6 +65,11 @@ class Enrollment extends Model
     {
         return $this->belongsTo(ClassModel::class, 'class_id');
     }
+
+    public function group(): BelongsTo
+{
+    return $this->belongsTo(User::class, 'group_id', 'code'); 
+}
 
     /**
      * Get the program that belongs to the enrollment

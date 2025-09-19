@@ -492,7 +492,7 @@ export default function Sidebar() {
       items: [        
         {
           label: "Enrollment",
-          href: "/enroll",
+          href: "/student/enrollments",
           icon: ClipboardList,
           type: 'link'
         },
