@@ -14,6 +14,7 @@ use App\Http\Controllers\GroupController;
 use App\Http\Controllers\ClassController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\LecturerAssignmentController;
+use App\Http\Controllers\LecturerController;
 use App\Http\Controllers\ClassTimetableController;
 use App\Http\Controllers\ClassroomController;
 use App\Http\Controllers\RoleManagementController;
@@ -372,6 +373,24 @@ Route::prefix('student')->middleware(['auth', 'role:Student'])->group(function (
     });
 
 });
+
+
+//===============================================================
+// LECTURER DASHBOARD & ROUTES
+// ===============================================================
+Route::prefix('lecturer')->middleware(['auth', 'role:Lecturer'])->group(function () {
+    Route::get('/', [DashboardController::class, 'lecturerDashboard'])->name('lecturer.dashboard');
+    
+    // Fix the classes route to match the frontend redirect
+    Route::get('/classes', [LecturerController::class, 'myClasses'])->name('lecturer.classes');
+    Route::get('/classes/{unitId}/students', [LecturerController::class, 'classStudents'])->name('lecturer.class.students');
+    Route::get('/class-timetable', [LecturerController::class, 'viewClassTimetable'])->name('lecturer.class-timetable');
+    Route::get('/exam-supervision', [LecturerController::class, 'examSupervision'])->name('lecturer.exam-supervision');
+    Route::get('/profile', [LecturerController::class, 'profile'])->name('lecturer.profile');
+});
+
+
+
 
 //===============================================================
 // SCHOOL PROGRAMS MANAGEMENT

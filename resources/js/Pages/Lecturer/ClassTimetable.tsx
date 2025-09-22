@@ -4,7 +4,7 @@ import type React from "react"
 import { Head } from "@inertiajs/react"
 import { useState, useEffect } from "react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
-import { Calendar, Clock, BookOpen, Home, AlertTriangle, RefreshCw, Filter, X, MapPin, Users, GraduationCap, ChevronDown, Building } from 'lucide-react'
+import { Calendar, Clock, BookOpen, Home, AlertTriangle, RefreshCw, Filter, X, MapPin, Users, GraduationCap, ChevronDown, Building, Hash } from 'lucide-react'
 
 interface Unit {
   id: number
@@ -38,8 +38,11 @@ interface ClassTimetable {
   no?: number
   lecturer?: string
   program_name?: string      
+  program_code?: string
   class_name?: string        
+  class_section?: string     
   group_name?: string        
+  program_section_display?: string
 }
 
 interface Props {
@@ -182,7 +185,7 @@ const ClassTimetable = ({
                 </div>
                 
                 <a
-                  href="/lecturer/dashboard"
+                  href="/lecturer"
                   className="group flex items-center gap-2 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-700 px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg"
                 >
                   <Home className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
@@ -368,14 +371,9 @@ const ClassTimetable = ({
                                     <span className="text-gray-500">Class:</span>
                                     <span className="ml-2 font-medium text-gray-700">
                                       {timetable.class_name || "No Class"}
+                                      {timetable.class_section && ` - ${timetable.class_section}`}
                                     </span>
-                                  </div>
-                                  <div className="text-sm">
-                                    <span className="text-gray-500">Group:</span>
-                                    <span className="ml-2 font-medium text-gray-700">
-                                      {timetable.group_name || "No Group"}
-                                    </span>
-                                  </div>
+                                  </div>                                  
                                 </div>
                               </div>
                             </div>
@@ -406,7 +404,7 @@ const ClassTimetable = ({
                     Clear All Filters
                   </button>
                   <a
-                    href="/lecturer/dashboard"
+                    href="/lecturer"
                     className="inline-flex items-center gap-2 bg-gradient-to-r from-gray-200 to-gray-300 hover:from-gray-300 hover:to-gray-400 text-gray-700 px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105"
                   >
                     <Home className="w-4 h-4" />

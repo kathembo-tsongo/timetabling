@@ -53,7 +53,7 @@ const Classes = ({
     document.body.appendChild(loadingMessage)
 
     // Redirect to the same page with the new filter
-    window.location.href = `/lecturer/my-classes?semester_id=${semesterId}`
+    window.location.href = `/lecturer/classes?semester_id=${semesterId}`
   }
 
   // Filter available semesters to only those the lecturer is assigned to
@@ -86,7 +86,7 @@ const Classes = ({
                 </div>
                 
                 <a
-                  href="/lecturer/dashboard"
+                  href="/lecturer"
                   className="group flex items-center gap-2 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-700 px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg"
                 >
                   <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform duration-300" />
@@ -191,7 +191,7 @@ const Classes = ({
                     {/* Actions Section */}
                     <div className="flex lg:flex-col gap-3 lg:w-48">
                       <a
-                        href={`/lecturer/my-classes/${unit.id}/students?semester_id=${selectedSemester}`}
+                        href={`/lecturer/classes/${unit.id}/students?semester_id=${selectedSemester}`}
                         className="group/btn flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg flex-1 lg:flex-none"
                       >
                         <Eye className="w-4 h-4 group-hover/btn:scale-110 transition-transform duration-300" />
@@ -238,7 +238,7 @@ const Classes = ({
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <a
-                    href="/lecturer/dashboard"
+                    href="/lecturer"
                     className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105"
                   >
                     <ArrowLeft className="w-4 h-4" />

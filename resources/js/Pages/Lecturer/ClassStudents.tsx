@@ -86,14 +86,14 @@ const ClassStudents = ({ unit, students = [], unitSemester, selectedSemesterId, 
                 
                 <div className="flex flex-wrap gap-3">
                   <a
-                    href={`/lecturer/my-classes?semester_id=${selectedSemesterId}`}
+                    href={`/lecturer/classes?semester_id=${selectedSemesterId}`}
                     className="group flex items-center gap-2 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-700 px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg"
                   >
                     <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform duration-300" />
                     Back to Classes
                   </a>
                   <a
-                    href="/lecturer/dashboard"
+                    href="/lecturer"
                     className="group flex items-center gap-2 bg-gradient-to-r from-indigo-100 to-purple-100 hover:from-indigo-200 hover:to-purple-200 text-indigo-700 px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg"
                   >
                     <Home className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />

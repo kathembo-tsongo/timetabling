@@ -111,7 +111,7 @@ const Dashboard = ({ currentSemester, lecturerSemesters, unitsBySemester, studen
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <a 
-              href="/my-classes" 
+              href="/lecturer/classes" 
               className="group block p-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 hover:border-blue-200 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
             >
               <div className="flex items-start gap-4">
@@ -134,7 +134,7 @@ const Dashboard = ({ currentSemester, lecturerSemesters, unitsBySemester, studen
             </a>
 
             <a 
-              href="/my-timetables" 
+              href="/lecturer/class-timetable" 
               className="group block p-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl border border-green-100 hover:border-green-200 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
             >
               <div className="flex items-start gap-4">
@@ -157,7 +157,7 @@ const Dashboard = ({ currentSemester, lecturerSemesters, unitsBySemester, studen
             </a>
 
             <a 
-              href="/examsupervision" 
+              href="/lecturer/exam-supervision" 
               className="group block p-6 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100 hover:border-purple-200 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
             >
               <div className="flex items-start gap-4">

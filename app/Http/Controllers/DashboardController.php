@@ -44,10 +44,7 @@ class DashboardController extends Controller
                 $schoolRoute = match($faculty) {
                     'SCES' => 'faculty.dashboard.sces',
                     'SBS' => 'faculty.dashboard.sbs',
-                    'SLS' => 'faculty.dashboard.sls',
-                    'TOURISM' => 'faculty.dashboard.tourism',
-                    'SHM' => 'faculty.dashboard.shm',
-                    'SHS' => 'faculty.dashboard.shs',
+                    
                     default => null
                 };
                 

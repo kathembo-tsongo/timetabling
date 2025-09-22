@@ -516,13 +516,19 @@ export default function Sidebar() {
       items: [
         {
           label: "My Classes",
-          href: "/my-classes",
+          href: "/lecturer/classes",
           icon: Calendar,
           type: 'link'
         },
         {
-          label: "My Timetables",
-          href: "/my-timetables",
+          label: "My class Timetable",
+          href: "/lecturer/class-timetable",
+          icon: Calendar,
+          type: 'link'
+        }
+        , {
+          label: "My Supervision Timetable",
+          href: "/lecturer/exam-supervision",
           icon: Calendar,
           type: 'link'
         }
