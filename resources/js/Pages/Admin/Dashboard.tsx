@@ -1,359 +1,462 @@
-import React from 'react';
-import { Head, Link } from '@inertiajs/react';
+import React, { useState } from 'react';
+import { Head } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import {
+  Users,
+  BookOpen,
+  GraduationCap,
+  Clock,
+  TrendingUp,
+  TrendingDown,
+  Calendar,
+  Activity,
+  School,
+  BarChart3,
+  Building,
+  MapPin
+} from 'lucide-react';
 
-export default function Dashboard({ statistics, currentSemester, systemInfo, recentEnrollments, error }) {
-    // Add debug logging to see what props are being received
-    console.log('Dashboard props:', {
-        statistics,
-        currentSemester,
-        systemInfo,
-        recentEnrollments,
-        error
-    });
+const AdminDashboard = ({ 
+  statistics = {
+    totalUsers: { count: 0, growthRate: 0, period: 'from last month' },
+    activeEnrollments: { count: 0, growthRate: 0, period: 'from last week' },
+    activeClasses: { count: 0, growthRate: 0, period: 'from last month' },
+    examSessions: { count: 0, growthRate: 0, period: 'from last week' }
+  },
+  currentSemester = null,
+  systemInfo = { totalSchools: 0, totalSemesters: 0, totalBuildings: 0, totalClassrooms: 0, totalPrograms: 0 },
+  roleStats = { admins: 0, students: 0, lecturers: 0, faculty_admins: 0, exam_office: 0 },
+  recentEnrollments = [],
+  weeklyActivity = [],
+  enrollmentTrends = []
+}) => {
+  const [selectedTimeFrame, setSelectedTimeFrame] = useState('week');
 
-    // Helper function to format growth rate display
-    const formatGrowthRate = (rate, period) => {
-        const isPositive = rate >= 0;
-        const colorClass = isPositive ? 'text-green-600' : 'text-red-600';
-        const sign = isPositive ? '+' : '';
-        
-        return (
-            <div className="mt-4">
-                <span className={`${colorClass} text-sm font-medium`}>
-                    {sign}{rate}%
-                </span>
-                <span className="text-slate-500 text-sm ml-1">{period}</span>
-            </div>
-        );
-    };
+  // Use real data from database or empty arrays as fallback
+  const chartData = selectedTimeFrame === 'week' 
+    ? (weeklyActivity.length > 0 ? weeklyActivity : [])
+    : (enrollmentTrends.length > 0 ? enrollmentTrends : []);
 
-    // Handle error state
-    if (error) {
-        return (
-            <AuthenticatedLayout>
-                <Head title="Admin Dashboard" />
-                <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                            <div className="flex">
-                                <div className="ml-3">
-                                    <h3 className="text-sm font-medium text-red-800">
-                                        Dashboard Error
-                                    </h3>
-                                    <div className="mt-2 text-sm text-red-700">
-                                        <p>{error}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </AuthenticatedLayout>
-        );
+  const roleDistribution = [
+    { name: 'Students', value: roleStats?.students || 0, color: '#3B82F6' },
+    { name: 'Lecturers', value: roleStats?.lecturers || 0, color: '#10B981' },
+    { name: 'Admins', value: roleStats?.admins || 0, color: '#8B5CF6' },
+    { name: 'Faculty Admins', value: roleStats?.faculty_admins || 0, color: '#F59E0B' },
+    { name: 'Exam Office', value: roleStats?.exam_office || 0, color: '#EF4444' }
+  ].filter(role => role.value > 0); // Only show roles that have users
+
+  const totalUsers = roleDistribution.reduce((sum, role) => sum + role.value, 0);
+
+  // Enhanced Stat Card Component with gradient backgrounds
+  const StatCard = ({ title, value, change, icon: Icon, color, trend, bgGradient }) => (
+    <div className={`${bgGradient} rounded-xl shadow-lg border border-white/20 p-4 hover:shadow-xl transition-all duration-300 text-white`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="p-2 rounded-lg bg-white/20 backdrop-blur-sm">
+          <Icon className="w-5 h-5 text-white" />
+        </div>
+        <div className="flex items-center space-x-1">
+          {trend === 'up' ? (
+            <TrendingUp className="w-3 h-3 text-white/80" />
+          ) : (
+            <TrendingDown className="w-3 h-3 text-white/80" />
+          )}
+          <span className="text-xs font-medium text-white/90">
+            {change > 0 ? '+' : ''}{change}%
+          </span>
+        </div>
+      </div>
+      <div>
+        <h3 className="text-2xl font-bold text-white">{value.toLocaleString()}</h3>
+        <p className="text-sm text-white/80 font-medium">{title}</p>
+      </div>
+    </div>
+  );
+
+  // Enhanced Line Chart Component
+  const LineChart = ({ data, height = 120 }) => {
+    if (!data || data.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-32 text-slate-500">
+          <div className="text-center">
+            <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">No data available</p>
+          </div>
+        </div>
+      );
     }
 
+    const maxValue = Math.max(...data.map(d => d.enrollments || 0));
+    if (maxValue === 0) {
+      return (
+        <div className="flex items-center justify-center h-32 text-slate-500">
+          <p className="text-sm">No enrollment data</p>
+        </div>
+      );
+    }
+
+    const width = 300;
+    const padding = 20;
+    
+    const points = data.map((item, index) => {
+      const x = (width - 2 * padding) * (index / (data.length - 1)) + padding;
+      const y = height - padding - ((item.enrollments || 0) / maxValue) * (height - 2 * padding);
+      return `${x},${y}`;
+    }).join(' ');
+
     return (
-        <AuthenticatedLayout>
-            <Head title="Admin Dashboard" />
-            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-                {/* Header Section */}
-                <div className="bg-white shadow-sm border-b border-slate-200">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h1 className="text-3xl font-bold text-slate-800">Admin Dashboard</h1>
-                                <p className="text-slate-600 mt-1">
-                                    Welcome to the admin dashboard! 
-                                    {currentSemester && (
-                                        <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
-                                            {currentSemester.name}
-                                        </span>
-                                    )}
-                                </p>
-                                {/* Debug information - remove this after debugging */}
-                                <div className="mt-2 text-xs text-gray-500">
-                                    Debug: Statistics = {statistics ? 'Present' : 'Missing'}
-                                    {statistics && ` | Users: ${statistics.totalUsers?.count || 'undefined'}`}
-                                </div>
-                            </div>
-                            <div className="flex items-center space-x-4">
-                                <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-4 py-2 rounded-lg">
-                                    <span className="font-semibold">admin001</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    {/* Quick Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                        {/* Total Users Card */}
-                        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-600 text-sm font-medium">Total Users</p>
-                                    <p className="text-2xl font-bold text-slate-800 mt-1">
-                                        {statistics?.totalUsers?.count?.toLocaleString() || '0'}
-                                    </p>
-                                    {/* Debug info */}
-                                    <p className="text-xs text-gray-400">
-                                        Raw: {JSON.stringify(statistics?.totalUsers?.count)}
-                                    </p>
-                                </div>
-                                <div className="bg-blue-100 p-3 rounded-full">
-                                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-6.5L12 18l-3-3" />
-                                    </svg>
-                                </div>
-                            </div>
-                            {statistics?.totalUsers && formatGrowthRate(
-                                statistics.totalUsers.growthRate, 
-                                statistics.totalUsers.period
-                            )}
-                        </div>
-
-                        {/* Active Enrollments Card */}
-                        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-600 text-sm font-medium">Active Enrollments</p>
-                                    <p className="text-2xl font-bold text-slate-800 mt-1">
-                                        {statistics?.activeEnrollments?.count?.toLocaleString() || '0'}
-                                    </p>
-                                </div>
-                                <div className="bg-emerald-100 p-3 rounded-full">
-                                    <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                                    </svg>
-                                </div>
-                            </div>
-                            {statistics?.activeEnrollments && formatGrowthRate(
-                                statistics.activeEnrollments.growthRate, 
-                                statistics.activeEnrollments.period
-                            )}
-                        </div>
-
-                        {/* Active Classes Card */}
-                        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-600 text-sm font-medium">Active Classes</p>
-                                    <p className="text-2xl font-bold text-slate-800 mt-1">
-                                        {statistics?.activeClasses?.count?.toLocaleString() || '0'}
-                                    </p>
-                                </div>
-                                <div className="bg-purple-100 p-3 rounded-full">
-                                    <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                    </svg>
-                                </div>
-                            </div>
-                            {statistics?.activeClasses && formatGrowthRate(
-                                statistics.activeClasses.growthRate, 
-                                statistics.activeClasses.period
-                            )}
-                        </div>
-
-                        {/* Exam Sessions Card */}
-                        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-600 text-sm font-medium">Exam Sessions</p>
-                                    <p className="text-2xl font-bold text-slate-800 mt-1">
-                                        {statistics?.examSessions?.count?.toLocaleString() || '0'}
-                                    </p>
-                                </div>
-                                <div className="bg-amber-100 p-3 rounded-full">
-                                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                                    </svg>
-                                </div>
-                            </div>
-                            {statistics?.examSessions && formatGrowthRate(
-                                statistics.examSessions.growthRate, 
-                                statistics.examSessions.period
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Rest of your component remains the same... */}
-                    {/* Main Content Grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        {/* Administration Section */}
-                        <div className="lg:col-span-2">
-                            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
-                                <div className="flex items-center justify-between mb-6">
-                                    <h2 className="text-2xl font-bold text-slate-800">Administration</h2>
-                                    <div className="bg-slate-100 p-2 rounded-lg">
-                                        <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                    </div>
-                                </div>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <Link href="/users" className="group block p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl hover:from-blue-100 hover:to-blue-200 transition-all duration-300 border border-blue-200">
-                                        <div className="flex items-center space-x-3">
-                                            <div className="bg-blue-500 p-2 rounded-lg group-hover:scale-110 transition-transform duration-300">
-                                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-6.5L12 18l-3-3" />
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <h3 className="font-semibold text-slate-800">Users</h3>
-                                                <p className="text-slate-600 text-sm">Manage system users</p>
-                                            </div>
-                                        </div>
-                                    </Link>
-
-                                    <Link href="/roles" className="group block p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl hover:from-purple-100 hover:to-purple-200 transition-all duration-300 border border-purple-200">
-                                        <div className="flex items-center space-x-3">
-                                            <div className="bg-purple-500 p-2 rounded-lg group-hover:scale-110 transition-transform duration-300">
-                                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <h3 className="font-semibold text-slate-800">Roles & Permissions</h3>
-                                                <p className="text-slate-600 text-sm">Manage access control</p>
-                                            </div>
-                                        </div>
-                                    </Link>
-
-                                    <Link href="/settings" className="group block p-4 bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl hover:from-emerald-100 hover:to-emerald-200 transition-all duration-300 border border-emerald-200">
-                                        <div className="flex items-center space-x-3">
-                                            <div className="bg-emerald-500 p-2 rounded-lg group-hover:scale-110 transition-transform duration-300">
-                                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <h3 className="font-semibold text-slate-800">Settings</h3>
-                                                <p className="text-slate-600 text-sm">System configuration</p>
-                                            </div>
-                                        </div>
-                                    </Link>
-
-                                    <Link href="/schools" className="group block p-4 bg-gradient-to-br from-amber-50 to-amber-100 rounded-xl hover:from-amber-100 hover:to-amber-200 transition-all duration-300 border border-amber-200">
-                                        <div className="flex items-center space-x-3">
-                                            <div className="bg-amber-500 p-2 rounded-lg group-hover:scale-110 transition-transform duration-300">
-                                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <h3 className="font-semibold text-slate-800">Schools</h3>
-                                                <p className="text-slate-600 text-sm">
-                                                    Manage academic schools
-                                                    {systemInfo?.totalSchools && (
-                                                        <span className="ml-1 text-xs bg-amber-100 text-amber-800 px-1 rounded">
-                                                            {systemInfo.totalSchools}
-                                                        </span>
-                                                    )}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </Link>
-                                </div>
-                            </div>                            
-                        </div>                            
-                        
-                        {/* Quick Actions Sidebar */}
-                        <div className="space-y-6">
-                            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-xl font-bold text-slate-800">Quick Actions</h3>
-                                    <div className="bg-green-100 p-2 rounded-lg">
-                                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                                        </svg>
-                                    </div>
-                                </div>
-                                <div className="space-y-3">
-                                    <Link href="/enroll" className="block p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors duration-200">
-                                        <span className="text-blue-700 font-medium">Enroll in Units</span>
-                                    </Link>
-                                    <Link href="/my-enrollments" className="block p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors duration-200">
-                                        <span className="text-blue-700 font-medium">Enrollments</span>
-                                    </Link>
-                                    <Link href="/my-timetable" className="block p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors duration-200">
-                                        <span className="text-blue-700 font-medium">Class Timetable</span>
-                                    </Link>
-                                    <Link href="/my-exams" className="block p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors duration-200">
-                                        <span className="text-blue-700 font-medium">Exam Timetable</span>
-                                    </Link>
-                                </div>
-                            </div>
-
-                            {/* System Information Card */}
-                            {systemInfo && (
-                                <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="text-xl font-bold text-slate-800">System Info</h3>
-                                        <div className="bg-slate-100 p-2 rounded-lg">
-                                            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                            </svg>
-                                        </div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-slate-600">Total Schools</span>
-                                            <span className="font-semibold text-slate-800">{systemInfo.totalSchools}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-slate-600">Total Semesters</span>
-                                            <span className="font-semibold text-slate-800">{systemInfo.totalSemesters}</span>
-                                        </div>
-                                        {currentSemester && (
-                                            <div className="pt-2 border-t border-slate-200">
-                                                <div className="text-slate-600 text-sm mb-1">Current Semester</div>
-                                                <div className="font-semibold text-slate-800">{currentSemester.name}</div>
-                                                {currentSemester.start_date && currentSemester.end_date && (
-                                                    <div className="text-xs text-slate-500 mt-1">
-                                                        {new Date(currentSemester.start_date).toLocaleDateString()} - 
-                                                        {new Date(currentSemester.end_date).toLocaleDateString()}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Recent Enrollments Card */}
-                            {recentEnrollments && recentEnrollments.length > 0 && (
-                                <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="text-xl font-bold text-slate-800">Recent Activity</h3>
-                                        <div className="bg-blue-100 p-2 rounded-lg">
-                                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {recentEnrollments.slice(0, 5).map((enrollment, index) => (
-                                            <div key={index} className="text-sm">
-                                                <div className="text-slate-800 font-medium">
-                                                    New enrollment in {enrollment.unit?.name || 'Unknown Unit'}
-                                                </div>
-                                                <div className="text-slate-500 text-xs">
-                                                    {new Date(enrollment.created_at).toLocaleDateString()}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </AuthenticatedLayout>
+      <div className="w-full">
+        <svg width={width} height={height} className="w-full">
+          {/* Grid lines */}
+          {[0.25, 0.5, 0.75].map(ratio => (
+            <line
+              key={ratio}
+              x1={padding}
+              x2={width - padding}
+              y1={height - padding - ratio * (height - 2 * padding)}
+              y2={height - padding - ratio * (height - 2 * padding)}
+              stroke="#e2e8f0"
+              strokeDasharray="2 2"
+            />
+          ))}
+          
+          {/* Area under curve */}
+          <polygon
+            fill="url(#gradient)"
+            points={`${padding},${height - padding} ${points} ${width - padding},${height - padding}`}
+          />
+          
+          {/* Line */}
+          <polyline
+            fill="none"
+            stroke="#3B82F6"
+            strokeWidth="2"
+            points={points}
+          />
+          
+          {/* Points */}
+          {data.map((item, index) => {
+            const x = (width - 2 * padding) * (index / (data.length - 1)) + padding;
+            const y = height - padding - ((item.enrollments || 0) / maxValue) * (height - 2 * padding);
+            return (
+              <circle
+                key={index}
+                cx={x}
+                cy={y}
+                r="3"
+                fill="#3B82F6"
+                className="hover:r-4 transition-all duration-200"
+              />
+            );
+          })}
+          
+          {/* X-axis labels */}
+          {data.map((item, index) => {
+            const x = (width - 2 * padding) * (index / (data.length - 1)) + padding;
+            return (
+              <text
+                key={index}
+                x={x}
+                y={height - 5}
+                textAnchor="middle"
+                className="text-xs fill-slate-500"
+              >
+                {item.name || item.day}
+              </text>
+            );
+          })}
+          
+          <defs>
+            <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.3"/>
+              <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
     );
-}
+  };
+
+  // Enhanced Pie Chart Component
+  const SimplePieChart = ({ data }) => {
+    if (!data || data.length === 0 || totalUsers === 0) {
+      return (
+        <div className="flex items-center justify-center w-32 h-32 text-slate-500">
+          <div className="text-center">
+            <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p className="text-xs">No user data</p>
+          </div>
+        </div>
+      );
+    }
+
+    const size = 120;
+    const center = size / 2;
+    const radius = 40;
+    
+    let currentAngle = 0;
+    const total = data.reduce((sum, item) => sum + item.value, 0);
+    
+    return (
+      <svg width={size} height={size}>
+        {data.map((item, index) => {
+          if (item.value === 0) return null;
+          
+          const angle = (item.value / total) * 2 * Math.PI;
+          const startAngle = currentAngle;
+          const endAngle = currentAngle + angle;
+          
+          const x1 = center + radius * Math.cos(startAngle);
+          const y1 = center + radius * Math.sin(startAngle);
+          const x2 = center + radius * Math.cos(endAngle);
+          const y2 = center + radius * Math.sin(endAngle);
+          
+          const largeArcFlag = angle > Math.PI ? 1 : 0;
+          
+          const pathData = [
+            `M ${center} ${center}`,
+            `L ${x1} ${y1}`,
+            `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+            'Z'
+          ].join(' ');
+          
+          currentAngle += angle;
+          
+          return (
+            <path
+              key={index}
+              d={pathData}
+              fill={item.color}
+              className="hover:opacity-80 transition-opacity duration-200"
+            />
+          );
+        })}
+        
+        {/* Center circle with total */}
+        <circle cx={center} cy={center} r={20} fill="white" stroke="#e2e8f0" strokeWidth="1"/>
+        <text x={center} y={center + 5} textAnchor="middle" className="text-xs font-bold fill-slate-700">
+          {total}
+        </text>
+      </svg>
+    );
+  };
+
+  return (
+    <AuthenticatedLayout>
+      <Head title="Admin Dashboard" />
+      
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-4 overflow-auto">
+        <div className="max-w-7xl mx-auto space-y-6">
+          
+          {/* Enhanced Header with gradients */}
+          <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-700 rounded-3xl shadow-2xl border border-white/20 p-6 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-white mb-2">
+                  System Dashboard
+                </h1>
+                <p className="text-blue-100 text-sm">Real-time overview of your timetabling system</p>
+              </div>
+              <div className="flex items-center space-x-6 text-sm">
+                <div className="flex items-center space-x-2 bg-white/20 rounded-lg px-3 py-2">
+                  <School className="w-4 h-4 text-white" />
+                  <span className="text-white font-medium">{systemInfo?.totalSchools || 0} Schools</span>
+                </div>
+                <div className="flex items-center space-x-2 bg-white/20 rounded-lg px-3 py-2">
+                  <Building className="w-4 h-4 text-white" />
+                  <span className="text-white font-medium">{systemInfo?.totalBuildings || 0} Buildings</span>
+                </div>
+                <div className="flex items-center space-x-2 bg-white/20 rounded-lg px-3 py-2">
+                  <Calendar className="w-4 h-4 text-white" />
+                  <span className="font-bold text-white">{currentSemester?.name || 'No Active Semester'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Statistics Cards - Enhanced with gradients */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <StatCard
+              title="Total Users"
+              value={statistics?.totalUsers?.count || 0}
+              change={statistics?.totalUsers?.growthRate || 0}
+              icon={Users}
+              color="bg-blue-500 text-blue-500"
+              bgGradient="bg-gradient-to-br from-blue-500 to-blue-700"
+              trend={statistics?.totalUsers?.growthRate >= 0 ? 'up' : 'down'}
+            />
+            <StatCard
+              title="Active Enrollments"
+              value={statistics?.activeEnrollments?.count || 0}
+              change={statistics?.activeEnrollments?.growthRate || 0}
+              icon={BookOpen}
+              color="bg-green-500 text-green-500"
+              bgGradient="bg-gradient-to-br from-emerald-500 to-green-700"
+              trend={statistics?.activeEnrollments?.growthRate >= 0 ? 'up' : 'down'}
+            />
+            <StatCard
+              title="Active Classes"
+              value={statistics?.activeClasses?.count || 0}
+              change={statistics?.activeClasses?.growthRate || 0}
+              icon={GraduationCap}
+              color="bg-purple-500 text-purple-500"
+              bgGradient="bg-gradient-to-br from-purple-500 to-purple-800"
+              trend={statistics?.activeClasses?.growthRate >= 0 ? 'up' : 'down'}
+            />
+            <StatCard
+              title="Total Classrooms"
+              value={systemInfo?.totalClassrooms || 0}
+              change={0}
+              icon={MapPin}
+              color="bg-orange-500 text-orange-500"
+              bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
+              trend="up"
+            />
+          </div>
+
+          {/* Charts and Analytics Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Enrollment Trends Chart */}
+            <div className="lg:col-span-2 bg-gradient-to-br from-white to-blue-50/50 rounded-3xl shadow-xl border border-slate-200/50 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Enrollment Trends</h3>
+                  <p className="text-sm text-slate-600">Real activity patterns from database</p>
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => setSelectedTimeFrame('week')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm ${
+                      selectedTimeFrame === 'week'
+                        ? 'bg-blue-500 text-white shadow-blue-500/30'
+                        : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                    }`}
+                  >
+                    Week
+                  </button>
+                  <button
+                    onClick={() => setSelectedTimeFrame('month')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm ${
+                      selectedTimeFrame === 'month'
+                        ? 'bg-blue-500 text-white shadow-blue-500/30'
+                        : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                    }`}
+                  >
+                    Month
+                  </button>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 mb-4">
+                <LineChart data={chartData} height={160} />
+              </div>
+              
+              {/* Real Stats from chart data */}
+              {chartData.length > 0 && (
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 bg-gradient-to-r from-blue-500/10 to-blue-600/10 rounded-xl border border-blue-200/30">
+                    <p className="text-xl font-bold text-blue-600">
+                      {chartData.reduce((sum, item) => sum + (item.enrollments || 0), 0)}
+                    </p>
+                    <p className="text-xs text-blue-600/80 font-medium">Total</p>
+                  </div>
+                  <div className="text-center p-3 bg-gradient-to-r from-emerald-500/10 to-emerald-600/10 rounded-xl border border-emerald-200/30">
+                    <p className="text-xl font-bold text-emerald-600">
+                      {chartData.length > 0 ? Math.round(chartData.reduce((sum, item) => sum + (item.enrollments || 0), 0) / chartData.length) : 0}
+                    </p>
+                    <p className="text-xs text-emerald-600/80 font-medium">Average</p>
+                  </div>
+                  <div className="text-center p-3 bg-gradient-to-r from-purple-500/10 to-purple-600/10 rounded-xl border border-purple-200/30">
+                    <p className="text-xl font-bold text-purple-600">
+                      {chartData.length > 0 ? Math.max(...chartData.map(item => item.enrollments || 0)) : 0}
+                    </p>
+                    <p className="text-xs text-purple-600/80 font-medium">Peak</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* User Distribution */}
+            <div className="bg-gradient-to-br from-white to-purple-50/50 rounded-3xl shadow-xl border border-slate-200/50 p-6">
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-slate-800">User Distribution</h3>
+                <p className="text-sm text-slate-600">Real role breakdown from database</p>
+              </div>
+              
+              <div className="flex items-center justify-center mb-6 bg-gradient-to-br from-slate-50 to-purple-50 rounded-2xl p-4">
+                <SimplePieChart data={roleDistribution} />
+              </div>
+              
+              <div className="space-y-3">
+                {roleDistribution.slice(0, 3).map((role, index) => (
+                  <div key={index} className="flex items-center justify-between text-sm p-2 bg-gradient-to-r from-slate-50 to-white rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <div 
+                        className="w-4 h-4 rounded-full shadow-sm" 
+                        style={{ backgroundColor: role.color }}
+                      ></div>
+                      <span className="text-slate-700 font-medium">{role.name}</span>
+                    </div>
+                    <span className="font-bold text-slate-800">{role.value}</span>
+                  </div>
+                ))}
+                <div className="text-center pt-2 border-t border-slate-200">
+                  <p className="text-lg font-bold text-slate-800">{totalUsers}</p>
+                  <p className="text-xs text-slate-600">Total Users</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Activity */}
+          <div className="bg-gradient-to-r from-white via-indigo-50/30 to-purple-50/30 rounded-3xl shadow-xl border border-slate-200/50 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800">Recent Activity</h3>
+                <p className="text-sm text-slate-600">Latest enrollments from database</p>
+              </div>
+              <div className="flex items-center space-x-2 bg-blue-100 rounded-lg px-3 py-2">
+                <Activity className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-semibold text-blue-800">
+                  {recentEnrollments?.length || 0} recent
+                </span>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {recentEnrollments && recentEnrollments.length > 0 ? (
+                recentEnrollments.slice(0, 5).map((enrollment, index) => (
+                  <div key={index} className="p-4 bg-gradient-to-br from-white to-slate-50 rounded-2xl hover:from-blue-50 hover:to-indigo-50 transition-all duration-200 border border-slate-200/50 hover:border-blue-200/50 shadow-sm hover:shadow-md">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full"></div>
+                      <span className="text-xs text-slate-500 font-medium">#{index + 1}</span>
+                    </div>
+                    <p className="text-sm font-bold text-slate-900 truncate mb-1">
+                      {enrollment.student_name || 'Unknown Student'}
+                    </p>
+                    <p className="text-xs text-slate-600 truncate mb-2">
+                      {enrollment.unit_name || 'Unknown Course'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {enrollment.created_at ? new Date(enrollment.created_at).toLocaleDateString() : 'Recently'}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-full flex items-center justify-center py-12 text-slate-500">
+                  <div className="text-center">
+                    <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p className="font-medium">No recent enrollments</p>
+                    <p className="text-sm">Activity will appear here as students enroll</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </AuthenticatedLayout>
+  );
+};
+
+export default AdminDashboard;

@@ -17,6 +17,7 @@ use App\Models\Program;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
@@ -86,8 +87,9 @@ class DashboardController extends Controller
         return $this->defaultDashboard();
     }
 
+
     /**
-     * Display the admin dashboard with real statistics.
+     * Enhanced admin dashboard with real data from your database
      */
     public function adminDashboard(Request $request)
     {
@@ -97,15 +99,6 @@ class DashboardController extends Controller
         $user->load('roles.permissions', 'permissions');
         $allPermissions = $user->getAllPermissions()->pluck('name')->toArray();
         $roles = $user->getRoleNames()->toArray();
-
-        Log::info('Admin dashboard permissions check', [
-            'user_id' => $user->id,
-            'roles' => $roles,
-            'all_permissions_count' => count($allPermissions),
-            'all_permissions' => $allPermissions,
-            'has_admin_role' => $user->hasRole('Admin'),
-            'can_view_admin_dashboard' => $user->can('view admin dashboard'),
-        ]);
 
         // Check if user has permission to view admin dashboard
         if (!$user->can('view admin dashboard') && !$user->hasRole('Admin')) {
@@ -124,133 +117,127 @@ class DashboardController extends Controller
                 $currentSemester = Semester::latest()->first();
             }
 
-            // Get previous month for comparison
-            $currentMonth = now();
-            $previousMonth = now()->subMonth();
-            $previousWeek = now()->subWeek();
+            // Date calculations for comparisons
+            $now = Carbon::now();
+            $lastWeek = $now->copy()->subWeek();
+            $lastMonth = $now->copy()->subMonth();
 
-            // Total Users Statistics
+            // ===== REAL STATISTICS FROM YOUR DATABASE =====
+            
+            // 1. Total Users Statistics (from users table)
             $totalUsers = User::count();
-            $usersLastMonth = User::where('created_at', '>=', $previousMonth)
-                                         ->where('created_at', '<', $currentMonth)
-                                         ->count();
-            $usersPreviousMonth = User::where('created_at', '>=', $previousMonth->copy()->subMonth())
-                                             ->where('created_at', '<', $previousMonth)
-                                             ->count();
-            $usersGrowthRate = $usersPreviousMonth > 0
-                         ? round((($usersLastMonth - $usersPreviousMonth) / $usersPreviousMonth) * 100, 1)
-                        : ($usersLastMonth > 0 ? 100 : 0);
+            $usersLastMonth = User::whereBetween('created_at', [$lastMonth, $now])->count();
+            $usersPreviousMonth = User::whereBetween('created_at', 
+                [$lastMonth->copy()->subMonth(), $lastMonth])->count();
+            $usersGrowthRate = $this->calculateGrowthRate($usersLastMonth, $usersPreviousMonth);
 
-            // Active Enrollments Statistics - FIXED to use DB::table
-            $activeEnrollments = DB::table('bbit_enrollments')->whereNotNull('student_code')->count();
-            $enrollmentsLastWeek = DB::table('bbit_enrollments')
-                                        ->where('created_at', '>=', $previousWeek)
-                                        ->where('created_at', '<', $currentMonth)
-                                        ->whereNotNull('student_code')
-                                        ->count();
-            $enrollmentsPreviousWeek = DB::table('bbit_enrollments')
-                                           ->where('created_at', '>=', $previousWeek->copy()->subWeek())
-                                           ->where('created_at', '<', $previousWeek)
-                                           ->whereNotNull('student_code')
-                                           ->count();
+            // 2. Active Enrollments Statistics (from enrollments table)
+            $activeEnrollments = DB::table('enrollments')
+                ->where('status', 'enrolled')
+                ->count();
 
-            if ($currentSemester) {
-                $activeEnrollments = DB::table('bbit_enrollments')
-                                          ->where('semester_id', $currentSemester->id)
-                                          ->whereNotNull('student_code')
-                                          ->count();
-                $enrollmentsLastWeek = DB::table('bbit_enrollments')
-                                            ->where('semester_id', $currentSemester->id)
-                                            ->where('created_at', '>=', $previousWeek)
-                                            ->where('created_at', '<', $currentMonth)
-                                            ->whereNotNull('student_code')
-                                            ->count();
-                $enrollmentsPreviousWeek = DB::table('bbit_enrollments')
-                                               ->where('semester_id', $currentSemester->id)
-                                               ->where('created_at', '>=', $previousWeek->copy()->subWeek())
-                                               ->where('created_at', '<', $previousWeek)
-                                               ->whereNotNull('student_code')
-                                               ->count();
-            }
+            $enrollmentsLastWeek = DB::table('enrollments')
+                ->where('status', 'enrolled')
+                ->whereBetween('created_at', [$lastWeek, $now])
+                ->count();
 
-            $enrollmentsGrowthRate = $enrollmentsPreviousWeek > 0
-                         ? round((($enrollmentsLastWeek - $enrollmentsPreviousWeek) / $enrollmentsPreviousWeek) * 100, 1)
-                        : ($enrollmentsLastWeek > 0 ? 100 : 0);
+            $enrollmentsPreviousWeek = DB::table('enrollments')
+                ->where('status', 'enrolled')
+                ->whereBetween('created_at', [$lastWeek->copy()->subWeek(), $lastWeek])
+                ->count();
 
-            // Active Classes Statistics
-            $activeClasses = 0;
-            $classesLastMonth = 0;
-            $classesPreviousMonth = 0;
+            $enrollmentsGrowthRate = $this->calculateGrowthRate($enrollmentsLastWeek, $enrollmentsPreviousWeek);
 
-            if ($currentSemester) {
-                // Count distinct units that have enrollments in current semester
-                $activeClasses = Unit::whereHas('bbit_enrollments', function($query) use ($currentSemester) {
-                    $query->where('semester_id', $currentSemester->id);
-                })->count();
+            // 3. Active Classes Statistics (from classes table)
+            $activeClasses = DB::table('classes')
+                ->where('is_active', 1)
+                ->count();
 
-                // Classes added last month
-                $classesLastMonth = Unit::where('created_at', '>=', $previousMonth)
-                                               ->where('created_at', '<', $currentMonth)
-                                               ->count();
-                $classesPreviousMonth = Unit::where('created_at', '>=', $previousMonth->copy()->subMonth())
-                                                   ->where('created_at', '<', $previousMonth)
-                                                   ->count();
-            }
+            $classesLastMonth = DB::table('classes')
+                ->whereBetween('created_at', [$lastMonth, $now])
+                ->count();
 
-            $classesGrowthRate = $classesPreviousMonth > 0
-                         ? round((($classesLastMonth - $classesPreviousMonth) / $classesPreviousMonth) * 100, 1)
-                        : ($classesLastMonth > 0 ? 100 : 0);
+            $classesPreviousMonth = DB::table('classes')
+                ->whereBetween('created_at', [$lastMonth->copy()->subMonth(), $lastMonth])
+                ->count();
 
-            // Exam Sessions Statistics
+            $classesGrowthRate = $this->calculateGrowthRate($classesLastMonth, $classesPreviousMonth);
+
+            // 4. Get actual classrooms count
+            $totalClassrooms = DB::table('classrooms')->count();
+            
+            // 5. Exam Sessions Statistics (using actual exam-related data if available)
             $examSessions = 0;
-            $examsLastWeek = 0;
-            $examsPreviousWeek = 0;
-
-            if ($currentSemester) {
-                $examSessions = ExamTimetable::where('semester_id', $currentSemester->id)
-                                                   ->where('date', '>=', now()->format('Y-m-d'))
-                                                   ->count();
-                $examsLastWeek = ExamTimetable::where('semester_id', $currentSemester->id)
-                                                    ->where('created_at', '>=', $previousWeek)
-                                                    ->count();
-                $examsPreviousWeek = ExamTimetable::where('semester_id', $currentSemester->id)
-                                                        ->where('created_at', '>=', $previousWeek->copy()->subWeek())
-                                                        ->where('created_at', '<', $previousWeek)
-                                                        ->count();
+            $examsGrowthRate = 0;
+            
+            try {
+                // Try different possible exam table names
+                $examSessions = DB::table('exam_timetables')->count();
+            } catch (\Exception $e) {
+                try {
+                    $examSessions = DB::table('examrooms')->count();
+                } catch (\Exception $e2) {
+                    // Use unit_assignments as a proxy for exam sessions
+                    $examSessions = DB::table('unit_assignments')->count();
+                }
             }
 
-            $examsGrowthRate = $examsPreviousWeek > 0
-                         ? round((($examsLastWeek - $examsPreviousWeek) / $examsPreviousWeek) * 100, 1)
-                        : 0;
-
-            // Recent Activities using DB::table
-            $recentEnrollments = DB::table('bbit_enrollments')
-                                  ->join('bbit_units', 'bbit_enrollments.unit_id', '=', 'bbit_units.id')
-                                  ->leftJoin('users', 'bbit_enrollments.student_code', '=', 'users.code')
-                                  ->select(
-                                      'bbit_enrollments.*',
-                                      'bbit_units.unit_name',
-                                      'bbit_units.unit_code',
-                                      'users.name as student_name'
-                                  )
-                                  ->whereNotNull('bbit_enrollments.student_code')
-                                  ->orderBy('bbit_enrollments.created_at', 'desc')
-                                  ->limit(5)
-                                  ->get();
-
-            // System Statistics
-            $totalSchools = School::count();
-            $totalSemesters = Semester::count();
-
-            // Role-based statistics
-            $roleStats = [
-                'admins' => User::role('Admin')->count(),
-                'students' => User::role('Student')->count(),
-                'lecturers' => User::role('Lecturer')->count(),
-                'faculty_admins' => User::role('Faculty Admin')->count(),
-                'exam_office' => User::role('Exam Office')->count(),
+            // ===== SYSTEM INFO FROM YOUR DATABASE =====
+            $systemInfo = [
+                'totalSchools' => DB::table('schools')->count(), // 3 schools from your DB
+                'totalSemesters' => DB::table('semesters')->count(), // 2 semesters from your DB
+                'totalBuildings' => DB::table('building')->count(), // 6 buildings from your DB
+                'totalClassrooms' => $totalClassrooms, // 7 classrooms from your DB
+                'totalPrograms' => DB::table('programs')->count(), // 9 programs from your DB
+                'activeUsers' => User::where('created_at', '>=', $now->subDays(30))->count(),
             ];
 
+            // ===== REAL ROLE STATISTICS FROM YOUR DATABASE =====
+            $roleStats = [
+                'admins' => User::whereHas('roles', function($query) {
+                    $query->where('name', 'Admin');
+                })->count(),
+                'students' => User::whereHas('roles', function($query) {
+                    $query->where('name', 'Student');
+                })->count(),
+                'lecturers' => User::whereHas('roles', function($query) {
+                    $query->where('name', 'Lecturer');
+                })->count(),
+                'faculty_admins' => User::whereHas('roles', function($query) {
+                    $query->where('name', 'like', 'Faculty Admin%');
+                })->count(),
+                'exam_office' => User::whereHas('roles', function($query) {
+                    $query->where('name', 'Exam Office');
+                })->count(),
+            ];
+
+            // ===== RECENT ACTIVITIES FROM YOUR DATABASE =====
+            $recentEnrollments = DB::table('enrollments')
+                ->join('users', 'enrollments.student_code', '=', 'users.code')
+                ->join('classes', 'enrollments.class_id', '=', 'classes.id')
+                ->select(
+                    'enrollments.*',
+                    'classes.name as unit_name',
+                    DB::raw("CONCAT(COALESCE(users.first_name, ''), ' ', COALESCE(users.last_name, '')) as student_name"),
+                    'enrollments.created_at'
+                )
+                ->where('enrollments.status', 'enrolled')
+                ->orderBy('enrollments.created_at', 'desc')
+                ->limit(5)
+                ->get();
+
+            // ===== REAL CHART DATA FROM DATABASE =====
+            
+            // Get real enrollment trends (last 6 months)
+            $enrollmentTrends = $this->getEnrollmentTrends($currentSemester, 6);
+            
+            // Get real weekly activity (last 7 days)
+            $weeklyActivity = $this->getWeeklyActivity($currentSemester);
+            
+            // Get real infrastructure stats
+            $infrastructureStats = $this->getInfrastructureStats();
+
+            // ===== PREPARE DASHBOARD DATA =====
             $dashboardData = [
                 'statistics' => [
                     'totalUsers' => [
@@ -275,22 +262,25 @@ class DashboardController extends Controller
                     ]
                 ],
                 'currentSemester' => $currentSemester,
-                'systemInfo' => [
-                    'totalSchools' => $totalSchools,
-                    'totalSemesters' => $totalSemesters,
-                ],
+                'systemInfo' => $systemInfo,
                 'roleStats' => $roleStats,
                 'recentEnrollments' => $recentEnrollments,
+                'enrollmentTrends' => $enrollmentTrends,
+                'weeklyActivity' => $weeklyActivity,
+                'infrastructureStats' => $infrastructureStats,
                 'userPermissions' => $allPermissions,
                 'userRoles' => $roles,
                 'isAdmin' => true
             ];
 
-            Log::info('Admin dashboard data generated successfully', [
+            Log::info('Real admin dashboard data generated successfully', [
                 'total_users' => $totalUsers,
                 'active_enrollments' => $activeEnrollments,
                 'active_classes' => $activeClasses,
                 'exam_sessions' => $examSessions,
+                'total_schools' => $systemInfo['totalSchools'],
+                'total_buildings' => $systemInfo['totalBuildings'],
+                'total_classrooms' => $systemInfo['totalClassrooms'],
                 'current_semester' => $currentSemester ? $currentSemester->name : 'None',
                 'user_id' => $user->id
             ]);
@@ -298,7 +288,7 @@ class DashboardController extends Controller
             return Inertia::render('Admin/Dashboard', $dashboardData);
 
         } catch (\Exception $e) {
-            Log::error('Error in admin dashboard', [
+            Log::error('Error in enhanced admin dashboard', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'user_id' => $user->id
@@ -313,15 +303,149 @@ class DashboardController extends Controller
                     'examSessions' => ['count' => 0, 'growthRate' => 0, 'period' => 'from last week']
                 ],
                 'currentSemester' => null,
-                'systemInfo' => ['totalSchools' => 0, 'totalSemesters' => 0],
-                'roleStats' => [],
+                'systemInfo' => ['totalSchools' => 0, 'totalSemesters' => 0, 'totalBuildings' => 0, 'totalClassrooms' => 0, 'activeUsers' => 0],
+                'roleStats' => ['admins' => 0, 'students' => 0, 'lecturers' => 0, 'faculty_admins' => 0, 'exam_office' => 0],
                 'recentEnrollments' => [],
+                'enrollmentTrends' => [],
+                'weeklyActivity' => [],
+                'infrastructureStats' => [],
                 'userPermissions' => [],
                 'userRoles' => [],
                 'isAdmin' => true,
                 'error' => 'Unable to load dashboard data'
             ]);
         }
+    }
+
+    /**
+     * Calculate growth rate percentage
+     */
+    private function calculateGrowthRate($current, $previous)
+    {
+        if ($previous == 0) {
+            return $current > 0 ? 100 : 0;
+        }
+        return round((($current - $previous) / $previous) * 100, 1);
+    }
+
+    /**
+     * Get enrollment trends for charts (last N months) - REAL DATA
+     */
+    private function getEnrollmentTrends($currentSemester, $months = 6)
+    {
+        $trends = [];
+        
+        try {
+            $startDate = Carbon::now()->subMonths($months);
+            
+            for ($i = 0; $i < $months; $i++) {
+                $monthStart = $startDate->copy()->addMonths($i)->startOfMonth();
+                $monthEnd = $monthStart->copy()->endOfMonth();
+                $monthName = $monthStart->format('M');
+                
+                // Get REAL enrollments for this month from your enrollments table
+                $enrollments = DB::table('enrollments')
+                    ->where('status', 'enrolled')
+                    ->whereBetween('created_at', [$monthStart, $monthEnd])
+                    ->count();
+                
+                // Get REAL classes created this month
+                $classes = DB::table('classes')
+                    ->whereBetween('created_at', [$monthStart, $monthEnd])
+                    ->count();
+                
+                $trends[] = [
+                    'name' => $monthName,
+                    'enrollments' => $enrollments
+                ];
+            }
+        } catch (\Exception $e) {
+            Log::warning('Error generating real enrollment trends', ['error' => $e->getMessage()]);
+            // Return empty array if fails
+            $trends = [];
+        }
+        
+        return $trends;
+    }
+
+    /**
+     * Get weekly activity data (last 7 days) - REAL DATA
+     */
+    private function getWeeklyActivity($currentSemester)
+    {
+        $activity = [];
+        
+        try {
+            $startDate = Carbon::now()->subDays(6); // Last 7 days including today
+            
+            for ($i = 0; $i < 7; $i++) {
+                $date = $startDate->copy()->addDays($i);
+                $dayName = $date->format('D');
+                
+                // Count REAL enrollments created this day
+                $enrollments = DB::table('enrollments')
+                    ->where('status', 'enrolled')
+                    ->whereDate('created_at', $date->format('Y-m-d'))
+                    ->count();
+                
+                $activity[] = [
+                    'day' => $dayName,
+                    'enrollments' => $enrollments
+                ];
+            }
+        } catch (\Exception $e) {
+            Log::warning('Error generating real weekly activity', ['error' => $e->getMessage()]);
+            // Return empty array if fails
+            $activity = [];
+        }
+        
+        return $activity;
+    }
+
+    /**
+     * Get infrastructure statistics (buildings, classrooms, etc.) - REAL DATA
+     */
+    private function getInfrastructureStats()
+    {
+        $stats = [];
+        
+        try {
+            // REAL Buildings statistics from your 'building' table
+            $totalBuildings = DB::table('building')->count();
+            $activeBuildings = DB::table('building')->where('is_active', true)->count();
+            
+            // REAL Classrooms statistics from your 'classrooms' table
+            $totalClassrooms = DB::table('classrooms')->count();
+            $availableClassrooms = DB::table('classrooms')->where('is_active', 1)->count();
+            
+            // REAL Building utilization
+            $buildingsWithClassrooms = DB::table('building')
+                ->join('classrooms', 'building.id', '=', 'classrooms.building_id')
+                ->distinct('building.id')
+                ->count();
+            
+            $stats = [
+                'buildings' => [
+                    'total' => $totalBuildings,
+                    'active' => $activeBuildings,
+                    'with_classrooms' => $buildingsWithClassrooms,
+                    'utilization_rate' => $totalBuildings > 0 ? round(($buildingsWithClassrooms / $totalBuildings) * 100, 1) : 0
+                ],
+                'classrooms' => [
+                    'total' => $totalClassrooms,
+                    'available' => $availableClassrooms,
+                    'utilization_rate' => $totalClassrooms > 0 ? round(($availableClassrooms / $totalClassrooms) * 100, 1) : 0
+                ]
+            ];
+        } catch (\Exception $e) {
+            Log::warning('Error generating real infrastructure stats', ['error' => $e->getMessage()]);
+            $stats = [
+                'buildings' => ['total' => 0, 'active' => 0, 'with_classrooms' => 0, 'utilization_rate' => 0],
+                'classrooms' => ['total' => 0, 'available' => 0, 'utilization_rate' => 0]
+            ];
+        }
+        
+        return $stats;
     }
 
     /**
