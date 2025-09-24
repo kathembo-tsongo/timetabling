@@ -4,48 +4,46 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Building extends Model
 {
-    use HasFactory;
-
-    // Specify the table name since your table is 'building' not 'buildings'
+    use HasFactory, SoftDeletes;
     protected $table = 'building';
-
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'name',
         'code',
         'description',
         'address',
-        'is_active',
+        'classroom',
+        'is_active'
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
         'is_active' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'deleted_at' => 'datetime',
     ];
 
     /**
-     * Get the classrooms for the building.
+     * Get all classrooms in this building
      */
-    public function classrooms()
+    public function classroom()
     {
         return $this->hasMany(Classroom::class);
     }
 
     /**
-     * Scope a query to only include active buildings.
+     * Get active classrooms only
+     */
+    public function activeClassrooms()
+    {
+        return $this->hasMany(Classroom::class)->where('is_active', true);
+    }
+
+    /**
+     * Scope for active buildings
      */
     public function scopeActive($query)
     {
@@ -53,10 +51,28 @@ class Building extends Model
     }
 
     /**
-     * Get the building's display name (name with code).
+     * Scope for inactive buildings
      */
-    public function getDisplayNameAttribute()
+    public function scopeInactive($query)
     {
-        return $this->name . ' (' . $this->code . ')';
+        return $query->where('is_active', false);
+    }
+
+    /**
+     * Get building status badge
+     */
+    public function getStatusBadgeAttribute()
+    {
+        return $this->is_active ? 
+            '<span class="badge badge-success">Active</span>' : 
+            '<span class="badge badge-danger">Inactive</span>';
+    }
+
+    /**
+     * Get classroom count
+     */
+    public function getClassroomCountAttribute()
+    {
+        return $this->classroom()->count();
     }
 }

@@ -368,6 +368,14 @@ export default function Sidebar() {
           roles: ["Admin"]
         },
         {
+          label: "Buildings",
+          href: "/admin/buildings",
+          icon: Building,
+          type: 'link',
+          permissions: ["manage-buildings"],
+          roles: ["Admin"]
+        },
+        {
           label: "Classrooms",
           href: "/admin/classrooms",
           icon: Building,

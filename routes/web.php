@@ -17,6 +17,7 @@ use App\Http\Controllers\LecturerAssignmentController;
 use App\Http\Controllers\LecturerController;
 use App\Http\Controllers\ClassTimetableController;
 use App\Http\Controllers\ClassroomController;
+use App\Http\Controllers\BuildingController;
 use App\Http\Controllers\RoleManagementController;
 use App\Http\Controllers\DynamicRoleController;
 use App\Http\Controllers\DynamicPermissionController;
@@ -211,6 +212,16 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/classrooms/{classroom}', [ClassroomController::class, 'update'])->name('admin.classrooms.update');
         Route::delete('/classrooms/{classroom}', [ClassroomController::class, 'destroy'])->name('admin.classrooms.destroy');
 
+        // Add to your routes/web.php (in correct order)
+Route::get('/buildings', [BuildingController::class, 'index'])->name('admin.buildings.index');
+Route::get('/buildings/trashed', [BuildingController::class, 'getTrashedBuildings'])->name('admin.buildings.trashed');
+Route::post('/buildings', [BuildingController::class, 'store'])->name('admin.buildings.store');
+Route::put('/buildings/{id}/restore', [BuildingController::class, 'restore'])->name('admin.buildings.restore');
+Route::delete('/buildings/{id}/force-delete', [BuildingController::class, 'forceDelete'])->name('admin.buildings.force-delete');
+Route::get('/buildings/{building}', [BuildingController::class, 'show'])->name('admin.buildings.show');
+Route::put('/buildings/{building}', [BuildingController::class, 'update'])->name('admin.buildings.update');
+Route::put('/buildings/{building}/toggle-status', [BuildingController::class, 'toggleStatus'])->name('admin.buildings.toggle-status');
+Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->name('admin.buildings.destroy');
         // ===============================================================
         // CLASS TIMETABLES - MAIN ROUTES
         // ===============================================================
