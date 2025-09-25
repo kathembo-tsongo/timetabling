@@ -435,6 +435,8 @@ Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->
     // ===============================================================
     // SCHOOL PROGRAMS MANAGEMENT
     // ===============================================================
+
+    // School SCES Programs Management
     Route::prefix('schools/sces')->name('schools.sces.programs.')->group(function () {
         Route::get('programs', function(Request $request) {
             return app(ProgramController::class)->index($request, 'SCES');
@@ -465,11 +467,42 @@ Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->
         })->name('api.all');
     });
 
-}); // Close main authenticated routes group
+    // School SBS Programs Management
+    Route::prefix('schools/sbs')->name('schools.sbs.programs.')->group(function () {
+        Route::get('programs', function(Request $request) {
+            return app(ProgramController::class)->index($request, 'SBS');
+        })->name('index'); 
+        Route::get('programs/create', function() {
+            return app(ProgramController::class)->create('SBS');
+        })->name('create');
+        Route::get('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('SBS', $program);    
+        })->name('show');
+        Route::get('programs/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('SBS', $program);
+        })->name('edit');
+        Route::post('programs', function(Request $request) {
+            return app(ProgramController::class)->store($request, 'SBS');
+        })->name('store');
+        Route::put('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SBS', $program);
+        })->name('update');
+        Route::patch('programs/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SBS', $program);
+        })->name('patch');
+        Route::delete('programs/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('SBS', $program);
+        })->name('destroy');
+        Route::get('api/programs', function() {
+            return app(ProgramController::class)->getAllPrograms('SBS');
+        })->name('api.all');             
+
+    }); 
 
 // ===============================================================
 // CATCH-ALL ROUTE
 // ===============================================================
-Route::get('/{any}', function () {
-    return Inertia::render('NotFound');
-})->where('any', '.*')->name('not-found');
+    Route::get('/{any}', function () {
+        return Inertia::render('NotFound');
+    })->where('any', '.*')->name('not-found');
+});

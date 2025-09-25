@@ -19,8 +19,10 @@ class StudentSeeder extends Seeder
         }
 
         $programs = [
-            // 'BSICS' => 'SCES',
-            'BBIT' => 'SCES',
+           'BFS' => 'SBS',
+             //'BCOM' => 'SBS',
+            //'BSICS' => 'SCES',
+             //'BBIT' => 'SCES',
             // 'BSEEE' => 'SCES',
             // 'BSCNCS' => 'SCES',
         ];
@@ -38,7 +40,7 @@ class StudentSeeder extends Seeder
                         'first_name' => 'Student' . $i,
                         'last_name' => $program,
                         'email' => strtolower($program) . $i . '@strathmore.edu',
-                        'phone' => '07003' . str_pad($i, 4, '0', STR_PAD_LEFT),
+                        'phone' => '070051' . str_pad($i, 4, '0', STR_PAD_LEFT),
                         'code' => strtoupper($program) . str_pad($i, 4, '0', STR_PAD_LEFT),
                         'schools' => $school,
                         'programs' => $program,
