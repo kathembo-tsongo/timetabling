@@ -42,30 +42,37 @@ class UnitController extends Controller
             $this->applyFilters($query, $request);
 
             $units = $query->get()->map(function ($unit) {
-                // Safely load relationships with null checks
-                $program = $unit->program_id ? Program::find($unit->program_id) : null;
-                $school = ($program && $program->school_id) ? School::find($program->school_id) : null;
-                $semester = $unit->semester_id ? Semester::find($unit->semester_id) : null;
-                
-                return [
-                    'id' => $unit->id,
-                    'code' => $unit->code,
-                    'name' => $unit->name,
-                    'description' => $unit->description,
-                    'credit_hours' => $unit->credit_hours,
-                    'is_active' => $unit->is_active,
-                    'program_id' => $unit->program_id,
-                    'program_name' => $program?->name ?? 'No Program Assigned',
-                    'program_code' => $program?->code ?? 'N/A',
-                    'school_id' => $school?->id ?? null,
-                    'school_name' => $school?->name ?? 'No School Assigned',
-                    'school_code' => $school?->code ?? 'N/A',
-                    'semester_id' => $unit->semester_id,
-                    'semester_name' => $semester?->name ?? null,
-                    'created_at' => $unit->created_at->toISOString(),
-                    'updated_at' => $unit->updated_at->toISOString(),
-                ];
-            });
+        // Get the program and school as you're doing
+        $program = $unit->program_id ? Program::find($unit->program_id) : null;
+        $school = ($program && $program->school_id) ? School::find($program->school_id) : null;
+        
+        // Get semester from unit assignments instead of direct relationship
+        $activeAssignment = UnitAssignment::where('unit_id', $unit->id)
+            ->where('is_active', true)
+            ->with('semester')
+            ->first();
+        
+        $semester = $activeAssignment ? $activeAssignment->semester : null;
+        
+        return [
+            'id' => $unit->id,
+            'code' => $unit->code,
+            'name' => $unit->name,
+            'description' => $unit->description,
+            'credit_hours' => $unit->credit_hours,
+            'is_active' => $unit->is_active,
+            'program_id' => $unit->program_id,
+            'program_name' => $program?->name ?? 'No Program Assigned',
+            'program_code' => $program?->code ?? 'N/A',
+            'school_id' => $school?->id ?? null,
+            'school_name' => $school?->name ?? 'No School Assigned',
+            'school_code' => $school?->code ?? 'N/A',
+            'semester_id' => $semester?->id ?? null,
+            'semester_name' => $semester?->name ?? null, // This will now show correctly
+            'created_at' => $unit->created_at->toISOString(),
+            'updated_at' => $unit->updated_at->toISOString(),
+        ];
+    });
 
             // Get all programs from all schools
             $programs = Program::where('is_active', true)
