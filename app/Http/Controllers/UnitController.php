@@ -661,6 +661,240 @@ public function getUnitsForClass(Request $request)
     }
 }
 
+// specific methods
+// Add these methods to your UnitController class
+
+    /**
+     * Display units for a specific program
+     */
+    public function programUnits(Program $program, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $perPage = $request->per_page ?? 15;
+        $search = $request->search ?? '';
+        
+        // Build the query for program-specific units
+        $query = Unit::where('program_id', $program->id)
+            ->with(['school', 'program'])
+            ->when($search, function($q) use ($search) {
+                $q->where('name', 'like', '%' . $search . '%')
+                  ->orWhere('code', 'like', '%' . $search . '%');
+            })
+            ->orderBy('code')
+            ->orderBy('name');
+        
+        // Get paginated results
+        $units = $query->paginate($perPage)->withQueryString();
+        
+        return Inertia::render('Schools/SCES/Programs/Units/Index', [
+            'units' => $units,
+            'program' => $program->load('school'),
+            'schoolCode' => $schoolCode,
+            'filters' => [
+                'search' => $search,
+                'per_page' => (int) $perPage,
+            ],
+            'can' => [
+                'create' => auth()->user()->can('create_units'),
+                'update' => auth()->user()->can('update_units'),
+                'delete' => auth()->user()->can('delete_units'),
+            ],
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
+        ]);
+    }
+
+    /**
+     * Store a new unit for a specific program
+     */
+    public function storeProgramUnit(Program $program, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'code' => 'required|string|max:20|unique:units,code',
+            'name' => 'required|string|max:255',
+            'credit_hours' => 'required|integer|min:1|max:10',
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->with('error', 'Please check the form for errors.');
+        }
+
+        try {
+            Unit::create([
+                'code' => $request->code,
+                'name' => $request->name,
+                'credit_hours' => $request->credit_hours,
+                'description' => $request->description,
+                'program_id' => $program->id,
+                'school_id' => $program->school_id,
+                'is_active' => $request->boolean('is_active', true),
+            ]);
+            
+            return redirect()->back()->with('success', 'Unit created successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error creating program unit: ' . $e->getMessage());
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Error creating unit. Please try again.');
+        }
+    }
+
+    /**
+     * Show create form for program unit
+     */
+    public function createProgramUnit(Program $program, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        return Inertia::render('Schools/Programs/Units/Create', [
+            'program' => $program->load('school'),
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Show specific program unit
+     */
+    public function showProgramUnit(Program $program, Unit $unit, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify unit belongs to this program
+        if ($unit->program_id !== $program->id) {
+            abort(404, 'Unit not found in this program.');
+        }
+
+        return Inertia::render('Schools/Programs/Units/Show', [
+            'unit' => $unit->load(['school', 'program']),
+            'program' => $program->load('school'),
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Show edit form for program unit
+     */
+    public function editProgramUnit(Program $program, Unit $unit, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify unit belongs to this program
+        if ($unit->program_id !== $program->id) {
+            abort(404, 'Unit not found in this program.');
+        }
+
+        return Inertia::render('Schools/Programs/Units/Edit', [
+            'unit' => $unit,
+            'program' => $program->load('school'),
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Update program unit
+     */
+    public function updateProgramUnit(Program $program, Unit $unit, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify unit belongs to this program
+        if ($unit->program_id !== $program->id) {
+            abort(404, 'Unit not found in this program.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'code' => 'required|string|max:20|unique:units,code,' . $unit->id,
+            'name' => 'required|string|max:255',
+            'credit_hours' => 'required|integer|min:1|max:10',
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->with('error', 'Please check the form for errors.');
+        }
+        
+        try {
+            $unit->update([
+                'code' => $request->code,
+                'name' => $request->name,
+                'credit_hours' => $request->credit_hours,
+                'description' => $request->description,
+                'is_active' => $request->boolean('is_active', true),
+            ]);
+            
+            return redirect()->back()->with('success', 'Unit updated successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error updating program unit: ' . $e->getMessage());
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Error updating unit. Please try again.');
+        }
+    }
+
+    /**
+     * Delete program unit
+     */
+    public function destroyProgramUnit(Program $program, Unit $unit, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify unit belongs to this program
+        if ($unit->program_id !== $program->id) {
+            abort(404, 'Unit not found in this program.');
+        }
+
+        try {
+            // Check if unit has enrollments or other associations
+            $hasEnrollments = $unit->enrollments()->exists();
+            
+            if ($hasEnrollments) {
+                return redirect()->back()->with('error', 'Cannot delete unit with existing enrollments.');
+            }
+            
+            $unit->delete();
+            
+            return redirect()->back()->with('success', 'Unit deleted successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error deleting program unit: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Error deleting unit. Please try again.');
+        }
+    }
+
 
 
 }

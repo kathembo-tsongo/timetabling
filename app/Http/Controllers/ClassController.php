@@ -653,6 +653,307 @@ public function getByProgramAndSemester(Request $request)
             return response()->json(['error' => 'Class not found'], 404);
         }
     }
+
+    // special method 
+    // Add these methods to your ClassController class
+
+    /**
+     * Display classes for a specific program
+     */
+    public function programClasses(Program $program, Request $request, $schoolCode)
+    {
+        $perPage = $request->per_page ?? 15;
+        $search = $request->search ?? '';
+        $semesterId = $request->semester_id;
+        $yearLevel = $request->year_level;
+        
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Build the query for program-specific classes
+        $query = ClassModel::with(['semester', 'program.school'])
+            ->where('program_id', $program->id)
+            ->when($search, function($q) use ($search) {
+                $q->where('name', 'like', '%' . $search . '%')
+                  ->orWhere('section', 'like', '%' . $search . '%')
+                  ->orWhereHas('semester', function($sq) use ($search) {
+                      $sq->where('name', 'like', '%' . $search . '%');
+                  });
+            })
+            ->when($semesterId, function($q) use ($semesterId) {
+                $q->where('semester_id', $semesterId);
+            })
+            ->when($yearLevel, function($q) use ($yearLevel) {
+                $q->where('year_level', $yearLevel);
+            })
+            ->orderBy('year_level')
+            ->orderBy('name')
+            ->orderBy('section');
+        
+        // Get paginated results
+        $classes = $query->paginate($perPage)->withQueryString();
+        
+        // Get semesters for dropdowns
+        $semesters = Semester::select('id', 'name', 'is_active')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+        
+        return Inertia::render('Schools/SCES/Programs/Classes/Index', [
+            'classes' => $classes,
+            'program' => $program->load('school'),
+            'semesters' => $semesters,
+            'schoolCode' => $schoolCode,
+            'filters' => [
+                'search' => $search,
+                'semester_id' => $semesterId ? (int) $semesterId : null,
+                'year_level' => $yearLevel ? (int) $yearLevel : null,
+                'per_page' => (int) $perPage,
+            ],
+            'can' => [
+                'create_classes' => auth()->user()->can('create_classes'),
+                'update_classes' => auth()->user()->can('update_classes'),
+                'delete_classes' => auth()->user()->can('delete_classes'),
+            ],
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
+        ]);
+    }
+
+    /**
+     * Store a new class for a specific program
+     */
+    public function storeProgramClass(Program $program, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'semester_id' => 'required|exists:semesters,id',
+            'year_level' => 'nullable|integer|min:1|max:6',
+            'section' => 'required|string|max:10',
+            'capacity' => 'nullable|integer|min:1|max:200',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->with('error', 'Please check the form for errors.');
+        }
+
+        try {
+            $className = $request->name;
+            $section = strtoupper($request->section);
+
+            // Check for duplicate class names with same section in this program
+            $existingClass = ClassModel::where('name', $className)
+                ->where('section', $section)
+                ->where('semester_id', $request->semester_id)
+                ->where('program_id', $program->id)
+                ->first();
+
+            if ($existingClass) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', "Class '{$className}' Section '{$section}' already exists for this semester and program.");
+            }
+
+            ClassModel::create([
+                'name' => $className,
+                'semester_id' => $request->semester_id,
+                'program_id' => $program->id,
+                'year_level' => $request->year_level,
+                'section' => $section,
+                'capacity' => $request->capacity,
+                'students_count' => 0,
+                'is_active' => true,
+            ]);
+            
+            return redirect()->back()->with('success', 'Class created successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error creating program class: ' . $e->getMessage());
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Error creating class. Please try again.');
+        }
+    }
+
+    /**
+     * Show create form for program class
+     */
+    public function createProgramClass(Program $program, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $semesters = Semester::select('id', 'name', 'is_active')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return Inertia::render('Schools/Programs/Classes/Create', [
+            'program' => $program->load('school'),
+            'semesters' => $semesters,
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Show specific program class
+     */
+    public function showProgramClass(Program $program, ClassModel $class, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify class belongs to this program
+        if ($class->program_id !== $program->id) {
+            abort(404, 'Class not found in this program.');
+        }
+
+        $class->load(['semester', 'program.school']);
+
+        return Inertia::render('Schools/Programs/Classes/Show', [
+            'class' => $class,
+            'program' => $program->load('school'),
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Show edit form for program class
+     */
+    public function editProgramClass(Program $program, ClassModel $class, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify class belongs to this program
+        if ($class->program_id !== $program->id) {
+            abort(404, 'Class not found in this program.');
+        }
+
+        $semesters = Semester::select('id', 'name', 'is_active')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return Inertia::render('Schools/Programs/Classes/Edit', [
+            'class' => $class->load(['semester', 'program.school']),
+            'program' => $program->load('school'),
+            'semesters' => $semesters,
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Update program class
+     */
+    public function updateProgramClass(Program $program, ClassModel $class, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify class belongs to this program
+        if ($class->program_id !== $program->id) {
+            abort(404, 'Class not found in this program.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'semester_id' => 'required|exists:semesters,id',
+            'year_level' => 'nullable|integer|min:1|max:6',
+            'section' => 'required|string|max:10',
+            'capacity' => 'nullable|integer|min:1|max:200',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->with('error', 'Please check the form for errors.');
+        }
+        
+        try {
+            $className = $request->name;
+            $section = strtoupper($request->section);
+
+            // Check for duplicate class names with same section (excluding current class)
+            $duplicateClass = ClassModel::where('name', $className)
+                ->where('section', $section)
+                ->where('semester_id', $request->semester_id)
+                ->where('program_id', $program->id)
+                ->where('id', '!=', $class->id)
+                ->first();
+
+            if ($duplicateClass) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', "Class '{$className}' Section '{$section}' already exists for this semester and program.");
+            }
+            
+            $class->update([
+                'name' => $className,
+                'semester_id' => $request->semester_id,
+                'year_level' => $request->year_level,
+                'section' => $section,
+                'capacity' => $request->capacity,
+            ]);
+            
+            return redirect()->back()->with('success', 'Class updated successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error updating program class: ' . $e->getMessage());
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Error updating class. Please try again.');
+        }
+    }
+
+    /**
+     * Delete program class
+     */
+    public function destroyProgramClass(Program $program, ClassModel $class, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        // Verify class belongs to this program
+        if ($class->program_id !== $program->id) {
+            abort(404, 'Class not found in this program.');
+        }
+
+        try {
+            // Check if class has students
+            if ($class->students_count > 0) {
+                return redirect()->back()->with('error', "Cannot delete class with {$class->students_count} enrolled students.");
+            }
+            
+            $class->delete();
+            
+            return redirect()->back()->with('success', 'Class deleted successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error deleting program class: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Error deleting class. Please try again.');
+        }
+    }
 }
 
    

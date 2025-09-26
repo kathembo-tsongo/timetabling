@@ -1126,4 +1126,407 @@ public function studentExamTimetable(Request $request)
         ]);
     }
 }
+
+// Special methods
+// Add these program-specific methods to your existing ExamTimetableController
+
+    /**
+     * Display exam timetables for a specific program
+     */
+    public function programExamTimetables(Program $program, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $perPage = $request->per_page ?? 15;
+        $search = $request->search ?? '';
+        $semesterId = $request->semester_id;
+        
+        // Build the query for program-specific exam timetables using your existing schema
+        $query = ExamTimetable::query()
+            ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+            ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+            ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+            ->where('units.program_id', $program->id) // Filter by program through units
+            ->select(
+                'exam_timetables.id',
+                'exam_timetables.date',
+                'exam_timetables.day',
+                'exam_timetables.start_time',
+                'exam_timetables.end_time',
+                'exam_timetables.venue',
+                'exam_timetables.location',
+                'exam_timetables.no',
+                'exam_timetables.chief_invigilator',
+                'exam_timetables.unit_id',
+                'exam_timetables.semester_id',
+                'exam_timetables.class_id',
+                'units.name as unit_name',
+                'units.code as unit_code',
+                'classes.name as class_name',
+                \Schema::hasColumn('classes', 'code') 
+                    ? 'classes.code as class_code'
+                    : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+                'semesters.name as semester_name'
+            )
+            ->when($search, function($q) use ($search) {
+                $q->where('exam_timetables.day', 'like', "%{$search}%")
+                  ->orWhere('exam_timetables.date', 'like', "%{$search}%")
+                  ->orWhere('units.code', 'like', "%{$search}%")
+                  ->orWhere('units.name', 'like', "%{$search}%");
+            })
+            ->when($semesterId, function($q) use ($semesterId) {
+                $q->where('exam_timetables.semester_id', $semesterId);
+            })
+            ->orderBy('exam_timetables.date')
+            ->orderBy('exam_timetables.start_time');
+        
+        // Get paginated results
+        $examTimetables = $query->paginate($perPage)->withQueryString();
+        
+        // Get semesters for dropdowns
+        $semesters = Semester::all();
+        
+        return Inertia::render('Schools/Programs/ExamTimetables/Index', [
+            'examTimetables' => $examTimetables,
+            'program' => $program->load('school'),
+            'semesters' => $semesters,
+            'schoolCode' => $schoolCode,
+            'filters' => [
+                'search' => $search,
+                'semester_id' => $semesterId ? (int) $semesterId : null,
+                'per_page' => (int) $perPage,
+            ],
+            'can' => [
+                'create' => auth()->user()->can('create-examtimetables'),
+                'edit' => auth()->user()->can('update-examtimetables'),
+                'delete' => auth()->user()->can('delete-examtimetables'),
+            ],
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
+        ]);
+    }
+
+    /**
+     * Store a new exam timetable for a specific program
+     */
+    public function storeProgramExamTimetable(Program $program, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'day' => 'required|string',
+            'date' => 'required|date',
+            'unit_id' => 'required|exists:units,id',
+            'semester_id' => 'required|exists:semesters,id',
+            'class_id' => 'required|exists:classes,id',
+            'no' => 'required|integer',
+            'chief_invigilator' => 'required|string',
+            'start_time' => 'required|string',
+            'end_time' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->with('error', 'Please check the form for errors.');
+        }
+
+        try {
+            // Verify unit belongs to the program
+            $unit = Unit::find($request->unit_id);
+            if ($unit->program_id !== $program->id) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', 'Selected unit does not belong to this program.');
+            }
+
+            // Smart venue assignment using your existing method
+            $venueAssignment = $this->assignOptimalVenue(
+                $request->no,
+                $request->date,
+                $request->start_time,
+                $request->end_time
+            );
+
+            if (!$venueAssignment['success']) {
+                return redirect()->back()->withErrors([
+                    'venue' => $venueAssignment['message']
+                ])->withInput();
+            }
+
+            ExamTimetable::create([
+                'day' => $request->day,
+                'date' => $request->date,
+                'unit_id' => $request->unit_id,
+                'semester_id' => $request->semester_id,
+                'class_id' => $request->class_id,
+                'venue' => $venueAssignment['venue'],
+                'location' => $venueAssignment['location'],
+                'no' => $request->no,
+                'chief_invigilator' => $request->chief_invigilator,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+            ]);
+            
+            $successMessage = 'Exam timetable created successfully. ' . $venueAssignment['message'];
+            return redirect()->back()->with('success', $successMessage);
+        } catch (\Exception $e) {
+            Log::error('Error creating program exam timetable: ' . $e->getMessage());
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Error creating exam timetable. Please try again.');
+        }
+    }
+
+    /**
+     * Show create form for program exam timetable
+     */
+    public function createProgramExamTimetable(Program $program, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $semesters = Semester::all();
+        $lecturers = User::role('Lecturer')
+            ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
+            ->get();
+
+        return Inertia::render('Schools/Programs/ExamTimetables/Create', [
+            'program' => $program->load('school'),
+            'semesters' => $semesters,
+            'lecturers' => $lecturers,
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Show specific program exam timetable
+     */
+    public function showProgramExamTimetable(Program $program, $timetable, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $examTimetable = ExamTimetable::with(['unit', 'semester'])
+            ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+            ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+            ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+            ->where('exam_timetables.id', $timetable)
+            ->where('units.program_id', $program->id)
+            ->select(
+                'exam_timetables.*',
+                'units.name as unit_name',
+                'units.code as unit_code',
+                'classes.name as class_name',
+                'semesters.name as semester_name'
+            )
+            ->firstOrFail();
+
+        return Inertia::render('Schools/Programs/ExamTimetables/Show', [
+            'examTimetable' => $examTimetable,
+            'program' => $program->load('school'),
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Show edit form for program exam timetable
+     */
+    public function editProgramExamTimetable(Program $program, $timetable, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $examTimetable = ExamTimetable::with(['unit', 'semester'])
+            ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+            ->where('exam_timetables.id', $timetable)
+            ->where('units.program_id', $program->id)
+            ->select('exam_timetables.*')
+            ->firstOrFail();
+
+        $semesters = Semester::all();
+        $lecturers = User::role('Lecturer')
+            ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
+            ->get();
+
+        return Inertia::render('Schools/Programs/ExamTimetables/Edit', [
+            'examTimetable' => $examTimetable,
+            'program' => $program->load('school'),
+            'semesters' => $semesters,
+            'lecturers' => $lecturers,
+            'schoolCode' => $schoolCode,
+        ]);
+    }
+
+    /**
+     * Update program exam timetable
+     */
+    public function updateProgramExamTimetable(Program $program, $timetable, Request $request, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $examTimetable = ExamTimetable::leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+            ->where('exam_timetables.id', $timetable)
+            ->where('units.program_id', $program->id)
+            ->select('exam_timetables.*')
+            ->firstOrFail();
+
+        $validator = Validator::make($request->all(), [
+            'day' => 'required|string',
+            'date' => 'required|date',
+            'unit_id' => 'required|exists:units,id',
+            'semester_id' => 'required|exists:semesters,id',
+            'class_id' => 'required|exists:classes,id',
+            'no' => 'required|integer',
+            'chief_invigilator' => 'required|string',
+            'start_time' => 'required|string',
+            'end_time' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->with('error', 'Please check the form for errors.');
+        }
+        
+        try {
+            // Verify unit belongs to the program
+            $unit = Unit::find($request->unit_id);
+            if ($unit->program_id !== $program->id) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', 'Selected unit does not belong to this program.');
+            }
+
+            // Smart venue assignment using your existing method
+            $venueAssignment = $this->assignOptimalVenue(
+                $request->no,
+                $request->date,
+                $request->start_time,
+                $request->end_time,
+                $timetable // Exclude current exam from conflict check
+            );
+
+            if (!$venueAssignment['success']) {
+                return redirect()->back()->withErrors([
+                    'venue' => $venueAssignment['message']
+                ])->withInput();
+            }
+            
+            $examTimetable->update([
+                'day' => $request->day,
+                'date' => $request->date,
+                'unit_id' => $request->unit_id,
+                'semester_id' => $request->semester_id,
+                'class_id' => $request->class_id,
+                'venue' => $venueAssignment['venue'],
+                'location' => $venueAssignment['location'],
+                'no' => $request->no,
+                'chief_invigilator' => $request->chief_invigilator,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+            ]);
+            
+            $successMessage = 'Exam timetable updated successfully. ' . $venueAssignment['message'];
+            return redirect()->back()->with('success', $successMessage);
+        } catch (\Exception $e) {
+            Log::error('Error updating program exam timetable: ' . $e->getMessage());
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Error updating exam timetable. Please try again.');
+        }
+    }
+
+    /**
+     * Delete program exam timetable
+     */
+    public function destroyProgramExamTimetable(Program $program, $timetable, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        try {
+            $examTimetable = ExamTimetable::leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+                ->where('exam_timetables.id', $timetable)
+                ->where('units.program_id', $program->id)
+                ->select('exam_timetables.*')
+                ->firstOrFail();
+            
+            $examTimetable->delete();
+            
+            return redirect()->back()->with('success', 'Exam timetable deleted successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error deleting program exam timetable: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Error deleting exam timetable. Please try again.');
+        }
+    }
+
+    /**
+     * Download program exam timetable as PDF
+     */
+    public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
+    {
+        // Verify program belongs to the correct school
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        try {
+            $query = ExamTimetable::query()
+                ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+                ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+                ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+                ->where('units.program_id', $program->id)
+                ->select(
+                    'exam_timetables.*',
+                    'units.name as unit_name',
+                    'units.code as unit_code',
+                    'semesters.name as semester_name',
+                    'classes.name as class_name'
+                );
+
+            $examTimetables = $query->orderBy('exam_timetables.date')
+                ->orderBy('exam_timetables.start_time')
+                ->get();
+
+            if (!view()->exists('examtimetables.pdf')) {
+                return redirect()->back()->with('error', 'PDF template not found. Please contact the administrator.');
+            }
+
+            $pdf = Pdf::loadView('examtimetables.pdf', [
+                'examTimetables' => $examTimetables,
+                'title' => $program->name . ' - Exam Timetable',
+                'program' => $program,
+                'generatedAt' => now()->format('Y-m-d H:i:s'),
+            ]);
+
+            $pdf->setPaper('a4', 'landscape');
+
+            return $pdf->download($program->code . '-exam-timetable.pdf');
+        } catch (\Exception $e) {
+            Log::error('Failed to generate program exam timetable PDF: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
+        }
+    }
 }

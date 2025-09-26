@@ -566,56 +566,129 @@ const handleSubmit = (e: React.FormEvent) => {
                       {expandedRows.has(program.id) && (
                         <tr>
                           <td colSpan={6} className="px-6 py-4 bg-gray-50">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="space-y-6">
+                              {/* Program Management Links */}
                               <div>
-                                <h4 className="font-medium text-gray-900 mb-3">Program Details</h4>
-                                <div className="space-y-2 text-sm">
-                                  <div>
-                                    <span className="font-medium">Full Name:</span>
-                                    <div className="text-gray-600">{program.full_name}</div>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium">Sort Order:</span>
-                                    <div className="text-gray-600">{program.sort_order}</div>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium">Created:</span>
-                                    <div className="text-gray-600">{new Date(program.created_at).toLocaleDateString()}</div>
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              <div>
-                                <h4 className="font-medium text-gray-900 mb-3">Contact Information</h4>
-                                <div className="space-y-2 text-sm">
-                                  <div>
-                                    <span className="font-medium">Email:</span>
-                                    <div className="text-gray-600">{program.contact_email || 'Not set'}</div>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium">Phone:</span>
-                                    <div className="text-gray-600">{program.contact_phone || 'Not set'}</div>
-                                  </div>
+                                <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                                  <BookOpen className="w-5 h-5 mr-2 text-blue-500" />
+                                  Program Management
+                                </h4>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                                  <a
+                                    href={route('schools.sces.programs.units.index', program.id)}
+                                    className="flex items-center px-4 py-3 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors group"
+                                  >
+                                    <BookOpen className="w-4 h-4 mr-2 text-blue-600 group-hover:scale-110 transition-transform" />
+                                    <div>
+                                      <div className="text-sm font-medium text-blue-900">Units</div>
+                                      <div className="text-xs text-blue-600">{program.units_count}</div>
+                                    </div>
+                                  </a>
+                                  <a
+                                    href={route('schools.sces.programs.classes.index', program.id)}
+                                    className="flex items-center px-4 py-3 bg-green-100 hover:bg-green-200 rounded-lg transition-colors group"
+                                  >
+                                    <Users className="w-4 h-4 mr-2 text-green-600 group-hover:scale-110 transition-transform" />
+                                    <div>
+                                      <div className="text-sm font-medium text-green-900">Classes</div>
+                                      <div className="text-xs text-green-600">Manage</div>
+                                    </div>
+                                  </a>
+                                  <a
+                                    href={route('schools.sces.programs.semesters.index', program.id)}
+                                    className="flex items-center px-4 py-3 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors group"
+                                  >
+                                    <Clock className="w-4 h-4 mr-2 text-purple-600 group-hover:scale-110 transition-transform" />
+                                    <div>
+                                      <div className="text-sm font-medium text-purple-900">Semesters</div>
+                                      <div className="text-xs text-purple-600">Schedule</div>
+                                    </div>
+                                  </a>
+                                  <a
+                                    href={route('schools.sces.programs.enrollments.index', program.id)}
+                                    className="flex items-center px-4 py-3 bg-orange-100 hover:bg-orange-200 rounded-lg transition-colors group"
+                                  >
+                                    <GraduationCap className="w-4 h-4 mr-2 text-orange-600 group-hover:scale-110 transition-transform" />
+                                    <div>
+                                      <div className="text-sm font-medium text-orange-900">Enrollment</div>
+                                      <div className="text-xs text-orange-600">{program.enrollments_count}</div>
+                                    </div>
+                                  </a>
+                                  <a
+                                    href={route('schools.sces.programs.class-timetables.index', program.id)}
+                                    className="flex items-center px-4 py-3 bg-teal-100 hover:bg-teal-200 rounded-lg transition-colors group"
+                                  >
+                                    <Clock className="w-4 h-4 mr-2 text-teal-600 group-hover:scale-110 transition-transform" />
+                                    <div>
+                                      <div className="text-sm font-medium text-teal-900">Class Timetable</div>
+                                      <div className="text-xs text-teal-600">Schedule</div>
+                                    </div>
+                                  </a>
+                                  <a
+                                    href={route('schools.sces.programs.exam-timetables.index', program.id)}
+                                    className="flex items-center px-4 py-3 bg-red-100 hover:bg-red-200 rounded-lg transition-colors group"
+                                  >
+                                    <Award className="w-4 h-4 mr-2 text-red-600 group-hover:scale-110 transition-transform" />
+                                    <div>
+                                      <div className="text-sm font-medium text-red-900">Exam Timetable</div>
+                                      <div className="text-xs text-red-600">Schedule</div>
+                                    </div>
+                                  </a>
                                 </div>
                               </div>
 
-                              <div>
-                                <h4 className="font-medium text-gray-900 mb-3">Statistics</h4>
-                                <div className="space-y-2 text-sm">
-                                  <div className="flex justify-between">
-                                    <span>Units:</span>
-                                    <span className="font-medium">{program.units_count}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span>Enrollments:</span>
-                                    <span className="font-medium">{program.enrollments_count}</span>
-                                  </div>
-                                  {program.description && (
+                              {/* Program Details */}
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                  <h4 className="font-medium text-gray-900 mb-3">Program Details</h4>
+                                  <div className="space-y-2 text-sm">
                                     <div>
-                                      <span className="font-medium">Description:</span>
-                                      <div className="text-gray-600 mt-1">{program.description}</div>
+                                      <span className="font-medium">Full Name:</span>
+                                      <div className="text-gray-600">{program.full_name}</div>
                                     </div>
-                                  )}
+                                    <div>
+                                      <span className="font-medium">Sort Order:</span>
+                                      <div className="text-gray-600">{program.sort_order}</div>
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">Created:</span>
+                                      <div className="text-gray-600">{new Date(program.created_at).toLocaleDateString()}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div>
+                                  <h4 className="font-medium text-gray-900 mb-3">Contact Information</h4>
+                                  <div className="space-y-2 text-sm">
+                                    <div>
+                                      <span className="font-medium">Email:</span>
+                                      <div className="text-gray-600">{program.contact_email || 'Not set'}</div>
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">Phone:</span>
+                                      <div className="text-gray-600">{program.contact_phone || 'Not set'}</div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <h4 className="font-medium text-gray-900 mb-3">Statistics</h4>
+                                  <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                      <span>Units:</span>
+                                      <span className="font-medium">{program.units_count}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span>Enrollments:</span>
+                                      <span className="font-medium">{program.enrollments_count}</span>
+                                    </div>
+                                    {program.description && (
+                                      <div>
+                                        <span className="font-medium">Description:</span>
+                                        <div className="text-gray-600 mt-1">{program.description}</div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
