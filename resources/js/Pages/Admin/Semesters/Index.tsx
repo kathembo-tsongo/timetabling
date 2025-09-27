@@ -1,5 +1,3 @@
-"use client"
-
 import React, { useState, useEffect } from "react"
 import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
@@ -21,18 +19,25 @@ import {
   AlertTriangle,
   Check,
   X,
-  Clock
+  Clock,
+  School,
+  GraduationCap,
+  Building
 } from "lucide-react"
 
 // Interfaces
 interface Semester {
   id: number
   name: string
-  start_date: string
-  end_date: string
   is_active: boolean
+  school_code: string | null
+  intake_type: string | null
+  academic_year: string | null
+  start_date: string | null
+  end_date: string | null
   status: 'current' | 'upcoming' | 'past' | 'inactive' | 'no_dates'
   duration_days?: number
+  formatted_period?: string
   created_at: string
   updated_at: string
   stats: {
@@ -40,36 +45,52 @@ interface Semester {
     enrollments_count: number
     class_timetables_count: number
     exam_timetables_count: number
-    units_by_school: Record<string, number>
-    units_by_program: Record<string, number>
+    units_by_school?: Record<string, number>
+    units_by_program?: Record<string, number>
   }
 }
 
 interface PageProps {
-  semesters: Semester[]
+  semesters: {
+    data: Semester[]
+    links: any[]
+    meta: any
+  }
   filters: {
     search?: string
     is_active?: boolean
     sort_field?: string
     sort_direction?: string
   }
+  filterOptions: {
+    intake_types: string[]
+    academic_years: string[]
+    school_codes: string[]
+  }
   can: {
     create: boolean
     update: boolean
     delete: boolean
+  }
+  flash: {
+    success?: string
+    error?: string
   }
   error?: string
 }
 
 interface SemesterFormData {
   name: string
+  school_code: string
+  intake_type: string
+  academic_year: string
   start_date: string
   end_date: string
   is_active: boolean
 }
 
 const SemesterManagement: React.FC = () => {
-  const { semesters, filters, can, error } = usePage<PageProps>().props
+  const { semesters, filters, filterOptions, can, flash, error } = usePage<PageProps>().props
 
   // State management
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -79,12 +100,15 @@ const SemesterManagement: React.FC = () => {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(false)
 
-  // Form state
+  // Form state - Default is_active to true
   const [formData, setFormData] = useState<SemesterFormData>({
     name: '',
+    school_code: '',
+    intake_type: '',
+    academic_year: '',
     start_date: '',
     end_date: '',
-    is_active: false
+    is_active: true // Default to active
   })
 
   // Filter state
@@ -92,31 +116,29 @@ const SemesterManagement: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>(
     filters.is_active !== undefined ? (filters.is_active ? 'active' : 'inactive') : 'all'
   )
+  const [intakeFilter, setIntakeFilter] = useState<string>('all')
+  const [yearFilter, setYearFilter] = useState<string>('all')
+  const [schoolFilter, setSchoolFilter] = useState<string>('all')
   const [sortField, setSortField] = useState(filters.sort_field || 'created_at')
   const [sortDirection, setSortDirection] = useState(filters.sort_direction || 'desc')
 
-  // Error handling
+  // Show flash messages
   useEffect(() => {
+    if (flash?.success) {
+      toast.success(flash.success)
+    }
+    if (flash?.error) {
+      toast.error(flash.error)
+    }
     if (error) {
       toast.error(error)
     }
-  }, [error])
-
-  // Filtered and sorted semesters
-  const filteredSemesters = semesters.filter(semester => {
-    const matchesSearch = semester.name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === 'all' || 
-      (statusFilter === 'active' && semester.is_active) ||
-      (statusFilter === 'inactive' && !semester.is_active)
-    
-    return matchesSearch && matchesStatus
-  })
+  }, [flash, error])
 
   // Status badge component
   const StatusBadge: React.FC<{ status: Semester['status'], isActive: boolean }> = ({ status, isActive }) => {
     const getStatusConfig = () => {
       if (!isActive) return { color: 'bg-gray-500', text: 'Inactive', icon: X }
-      
       switch (status) {
         case 'current':
           return { color: 'bg-green-500', text: 'Current', icon: Check }
@@ -132,7 +154,6 @@ const SemesterManagement: React.FC = () => {
     }
 
     const { color, text, icon: Icon } = getStatusConfig()
-
     return (
       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${color}`}>
         <Icon className="w-3 h-3 mr-1" />
@@ -145,9 +166,12 @@ const SemesterManagement: React.FC = () => {
   const handleCreateSemester = () => {
     setFormData({
       name: '',
+      school_code: '',
+      intake_type: '',
+      academic_year: '',
       start_date: '',
       end_date: '',
-      is_active: false
+      is_active: true // Default to active
     })
     setIsCreateModalOpen(true)
   }
@@ -156,8 +180,11 @@ const SemesterManagement: React.FC = () => {
     setSelectedSemester(semester)
     setFormData({
       name: semester.name,
-      start_date: semester.start_date,
-      end_date: semester.end_date,
+      school_code: semester.school_code || '',
+      intake_type: semester.intake_type || '',
+      academic_year: semester.academic_year || '',
+      start_date: semester.start_date || '',
+      end_date: semester.end_date || '',
       is_active: semester.is_active
     })
     setIsEditModalOpen(true)
@@ -172,12 +199,6 @@ const SemesterManagement: React.FC = () => {
     if (confirm(`Are you sure you want to delete "${semester.name}"? This action cannot be undone.`)) {
       setLoading(true)
       router.delete(`/admin/semesters/${semester.id}`, {
-        onSuccess: () => {
-          toast.success('Semester deleted successfully!')
-        },
-        onError: (errors) => {
-          toast.error(errors.error || 'Failed to delete semester')
-        },
         onFinish: () => setLoading(false)
       })
     }
@@ -187,12 +208,6 @@ const SemesterManagement: React.FC = () => {
     if (confirm(`Set "${semester.name}" as the active semester? This will deactivate all other semesters.`)) {
       setLoading(true)
       router.put(`/admin/semesters/${semester.id}/activate`, {}, {
-        onSuccess: () => {
-          toast.success(`${semester.name} is now the active semester!`)
-        },
-        onError: (errors) => {
-          toast.error(errors.error || 'Failed to activate semester')
-        },
         onFinish: () => setLoading(false)
       })
     }
@@ -202,21 +217,16 @@ const SemesterManagement: React.FC = () => {
     e.preventDefault()
     setLoading(true)
 
-    const url = selectedSemester 
+    const url = selectedSemester
       ? `/admin/semesters/${selectedSemester.id}`
       : '/admin/semesters'
-    
     const method = selectedSemester ? 'put' : 'post'
 
     router[method](url, formData, {
       onSuccess: () => {
-        toast.success(`Semester ${selectedSemester ? 'updated' : 'created'} successfully!`)
         setIsCreateModalOpen(false)
         setIsEditModalOpen(false)
         setSelectedSemester(null)
-      },
-      onError: (errors) => {
-        toast.error(errors.error || `Failed to ${selectedSemester ? 'update' : 'create'} semester`)
       },
       onFinish: () => setLoading(false)
     })
@@ -224,11 +234,13 @@ const SemesterManagement: React.FC = () => {
 
   const handleFilter = () => {
     const params = new URLSearchParams()
-    
     if (searchTerm) params.set('search', searchTerm)
     if (statusFilter !== 'all') {
       params.set('is_active', statusFilter === 'active' ? '1' : '0')
     }
+    if (intakeFilter !== 'all') params.set('intake_type', intakeFilter)
+    if (yearFilter !== 'all') params.set('academic_year', yearFilter)
+    if (schoolFilter !== 'all') params.set('school_code', schoolFilter)
     params.set('sort_field', sortField)
     params.set('sort_direction', sortDirection)
     
@@ -251,7 +263,6 @@ const SemesterManagement: React.FC = () => {
       
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          
           {/* Header */}
           <div className="mb-8">
             <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-slate-200/50 p-8">
@@ -265,10 +276,10 @@ const SemesterManagement: React.FC = () => {
                   </p>
                   <div className="flex items-center gap-4 mt-4">
                     <div className="text-sm text-slate-600">
-                      Total: <span className="font-semibold">{semesters.length}</span>
+                      Total: <span className="font-semibold">{semesters.meta?.total || 0}</span>
                     </div>
                     <div className="text-sm text-slate-600">
-                      Active: <span className="font-semibold">{semesters.filter(s => s.is_active).length}</span>
+                      Active: <span className="font-semibold">{semesters.data?.filter(s => s.is_active).length || 0}</span>
                     </div>
                   </div>
                 </div>
@@ -285,10 +296,10 @@ const SemesterManagement: React.FC = () => {
             </div>
           </div>
 
-          {/* Filters */}
+          {/* Enhanced Filters */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 p-6 mb-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+              <div className="lg:col-span-2">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -300,39 +311,59 @@ const SemesterManagement: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="flex gap-4">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-                <select
-                  value={`${sortField}-${sortDirection}`}
-                  onChange={(e) => {
-                    const [field, direction] = e.target.value.split('-')
-                    setSortField(field)
-                    setSortDirection(direction)
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="created_at-desc">Newest First</option>
-                  <option value="created_at-asc">Oldest First</option>
-                  <option value="name-asc">Name A-Z</option>
-                  <option value="name-desc">Name Z-A</option>
-                  <option value="start_date-desc">Start Date (Latest)</option>
-                  <option value="start_date-asc">Start Date (Earliest)</option>
-                </select>
-                <button
-                  onClick={handleFilter}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Filter className="w-5 h-5" />
-                </button>
-              </div>
+              
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+
+              <select
+                value={intakeFilter}
+                onChange={(e) => setIntakeFilter(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Intakes</option>
+                {filterOptions?.intake_types?.map(intake => (
+                  <option key={intake} value={intake}>{intake}</option>
+                ))}
+              </select>
+
+              <select
+                value={yearFilter}
+                onChange={(e) => setYearFilter(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Years</option>
+                {filterOptions?.academic_years?.map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+
+              <select
+                value={schoolFilter}
+                onChange={(e) => setSchoolFilter(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Schools</option>
+                {filterOptions?.school_codes?.map(school => (
+                  <option key={school} value={school}>{school}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={handleFilter}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              >
+                <Filter className="w-4 h-4 mr-2" />
+                Apply Filters
+              </button>
             </div>
           </div>
 
@@ -343,7 +374,10 @@ const SemesterManagement: React.FC = () => {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Semester
+                      Semester Details
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Academic Info
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Period
@@ -351,16 +385,13 @@ const SemesterManagement: React.FC = () => {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Status
                     </th>
-                    {/* <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Statistics
-                    </th> */}
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {filteredSemesters.map((semester, index) => (
+                  {semesters.data?.map((semester, index) => (
                     <React.Fragment key={semester.id}>
                       <tr className={`hover:bg-slate-50 transition-colors duration-150 ${
                         index % 2 === 0 ? "bg-white" : "bg-slate-50/50"
@@ -385,6 +416,30 @@ const SemesterManagement: React.FC = () => {
                             </div>
                           </div>
                         </td>
+                        
+                        <td className="px-6 py-4 text-sm text-slate-700">
+                          <div className="space-y-1">
+                            {semester.school_code && (
+                              <div className="flex items-center">
+                                <Building className="w-3 h-3 mr-1 text-blue-500" />
+                                <span className="text-xs">{semester.school_code}</span>
+                              </div>
+                            )}
+                            {semester.intake_type && (
+                              <div className="flex items-center">
+                                <Calendar className="w-3 h-3 mr-1 text-green-500" />
+                                <span className="text-xs">{semester.intake_type}</span>
+                              </div>
+                            )}
+                            {semester.academic_year && (
+                              <div className="flex items-center">
+                                <GraduationCap className="w-3 h-3 mr-1 text-purple-500" />
+                                <span className="text-xs">{semester.academic_year}</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
                         <td className="px-6 py-4 text-sm text-slate-700">
                           {semester.start_date && semester.end_date ? (
                             <div>
@@ -400,25 +455,11 @@ const SemesterManagement: React.FC = () => {
                             <span className="text-gray-400">No dates set</span>
                           )}
                         </td>
+
                         <td className="px-6 py-4">
                           <StatusBadge status={semester.status} isActive={semester.is_active} />
                         </td>
-                        {/* <td className="px-6 py-4 text-sm text-slate-700">
-                          <div className="flex gap-4">
-                            <div className="flex items-center">
-                              <BookOpen className="w-4 h-4 mr-1 text-blue-500" />
-                              {semester.stats.units_count}
-                            </div>
-                            <div className="flex items-center">
-                              <Users className="w-4 h-4 mr-1 text-green-500" />
-                              {semester.stats.enrollments_count}
-                            </div>
-                            <div className="flex items-center">
-                              <Calendar className="w-4 h-4 mr-1 text-purple-500" />
-                              {semester.stats.class_timetables_count}
-                            </div>
-                          </div>
-                        </td> */}
+
                         <td className="px-6 py-4 text-sm font-medium">
                           <div className="flex items-center space-x-2">
                             <button
@@ -451,101 +492,148 @@ const SemesterManagement: React.FC = () => {
                                 onClick={() => handleDeleteSemester(semester)}
                                 className="text-red-600 hover:text-red-900 transition-colors"
                                 title="Delete semester"
+                                disabled={loading}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </div>
                         </td>
-                      </tr>
+                      </tr>              
                       
-                      {/* Expanded row content */}
-                      {expandedRows.has(semester.id) && (
-                        <tr>
-                          <td colSpan={5} className="px-6 py-4 bg-gray-50">
-                            <div>
-                                                         
-                              {/* Units by Program */}
-                              <div>
-                                <h4 className="font-medium text-gray-900 mb-3">Units by Program</h4>
-                                {Object.entries(semester.stats.units_by_program).length > 0 ? (
-                                  <div className="space-y-2">
-                                    {Object.entries(semester.stats.units_by_program).map(([program, count]) => (
-                                      <div key={program} className="flex justify-between">
-                                        <span className="text-gray-600">{program}</span>
-                                        <span className="font-medium">{count}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-gray-500">No units assigned</p>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
                     </React.Fragment>
                   ))}
                 </tbody>
               </table>
-              
-              {filteredSemesters.length === 0 && (
+
+              {(!semesters.data || semesters.data.length === 0) && (
                 <div className="text-center py-12">
                   <Calendar className="mx-auto h-12 w-12 text-gray-400" />
                   <h3 className="mt-2 text-sm font-medium text-gray-900">No semesters found</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    {searchTerm || statusFilter !== 'all' 
-                      ? 'Try adjusting your filters'
-                      : 'Get started by creating a new semester'
-                    }
+                    Try adjusting your filters or create a new semester
                   </p>
                 </div>
               )}
             </div>
+
+            {/* Pagination */}
+            {semesters.links && semesters.links.length > 3 && (
+              <div className="px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-gray-500">
+                    Showing {semesters.meta?.from || 0} to {semesters.meta?.to || 0} of {semesters.meta?.total || 0} results
+                  </div>
+                  <div className="flex space-x-1">
+                    {semesters.links.map((link: any, index: number) => (
+                      <button
+                        key={index}
+                        onClick={() => link.url && router.get(link.url)}
+                        disabled={!link.url}
+                        className={`px-3 py-1 text-sm rounded ${
+                          link.active
+                            ? 'bg-blue-600 text-white'
+                            : link.url
+                            ? 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        }`}
+                        dangerouslySetInnerHTML={{ __html: link.label }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Create/Edit Modal */}
           {(isCreateModalOpen || isEditModalOpen) && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
                   <h3 className="text-xl font-semibold text-white">
                     {selectedSemester ? 'Edit Semester' : 'Create New Semester'}
                   </h3>
                 </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Semester Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.name}
+                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        placeholder="e.g., Fall 2024, May-August 2025"
+                        required
+                      />
+                    </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Semester Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                      placeholder="e.g., Fall 2024, Spring 2025"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Start Date *
+                        School Code
+                      </label>
+                      <select
+                        value={formData.school_code}
+                        onChange={(e) => setFormData(prev => ({ ...prev, school_code: e.target.value }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      >
+                        <option value="">Select School</option>
+                        {filterOptions?.school_codes?.map(school => (
+                          <option key={school} value={school}>{school}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Intake Type
+                      </label>
+                      <select
+                        value={formData.intake_type}
+                        onChange={(e) => setFormData(prev => ({ ...prev, intake_type: e.target.value }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      >
+                        <option value="">Select Intake</option>
+                        {filterOptions?.intake_types?.map(intake => (
+                          <option key={intake} value={intake}>{intake}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Academic Year
+                      </label>
+                      <select
+                        value={formData.academic_year}
+                        onChange={(e) => setFormData(prev => ({ ...prev, academic_year: e.target.value }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      >
+                        <option value="">Select Year</option>
+                        {filterOptions?.academic_years?.map(year => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Start Date
                       </label>
                       <input
                         type="date"
                         value={formData.start_date}
                         onChange={(e) => setFormData(prev => ({ ...prev, start_date: e.target.value }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        required
                       />
                     </div>
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        End Date *
+                        End Date
                       </label>
                       <input
                         type="date"
@@ -553,7 +641,6 @@ const SemesterManagement: React.FC = () => {
                         onChange={(e) => setFormData(prev => ({ ...prev, end_date: e.target.value }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         min={formData.start_date}
-                        required
                       />
                     </div>
                   </div>
@@ -570,7 +657,7 @@ const SemesterManagement: React.FC = () => {
                       Set as active semester
                     </label>
                   </div>
-                  
+
                   {formData.is_active && (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                       <p className="text-yellow-800 text-sm">
@@ -607,7 +694,7 @@ const SemesterManagement: React.FC = () => {
           {/* View Modal */}
           {isViewModalOpen && selectedSemester && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-slate-500 via-slate-600 to-gray-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xl font-semibold text-white">
@@ -621,7 +708,6 @@ const SemesterManagement: React.FC = () => {
                     </button>
                   </div>
                 </div>
-
                 <div className="p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
@@ -647,6 +733,32 @@ const SemesterManagement: React.FC = () => {
                     </div>
 
                     <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">Academic Information</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">School Code</label>
+                          <div className="mt-1 text-sm text-gray-900">
+                            {selectedSemester.school_code || 'Not set'}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Intake Type</label>
+                          <div className="mt-1 text-sm text-gray-900">
+                            {selectedSemester.intake_type || 'Not set'}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Academic Year</label>
+                          <div className="mt-1 text-sm text-gray-900">
+                            {selectedSemester.academic_year || 'Not set'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
                       <h4 className="font-semibold text-gray-900 mb-3">Period</h4>
                       <div className="space-y-3">
                         <div>
@@ -655,100 +767,99 @@ const SemesterManagement: React.FC = () => {
                             {selectedSemester.start_date ? new Date(selectedSemester.start_date).toLocaleDateString() : 'Not set'}
                           </div>
                         </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">End Date</label>
-                            <div className="mt-1 text-sm text-gray-900">
-                              {selectedSemester.end_date ? new Date(selectedSemester.end_date).toLocaleDateString() : 'Not set'}
-                            </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">End Date</label>
+                          <div className="mt-1 text-sm text-gray-900">
+                            {selectedSemester.end_date ? new Date(selectedSemester.end_date).toLocaleDateString() : 'Not set'}
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="md:col-span-2">
+                    <div>
                       <h4 className="font-semibold text-gray-900 mb-3">Statistics Overview</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-blue-50 p-4 rounded-lg">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-blue-50 p-3 rounded-lg">
                           <div className="flex items-center">
-                            <BookOpen className="w-8 h-8 text-blue-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-blue-600">{selectedSemester.stats.units_count}</div>
-                              <div className="text-sm text-blue-500">Units</div>
+                            <BookOpen className="w-6 h-6 text-blue-500" />
+                            <div className="ml-2">
+                              <div className="text-lg font-bold text-blue-600">{selectedSemester.stats.units_count}</div>
+                              <div className="text-xs text-blue-500">Units</div>
                             </div>
                           </div>
                         </div>
-                        <div className="bg-green-50 p-4 rounded-lg">
+                        <div className="bg-green-50 p-3 rounded-lg">
                           <div className="flex items-center">
-                            <Users className="w-8 h-8 text-green-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-green-600">{selectedSemester.stats.enrollments_count}</div>
-                              <div className="text-sm text-green-500">Enrollments</div>
+                            <Users className="w-6 h-6 text-green-500" />
+                            <div className="ml-2">
+                              <div className="text-lg font-bold text-green-600">{selectedSemester.stats.enrollments_count}</div>
+                              <div className="text-xs text-green-500">Enrollments</div>
                             </div>
                           </div>
                         </div>
-                        <div className="bg-purple-50 p-4 rounded-lg">
+                        <div className="bg-purple-50 p-3 rounded-lg">
                           <div className="flex items-center">
-                            <Calendar className="w-8 h-8 text-purple-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-purple-600">{selectedSemester.stats.class_timetables_count}</div>
-                              <div className="text-sm text-purple-500">Class Timetables</div>
+                            <Calendar className="w-6 h-6 text-purple-500" />
+                            <div className="ml-2">
+                              <div className="text-lg font-bold text-purple-600">{selectedSemester.stats.class_timetables_count}</div>
+                              <div className="text-xs text-purple-500">Class Timetables</div>
                             </div>
                           </div>
                         </div>
-                        <div className="bg-orange-50 p-4 rounded-lg">
+                        <div className="bg-orange-50 p-3 rounded-lg">
                           <div className="flex items-center">
-                            <ClipboardList className="w-8 h-8 text-orange-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-orange-600">{selectedSemester.stats.exam_timetables_count}</div>
-                              <div className="text-sm text-orange-500">Exam Timetables</div>
+                            <ClipboardList className="w-6 h-6 text-orange-500" />
+                            <div className="ml-2">
+                              <div className="text-lg font-bold text-orange-600">{selectedSemester.stats.exam_timetables_count}</div>
+                              <div className="text-xs text-orange-500">Exam Timetables</div>
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
+                  </div>
 
-                    {Object.keys(selectedSemester.stats.units_by_school).length > 0 && (
+                  {selectedSemester.stats.units_by_school && Object.keys(selectedSemester.stats.units_by_school).length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">Units by School</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {Object.entries(selectedSemester.stats.units_by_school).map(([school, count]) => (
+                          <div key={school} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                            <span className="text-gray-700 font-medium">{school}</span>
+                            <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm font-medium">{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedSemester.stats.units_by_program && Object.keys(selectedSemester.stats.units_by_program).length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">Units by Program</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {Object.entries(selectedSemester.stats.units_by_program).map(([program, count]) => (
+                          <div key={program} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                            <span className="text-gray-700 font-medium">{program}</span>
+                            <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm font-medium">{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-3">Timestamps</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-3">Units by School</h4>
-                        <div className="space-y-2">
-                          {Object.entries(selectedSemester.stats.units_by_school).map(([school, count]) => (
-                            <div key={school} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                              <span className="text-gray-700 font-medium">{school}</span>
-                              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm font-medium">{count}</span>
-                            </div>
-                          ))}
+                        <label className="block text-sm font-medium text-gray-700">Created</label>
+                        <div className="mt-1 text-sm text-gray-900">
+                          {new Date(selectedSemester.created_at).toLocaleString()}
                         </div>
                       </div>
-                    )}
-
-                    {Object.keys(selectedSemester.stats.units_by_program).length > 0 && (
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-3">Units by Program</h4>
-                        <div className="space-y-2">
-                          {Object.entries(selectedSemester.stats.units_by_program).map(([program, count]) => (
-                            <div key={program} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                              <span className="text-gray-700 font-medium">{program}</span>
-                              <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm font-medium">{count}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="md:col-span-2">
-                      <h4 className="font-semibold text-gray-900 mb-3">Timestamps</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Created</label>
-                          <div className="mt-1 text-sm text-gray-900">
-                            {new Date(selectedSemester.created_at).toLocaleString()}
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Last Updated</label>
-                          <div className="mt-1 text-sm text-gray-900">
-                            {new Date(selectedSemester.updated_at).toLocaleString()}
-                          </div>
+                        <label className="block text-sm font-medium text-gray-700">Last Updated</label>
+                        <div className="mt-1 text-sm text-gray-900">
+                          {new Date(selectedSemester.updated_at).toLocaleString()}
                         </div>
                       </div>
                     </div>
@@ -775,6 +886,7 @@ const SemesterManagement: React.FC = () => {
                   </div>
                 </div>
               </div>
+            </div>
           )}
         </div>
       </div>

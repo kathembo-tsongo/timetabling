@@ -594,7 +594,7 @@ const handleSubmit = (e: React.FormEvent) => {
                                       <div className="text-xs text-green-600">Manage</div>
                                     </div>
                                   </a>
-                                  <a
+                                  {/* <a
                                     href={route('schools.sces.programs.semesters.index', program.id)}
                                     className="flex items-center px-4 py-3 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors group"
                                   >
@@ -603,7 +603,7 @@ const handleSubmit = (e: React.FormEvent) => {
                                       <div className="text-sm font-medium text-purple-900">Semesters</div>
                                       <div className="text-xs text-purple-600">Schedule</div>
                                     </div>
-                                  </a>
+                                  </a> */}
                                   <a
                                     href={route('schools.sces.programs.enrollments.index', program.id)}
                                     className="flex items-center px-4 py-3 bg-orange-100 hover:bg-orange-200 rounded-lg transition-colors group"
