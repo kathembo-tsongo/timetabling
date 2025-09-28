@@ -22,7 +22,11 @@ import {
   Clock,
   School,
   GraduationCap,
-  Building
+  Building,
+  CheckSquare,
+  Square,
+  PlayCircle,
+  StopCircle
 } from "lucide-react"
 
 // Interfaces
@@ -100,6 +104,10 @@ const SemesterManagement: React.FC = () => {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(false)
 
+  // Bulk operations state
+  const [selectedSemesters, setSelectedSemesters] = useState<Set<number>>(new Set())
+  const [bulkLoading, setBulkLoading] = useState(false)
+
   // Form state - Default is_active to true
   const [formData, setFormData] = useState<SemesterFormData>({
     name: '',
@@ -135,6 +143,95 @@ const SemesterManagement: React.FC = () => {
     }
   }, [flash, error])
 
+  // Selection handlers
+  const handleSelectAll = () => {
+    if (selectedSemesters.size === semesters.data?.length && semesters.data?.length > 0) {
+      setSelectedSemesters(new Set())
+    } else {
+      setSelectedSemesters(new Set(semesters.data?.map(s => s.id) || []))
+    }
+  }
+
+  const handleSelectSemester = (semesterId: number) => {
+    const newSelected = new Set(selectedSemesters)
+    if (newSelected.has(semesterId)) {
+      newSelected.delete(semesterId)
+    } else {
+      newSelected.add(semesterId)
+    }
+    setSelectedSemesters(newSelected)
+  }
+
+  // Bulk operations handlers
+  const handleBulkActivate = () => {
+    if (selectedSemesters.size === 0) {
+      toast.error('Please select semesters to activate')
+      return
+    }
+
+    if (confirm(`Activate ${selectedSemesters.size} selected semester(s)?`)) {
+      setBulkLoading(true)
+      router.post('/admin/semesters/bulk-activate', {
+        ids: Array.from(selectedSemesters)
+      }, {
+        onSuccess: () => {
+          setSelectedSemesters(new Set())
+          toast.success('Semesters activated successfully!')
+        },
+        onError: () => {
+          toast.error('Failed to activate semesters')
+        },
+        onFinish: () => setBulkLoading(false)
+      })
+    }
+  }
+
+  const handleBulkDeactivate = () => {
+    if (selectedSemesters.size === 0) {
+      toast.error('Please select semesters to deactivate')
+      return
+    }
+
+    if (confirm(`Deactivate ${selectedSemesters.size} selected semester(s)?`)) {
+      setBulkLoading(true)
+      router.post('/admin/semesters/bulk-deactivate', {
+        ids: Array.from(selectedSemesters)
+      }, {
+        onSuccess: () => {
+          setSelectedSemesters(new Set())
+          toast.success('Semesters deactivated successfully!')
+        },
+        onError: () => {
+          toast.error('Failed to deactivate semesters')
+        },
+        onFinish: () => setBulkLoading(false)
+      })
+    }
+  }
+
+  const handleBulkDelete = () => {
+    if (selectedSemesters.size === 0) {
+      toast.error('Please select semesters to delete')
+      return
+    }
+
+    if (confirm(`Delete ${selectedSemesters.size} selected semester(s)? This action cannot be undone.`)) {
+      setBulkLoading(true)
+      router.post('/admin/semesters/bulk-delete', {
+        ids: Array.from(selectedSemesters)
+      }, {
+        onSuccess: () => {
+          setSelectedSemesters(new Set())
+          toast.success('Semesters deleted successfully!')
+        },
+        onError: () => {
+          toast.error('Failed to delete semesters')
+        },
+        onFinish: () => setBulkLoading(false)
+      })
+    }
+  }
+
   // Status badge component
   const StatusBadge: React.FC<{ status: Semester['status'], isActive: boolean }> = ({ status, isActive }) => {
     const getStatusConfig = () => {
@@ -159,6 +256,62 @@ const SemesterManagement: React.FC = () => {
         <Icon className="w-3 h-3 mr-1" />
         {text}
       </span>
+    )
+  }
+
+  // Bulk operations bar component - FIXED: This was missing proper placement
+  const BulkOperationsBar = () => {
+    if (selectedSemesters.size === 0) return null
+
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <span className="text-blue-700 font-medium">
+              {selectedSemesters.size} semester(s) selected
+            </span>
+            <button
+              onClick={() => setSelectedSemesters(new Set())}
+              className="text-blue-600 hover:text-blue-800 text-sm underline"
+            >
+              Clear selection
+            </button>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            {can.update && (
+              <>
+                <button
+                  onClick={handleBulkActivate}
+                  disabled={bulkLoading}
+                  className="inline-flex items-center px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  <PlayCircle className="w-4 h-4 mr-1" />
+                  Activate
+                </button>
+                <button
+                  onClick={handleBulkDeactivate}
+                  disabled={bulkLoading}
+                  className="inline-flex items-center px-3 py-1.5 bg-yellow-600 text-white text-sm rounded-md hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+                >
+                  <StopCircle className="w-4 h-4 mr-1" />
+                  Deactivate
+                </button>
+              </>
+            )}
+            {can.delete && (
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkLoading}
+                className="inline-flex items-center px-3 py-1.5 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -205,11 +358,26 @@ const SemesterManagement: React.FC = () => {
   }
 
   const handleActivateSemester = (semester: Semester) => {
-    if (confirm(`Set "${semester.name}" as the active semester? This will deactivate all other semesters.`)) {
+    const action = semester.is_active ? 'deactivate' : 'activate'
+    const message = semester.is_active 
+      ? `Deactivate "${semester.name}"?` 
+      : `Activate "${semester.name}"?`
+    
+    if (confirm(message)) {
       setLoading(true)
-      router.put(`/admin/semesters/${semester.id}/activate`, {}, {
-        onFinish: () => setLoading(false)
-      })
+      if (semester.is_active) {
+        // Deactivate
+        router.post(`/admin/semesters/bulk-deactivate`, {
+          ids: [semester.id]
+        }, {
+          onFinish: () => setLoading(false)
+        })
+      } else {
+        // Activate
+        router.put(`/admin/semesters/${semester.id}/activate`, {}, {
+          onFinish: () => setLoading(false)
+        })
+      }
     }
   }
 
@@ -367,12 +535,36 @@ const SemesterManagement: React.FC = () => {
             </div>
           </div>
 
+          {/* BULK OPERATIONS BAR - This should appear when you select semesters */}
+          <BulkOperationsBar />
+
+          {/* DEBUG: Show selected count for troubleshooting */}
+          {process.env.NODE_ENV === 'development' && selectedSemesters.size > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-2 mb-4 text-sm">
+              DEBUG: {selectedSemesters.size} semesters selected: {Array.from(selectedSemesters).join(', ')}
+            </div>
+          )}
+
           {/* Semesters Table */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200/50 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
+                    {/* SELECTION COLUMN - This is where the bulk select checkbox should be */}
+                    <th className="px-6 py-4 text-left">
+                      <button
+                        onClick={handleSelectAll}
+                        className="text-slate-600 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                        title={selectedSemesters.size === semesters.data?.length && semesters.data?.length > 0 ? "Deselect all" : "Select all"}
+                      >
+                        {selectedSemesters.size === semesters.data?.length && semesters.data?.length > 0 ? (
+                          <CheckSquare className="w-5 h-5 text-blue-600" />
+                        ) : (
+                          <Square className="w-5 h-5" />
+                        )}
+                      </button>
+                    </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Semester Details
                     </th>
@@ -395,7 +587,22 @@ const SemesterManagement: React.FC = () => {
                     <React.Fragment key={semester.id}>
                       <tr className={`hover:bg-slate-50 transition-colors duration-150 ${
                         index % 2 === 0 ? "bg-white" : "bg-slate-50/50"
-                      }`}>
+                      } ${selectedSemesters.has(semester.id) ? "bg-blue-50" : ""}`}>
+                        {/* INDIVIDUAL SELECTION CHECKBOX */}
+                        <td className="px-6 py-4">
+                          <button
+                            onClick={() => handleSelectSemester(semester.id)}
+                            className="text-slate-600 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                            title={selectedSemesters.has(semester.id) ? "Deselect semester" : "Select semester"}
+                          >
+                            {selectedSemesters.has(semester.id) ? (
+                              <CheckSquare className="w-5 h-5 text-blue-600" />
+                            ) : (
+                              <Square className="w-5 h-5" />
+                            )}
+                          </button>
+                        </td>
+                        
                         <td className="px-6 py-4">
                           <div className="flex items-center">
                             <button
@@ -478,11 +685,15 @@ const SemesterManagement: React.FC = () => {
                                 <Edit className="w-4 h-4" />
                               </button>
                             )}
-                            {can.update && !semester.is_active && (
+                            {can.update && (
                               <button
                                 onClick={() => handleActivateSemester(semester)}
-                                className="text-green-600 hover:text-green-900 transition-colors"
-                                title="Set as active"
+                                className={`transition-colors ${
+                                  semester.is_active
+                                    ? "text-orange-600 hover:text-orange-900"
+                                    : "text-green-600 hover:text-green-900"
+                                }`}
+                                title={semester.is_active ? "Deactivate" : "Activate"}
                               >
                                 <Power className="w-4 h-4" />
                               </button>
@@ -659,9 +870,9 @@ const SemesterManagement: React.FC = () => {
                   </div>
 
                   {formData.is_active && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                      <p className="text-yellow-800 text-sm">
-                        Setting this as active will deactivate all other semesters.
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                      <p className="text-green-800 text-sm">
+                        This semester will be set as active alongside any other active semesters. Multiple semesters can be active for different schools or programs.
                       </p>
                     </div>
                   )}

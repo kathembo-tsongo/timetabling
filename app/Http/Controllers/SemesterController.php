@@ -178,60 +178,6 @@ class SemesterController extends Controller
     }
 
     /**
-     * Show the form for creating a new semester.
-     */
-    public function create()
-    {
-        $user = auth()->user();
-        
-        if (!$user->hasRole('Admin') && !$user->can('manage-semesters')) {
-            abort(403, 'Unauthorized to create semesters.');
-        }
-
-        // Get filter options for the form
-        $filterOptions = [
-            'intake_types' => Semester::distinct()
-                ->whereNotNull('intake_type')
-                ->pluck('intake_type')
-                ->filter()
-                ->sort()
-                ->values(),
-            'academic_years' => Semester::distinct()
-                ->whereNotNull('academic_year')
-                ->pluck('academic_year')
-                ->filter()
-                ->sort()
-                ->values(),
-            'school_codes' => Semester::distinct()
-                ->whereNotNull('school_code')
-                ->pluck('school_code')
-                ->filter()
-                ->sort()
-                ->values(),
-        ];
-
-        // Provide defaults if no data exists
-        if ($filterOptions['intake_types']->isEmpty()) {
-            $filterOptions['intake_types'] = collect(['January', 'May', 'September']);
-        }
-        if ($filterOptions['academic_years']->isEmpty()) {
-            $currentYear = date('Y');
-            $filterOptions['academic_years'] = collect([
-                ($currentYear - 1) . '/' . substr($currentYear, -2),
-                $currentYear . '/' . substr($currentYear + 1, -2),
-                ($currentYear + 1) . '/' . substr($currentYear + 2, -2),
-            ]);
-        }
-        if ($filterOptions['school_codes']->isEmpty()) {
-            $filterOptions['school_codes'] = collect(['SOE', 'SBS', 'SHS', 'SALS']);
-        }
-
-        return Inertia::render('Admin/Semesters/Create', [
-            'filterOptions' => $filterOptions
-        ]);
-    }
-
-    /**
      * Store a newly created semester.
      */
     public function store(Request $request)
@@ -267,12 +213,6 @@ class SemesterController extends Controller
                 $data['is_active'] = true;
             }
 
-            // If this semester is active, deactivate all others
-            if ($data['is_active']) {
-                Semester::where('is_active', true)->update(['is_active' => false]);
-                Log::info('Deactivated all existing semesters for new active semester');
-            }
-
             $semester = Semester::create($data);
 
             Log::info('Semester created', [
@@ -295,70 +235,6 @@ class SemesterController extends Controller
                 ->withErrors(['error' => 'Failed to create semester. Please try again.'])
                 ->withInput();
         }
-    }
-
-    /**
-     * Show the form for editing the specified semester.
-     */
-    public function edit(Semester $semester)
-    {
-        $user = auth()->user();
-        
-        if (!$user->hasRole('Admin') && !$user->can('manage-semesters')) {
-            abort(403, 'Unauthorized to edit semesters.');
-        }
-
-        // Get filter options for the form
-        $filterOptions = [
-            'intake_types' => Semester::distinct()
-                ->whereNotNull('intake_type')
-                ->pluck('intake_type')
-                ->filter()
-                ->sort()
-                ->values(),
-            'academic_years' => Semester::distinct()
-                ->whereNotNull('academic_year')
-                ->pluck('academic_year')
-                ->filter()
-                ->sort()
-                ->values(),
-            'school_codes' => Semester::distinct()
-                ->whereNotNull('school_code')
-                ->pluck('school_code')
-                ->filter()
-                ->sort()
-                ->values(),
-        ];
-
-        // Provide defaults if no data exists
-        if ($filterOptions['intake_types']->isEmpty()) {
-            $filterOptions['intake_types'] = collect(['January', 'May', 'September']);
-        }
-        if ($filterOptions['academic_years']->isEmpty()) {
-            $currentYear = date('Y');
-            $filterOptions['academic_years'] = collect([
-                ($currentYear - 1) . '/' . substr($currentYear, -2),
-                $currentYear . '/' . substr($currentYear + 1, -2),
-                ($currentYear + 1) . '/' . substr($currentYear + 2, -2),
-            ]);
-        }
-        if ($filterOptions['school_codes']->isEmpty()) {
-            $filterOptions['school_codes'] = collect(['SOE', 'SBS', 'SHS', 'SALS']);
-        }
-
-        return Inertia::render('Admin/Semesters/Edit', [
-            'semester' => [
-                'id' => $semester->id,
-                'name' => $semester->name,
-                'school_code' => $semester->school_code,
-                'intake_type' => $semester->intake_type,
-                'academic_year' => $semester->academic_year,
-                'start_date' => $semester->start_date?->format('Y-m-d'),
-                'end_date' => $semester->end_date?->format('Y-m-d'),
-                'is_active' => $semester->is_active,
-            ],
-            'filterOptions' => $filterOptions
-        ]);
     }
 
     /**
@@ -396,15 +272,6 @@ class SemesterController extends Controller
 
         try {
             $data = $request->validated();
-
-            // If this semester is being activated, deactivate all others
-            if ($data['is_active'] && !$semester->is_active) {
-                Semester::where('is_active', true)->update(['is_active' => false]);
-                Log::info('Deactivated all semesters for activation', [
-                    'activating_semester_id' => $semester->id
-                ]);
-            }
-
             $semester->update($data);
 
             Log::info('Semester updated', [
@@ -538,7 +405,7 @@ class SemesterController extends Controller
     }
 
     /**
-     * Set the specified semester as active.
+     * Set the specified semester as active (without deactivating others).
      */
     public function setActive(Semester $semester)
     {
@@ -549,10 +416,7 @@ class SemesterController extends Controller
         }
 
         try {
-            // Deactivate all semesters
-            Semester::where('is_active', true)->update(['is_active' => false]);
-
-            // Activate the specified semester
+            // Just activate this semester without deactivating others
             $semester->update(['is_active' => true]);
 
             Log::info('Semester activated', [
@@ -573,6 +437,161 @@ class SemesterController extends Controller
 
             return redirect()->route('admin.semesters.index')
                 ->with('error', 'Failed to activate semester. Please try again.');
+        }
+    }
+
+    /**
+     * Bulk activate semesters
+     */
+    public function bulkActivate(Request $request)
+    {
+        $user = auth()->user();
+        
+        if (!$user->hasRole('Admin') && !$user->can('manage-semesters')) {
+            abort(403, 'Unauthorized to activate semesters.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'exists:semesters,id'
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->with('error', 'Invalid semester selection for bulk activation.');
+        }
+
+        try {
+            $updated = Semester::whereIn('id', $request->ids)
+                ->update(['is_active' => true]);
+
+            Log::info('Bulk semester activation', [
+                'semester_ids' => $request->ids,
+                'count' => $updated,
+                'activated_by' => $user->id
+            ]);
+
+            return redirect()->back()
+                ->with('success', "Successfully activated {$updated} semester(s).");
+
+        } catch (\Exception $e) {
+            Log::error('Error bulk activating semesters', [
+                'semester_ids' => $request->ids,
+                'error' => $e->getMessage(),
+                'user_id' => $user->id
+            ]);
+
+            return redirect()->back()
+                ->with('error', 'Error activating semesters. Please try again.');
+        }
+    }
+
+    /**
+     * Bulk deactivate semesters
+     */
+    public function bulkDeactivate(Request $request)
+    {
+        $user = auth()->user();
+        
+        if (!$user->hasRole('Admin') && !$user->can('manage-semesters')) {
+            abort(403, 'Unauthorized to deactivate semesters.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'exists:semesters,id'
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->with('error', 'Invalid semester selection for bulk deactivation.');
+        }
+
+        try {
+            $updated = Semester::whereIn('id', $request->ids)
+                ->update(['is_active' => false]);
+
+            Log::info('Bulk semester deactivation', [
+                'semester_ids' => $request->ids,
+                'count' => $updated,
+                'deactivated_by' => $user->id
+            ]);
+
+            return redirect()->back()
+                ->with('success', "Successfully deactivated {$updated} semester(s).");
+
+        } catch (\Exception $e) {
+            Log::error('Error bulk deactivating semesters', [
+                'semester_ids' => $request->ids,
+                'error' => $e->getMessage(),
+                'user_id' => $user->id
+            ]);
+
+            return redirect()->back()
+                ->with('error', 'Error deactivating semesters. Please try again.');
+        }
+    }
+
+    /**
+     * Bulk delete semesters
+     */
+    public function bulkDelete(Request $request)
+    {
+        $user = auth()->user();
+        
+        if (!$user->hasRole('Admin') && !$user->can('manage-semesters')) {
+            abort(403, 'Unauthorized to delete semesters.');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'exists:semesters,id'
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->with('error', 'Invalid semester selection for bulk delete.');
+        }
+
+        try {
+            // Check for semesters with associated data
+            $semestersWithData = Semester::whereIn('id', $request->ids)
+                ->where(function($query) {
+                    $query->whereHas('units')
+                          ->orWhereHas('enrollments')
+                          ->orWhereHas('classTimetables')
+                          ->orWhereHas('examTimetables');
+                })
+                ->pluck('name');
+
+            if ($semestersWithData->isNotEmpty()) {
+                return redirect()->back()->with('error', 
+                    'Cannot delete semesters with associated data: ' . $semestersWithData->implode(', '));
+            }
+
+            $deleted = Semester::whereIn('id', $request->ids)->delete();
+            
+            Log::info('Bulk semester deletion', [
+                'semester_ids' => $request->ids,
+                'count' => $deleted,
+                'deleted_by' => $user->id
+            ]);
+
+            return redirect()->back()
+                ->with('success', "Successfully deleted {$deleted} semester(s).");
+
+        } catch (\Exception $e) {
+            Log::error('Error bulk deleting semesters', [
+                'semester_ids' => $request->ids,
+                'error' => $e->getMessage(),
+                'user_id' => $user->id
+            ]);
+
+            return redirect()->back()
+                ->with('error', 'Error deleting semesters. Please try again.');
         }
     }
 
@@ -629,106 +648,6 @@ class SemesterController extends Controller
                 'success' => false,
                 'message' => 'Failed to fetch semesters'
             ], 500);
-        }
-    }
-
-    /**
-     * Bulk delete semesters
-     */
-    public function bulkDelete(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'ids' => 'required|array|min:1',
-            'ids.*' => 'exists:semesters,id'
-        ]);
-
-        if ($validator->fails()) {
-            return redirect()->back()
-                ->withErrors($validator)
-                ->with('error', 'Invalid semester selection for bulk delete.');
-        }
-
-        try {
-            // Check for semesters with associated data
-            $semestersWithData = Semester::whereIn('id', $request->ids)
-                ->where(function($query) {
-                    $query->whereHas('units')
-                          ->orWhereHas('enrollments')
-                          ->orWhereHas('classTimetables')
-                          ->orWhereHas('examTimetables');
-                })
-                ->pluck('name');
-
-            if ($semestersWithData->isNotEmpty()) {
-                return redirect()->back()->with('error', 
-                    'Cannot delete semesters with associated data: ' . $semestersWithData->implode(', '));
-            }
-
-            $deleted = Semester::whereIn('id', $request->ids)->delete();
-            
-            return redirect()->back()->with('success', "Successfully deleted {$deleted} semesters.");
-
-        } catch (\Exception $e) {
-            Log::error('Error bulk deleting semesters: ' . $e->getMessage());
-            return redirect()->back()->with('error', 'Error deleting semesters. Please try again.');
-        }
-    }
-
-    /**
-     * Bulk update semester status
-     */
-    public function bulkUpdateStatus(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'ids' => 'required|array|min:1',
-            'ids.*' => 'exists:semesters,id',
-            'status' => 'required|boolean'
-        ]);
-
-        if ($validator->fails()) {
-            return redirect()->back()
-                ->withErrors($validator)
-                ->with('error', 'Invalid selection for bulk status update.');
-        }
-
-        try {
-            $updated = Semester::whereIn('id', $request->ids)
-                ->update(['is_active' => $request->status]);
-
-            $statusText = $request->status ? 'activated' : 'deactivated';
-            return redirect()->back()->with('success', "Successfully {$statusText} {$updated} semesters.");
-
-        } catch (\Exception $e) {
-            Log::error('Error bulk updating semester status: ' . $e->getMessage());
-            return redirect()->back()->with('error', 'Error updating semester status. Please try again.');
-        }
-    }
-
-    /**
-     * Get semester statistics
-     */
-    public function getStats()
-    {
-        try {
-            $stats = [
-                'total_semesters' => Semester::count(),
-                'active_semesters' => Semester::where('is_active', true)->count(),
-                'semesters_with_units' => Semester::whereHas('units')->count(),
-                'semesters_by_status' => Semester::select('is_active', DB::raw('count(*) as count'))
-                    ->groupBy('is_active')
-                    ->get()
-                    ->map(function($item) {
-                        return [
-                            'status' => $item->is_active ? 'Active' : 'Inactive',
-                            'count' => $item->count
-                        ];
-                    }),
-            ];
-            
-            return response()->json($stats);
-        } catch (\Exception $e) {
-            Log::error('Error fetching semester stats: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch statistics'], 500);
         }
     }
 

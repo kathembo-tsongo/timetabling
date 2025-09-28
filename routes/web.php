@@ -159,7 +159,15 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/semesters/{semester}', [SemesterController::class, 'update'])->name('admin.semesters.update');
         Route::delete('/semesters/{semester}', [SemesterController::class, 'destroy'])->name('admin.semesters.destroy');
         Route::put('/semesters/{semester}/activate', [SemesterController::class, 'setActive'])->name('admin.semesters.activate');
-        
+        // NEW: Add these bulk operation routes
+Route::post('/semesters/bulk-activate', [SemesterController::class, 'bulkActivate'])->name('admin.semesters.bulk-activate');
+Route::post('/semesters/bulk-deactivate', [SemesterController::class, 'bulkDeactivate'])->name('admin.semesters.bulk-deactivate');
+Route::post('/semesters/bulk-delete', [SemesterController::class, 'bulkDelete'])->name('admin.semesters.bulk-delete');
+
+// API routes for semesters
+Route::get('/api/semesters/active', [SemesterController::class, 'getActiveSemesters'])->name('admin.semesters.api.active');
+Route::get('/api/semesters/all', [SemesterController::class, 'getAllSemesters'])->name('admin.semesters.api.all');
+
         // Schools
         Route::get('/schools', [SchoolController::class, 'index'])->name('admin.schools.index');
         Route::get('/schools/create', [SchoolController::class, 'create'])->name('admin.schools.create');
