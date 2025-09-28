@@ -206,7 +206,8 @@ class SemesterController extends Controller
         }
 
         try {
-            $data = $request->validated();
+            // Get validated data from the validator, not the request
+            $data = $validator->validated();
             
             // Default to active if not specified
             if (!isset($data['is_active'])) {
@@ -271,7 +272,9 @@ class SemesterController extends Controller
         }
 
         try {
-            $data = $request->validated();
+            // Get validated data from the validator, not the request
+            $data = $validator->validated();
+            
             $semester->update($data);
 
             Log::info('Semester updated', [
@@ -665,30 +668,154 @@ class SemesterController extends Controller
                 return $this->getEmptyStats();
             }
 
-            // Get statistics using relationships
-            $unitsCount = $semester->units()->count();
-            $enrollmentsCount = $semester->enrollments()->count();
-            $classTimetablesCount = $semester->classTimetables()->count();
-            $examTimetablesCount = $semester->examTimetables()->count();
-
-            // Get units by school and program if relationships exist
+            // Get statistics using multiple approaches to handle different data structures
+            $unitsCount = 0;
+            $enrollmentsCount = 0;
+            $classTimetablesCount = 0;
+            $examTimetablesCount = 0;
             $unitsBySchool = [];
             $unitsByProgram = [];
-            
-            if (method_exists($semester, 'units')) {
-                $unitsBySchool = $semester->units()
-                    ->select('school_code', DB::raw('count(*) as count'))
-                    ->whereNotNull('school_code')
-                    ->groupBy('school_code')
+
+            // Try multiple approaches to get units count
+            try {
+                // Approach 1: Through lecturer assignments
+                $unitsCount = DB::table('lecturer_assignments')
+                    ->where('semester_id', $semesterId)
+                    ->distinct('unit_id')
+                    ->count('unit_id');
+                
+                // If no units found through assignments, try alternative approaches
+                if ($unitsCount == 0) {
+                    // Approach 2: Through enrollments -> units
+                    $unitsCount = DB::table('enrollments as e')
+                        ->join('units as u', 'e.unit_id', '=', 'u.id')
+                        ->where('e.semester_id', $semesterId)
+                        ->distinct('u.id')
+                        ->count('u.id');
+                }
+                
+                if ($unitsCount == 0) {
+                    // Approach 3: Through class_timetables -> units
+                    $unitsCount = DB::table('class_timetables as ct')
+                        ->join('units as u', 'ct.unit_id', '=', 'u.id')
+                        ->where('ct.semester_id', $semesterId)
+                        ->distinct('u.id')
+                        ->count('u.id');
+                }
+            } catch (\Exception $e) {
+                Log::warning('Error getting units count', ['error' => $e->getMessage()]);
+                $unitsCount = 0;
+            }
+
+            // Get enrollments count
+            try {
+                $enrollmentsCount = DB::table('enrollments')
+                    ->where('semester_id', $semesterId)
+                    ->count();
+            } catch (\Exception $e) {
+                $enrollmentsCount = 0;
+            }
+
+            // Get class timetables count
+            try {
+                $classTimetablesCount = DB::table('class_timetables')
+                    ->where('semester_id', $semesterId)
+                    ->count();
+            } catch (\Exception $e) {
+                $classTimetablesCount = 0;
+            }
+
+            // Get exam timetables count
+            try {
+                $examTimetablesCount = DB::table('exam_timetables')
+                    ->where('semester_id', $semesterId)
+                    ->count();
+            } catch (\Exception $e) {
+                $examTimetablesCount = 0;
+            }
+
+            // Get units by school - try multiple approaches
+            try {
+                // Approach 1: Through lecturer assignments
+                $unitsBySchool = DB::table('lecturer_assignments as la')
+                    ->join('units as u', 'la.unit_id', '=', 'u.id')
+                    ->join('programs as p', 'la.program_id', '=', 'p.id')
+                    ->join('schools as s', 'p.school_id', '=', 's.id')
+                    ->where('la.semester_id', $semesterId)
+                    ->select('s.code as school_code', DB::raw('count(distinct la.unit_id) as count'))
+                    ->groupBy('s.code')
                     ->pluck('count', 'school_code')
                     ->toArray();
 
-                $unitsByProgram = $semester->units()
-                    ->select('program_code', DB::raw('count(*) as count'))
-                    ->whereNotNull('program_code')
-                    ->groupBy('program_code')
+                // If empty, try through enrollments
+                if (empty($unitsBySchool)) {
+                    $unitsBySchool = DB::table('enrollments as e')
+                        ->join('units as u', 'e.unit_id', '=', 'u.id')
+                        ->join('classes as c', 'e.class_id', '=', 'c.id')
+                        ->join('programs as p', 'c.program_id', '=', 'p.id')
+                        ->join('schools as s', 'p.school_id', '=', 's.id')
+                        ->where('e.semester_id', $semesterId)
+                        ->select('s.code as school_code', DB::raw('count(distinct u.id) as count'))
+                        ->groupBy('s.code')
+                        ->pluck('count', 'school_code')
+                        ->toArray();
+                }
+
+                // If still empty, try through class timetables
+                if (empty($unitsBySchool)) {
+                    $unitsBySchool = DB::table('class_timetables as ct')
+                        ->join('units as u', 'ct.unit_id', '=', 'u.id')
+                        ->join('classes as c', 'ct.class_id', '=', 'c.id')
+                        ->join('programs as p', 'c.program_id', '=', 'p.id')
+                        ->join('schools as s', 'p.school_id', '=', 's.id')
+                        ->where('ct.semester_id', $semesterId)
+                        ->select('s.code as school_code', DB::raw('count(distinct u.id) as count'))
+                        ->groupBy('s.code')
+                        ->pluck('count', 'school_code')
+                        ->toArray();
+                }
+            } catch (\Exception $e) {
+                Log::warning('Error getting units by school', ['error' => $e->getMessage()]);
+                $unitsBySchool = [];
+            }
+
+            // Get units by program - try multiple approaches
+            try {
+                // Approach 1: Through lecturer assignments
+                $unitsByProgram = DB::table('lecturer_assignments as la')
+                    ->join('programs as p', 'la.program_id', '=', 'p.id')
+                    ->where('la.semester_id', $semesterId)
+                    ->select('p.code as program_code', DB::raw('count(distinct la.unit_id) as count'))
+                    ->groupBy('p.code')
                     ->pluck('count', 'program_code')
                     ->toArray();
+
+                // If empty, try through enrollments
+                if (empty($unitsByProgram)) {
+                    $unitsByProgram = DB::table('enrollments as e')
+                        ->join('classes as c', 'e.class_id', '=', 'c.id')
+                        ->join('programs as p', 'c.program_id', '=', 'p.id')
+                        ->where('e.semester_id', $semesterId)
+                        ->select('p.code as program_code', DB::raw('count(distinct e.unit_id) as count'))
+                        ->groupBy('p.code')
+                        ->pluck('count', 'program_code')
+                        ->toArray();
+                }
+
+                // If still empty, try through class timetables
+                if (empty($unitsByProgram)) {
+                    $unitsByProgram = DB::table('class_timetables as ct')
+                        ->join('classes as c', 'ct.class_id', '=', 'c.id')
+                        ->join('programs as p', 'c.program_id', '=', 'p.id')
+                        ->where('ct.semester_id', $semesterId)
+                        ->select('p.code as program_code', DB::raw('count(distinct ct.unit_id) as count'))
+                        ->groupBy('p.code')
+                        ->pluck('count', 'program_code')
+                        ->toArray();
+                }
+            } catch (\Exception $e) {
+                Log::warning('Error getting units by program', ['error' => $e->getMessage()]);
+                $unitsByProgram = [];
             }
 
             return [
@@ -703,7 +830,8 @@ class SemesterController extends Controller
         } catch (\Exception $e) {
             Log::error('Error getting semester stats', [
                 'semester_id' => $semesterId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             
             return $this->getEmptyStats();
