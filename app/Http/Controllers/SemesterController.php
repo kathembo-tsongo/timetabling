@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Semester;
 use App\Models\Unit;
 use App\Models\Program;
+use App\Models\School;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\DB;
@@ -99,42 +100,7 @@ class SemesterController extends Controller
             });
 
             // Get filter options dynamically from database
-            $filterOptions = [
-                'intake_types' => Semester::distinct()
-                    ->whereNotNull('intake_type')
-                    ->pluck('intake_type')
-                    ->filter()
-                    ->sort()
-                    ->values(),
-                'academic_years' => Semester::distinct()
-                    ->whereNotNull('academic_year')
-                    ->pluck('academic_year')
-                    ->filter()
-                    ->sort()
-                    ->values(),
-                'school_codes' => Semester::distinct()
-                    ->whereNotNull('school_code')
-                    ->pluck('school_code')
-                    ->filter()
-                    ->sort()
-                    ->values(),
-            ];
-
-            // If no data exists, provide some defaults
-            if ($filterOptions['intake_types']->isEmpty()) {
-                $filterOptions['intake_types'] = collect(['January', 'May', 'September']);
-            }
-            if ($filterOptions['academic_years']->isEmpty()) {
-                $currentYear = date('Y');
-                $filterOptions['academic_years'] = collect([
-                    ($currentYear - 1) . '/' . substr($currentYear, -2),
-                    $currentYear . '/' . substr($currentYear + 1, -2),
-                    ($currentYear + 1) . '/' . substr($currentYear + 2, -2),
-                ]);
-            }
-            if ($filterOptions['school_codes']->isEmpty()) {
-                $filterOptions['school_codes'] = collect(['SOE', 'SBS', 'SHS', 'SALS']);
-            }
+            $filterOptions = $this->getFilterOptions();
 
             return Inertia::render('Admin/Semesters/Index', [
                 'semesters' => $semesters,
@@ -163,11 +129,7 @@ class SemesterController extends Controller
 
             return Inertia::render('Admin/Semesters/Index', [
                 'semesters' => collect(['data' => [], 'links' => [], 'meta' => ['total' => 0]]),
-                'filterOptions' => [
-                    'intake_types' => collect(['January', 'May', 'September']),
-                    'academic_years' => collect([date('Y') . '/' . substr(date('Y') + 1, -2)]),
-                    'school_codes' => collect(['SOE', 'SBS', 'SHS', 'SALS']),
-                ],
+                'filterOptions' => $this->getFilterOptions(),
                 'error' => 'Unable to load semesters. Please try again.',
                 'filters' => $request->only([
                     'search', 'is_active', 'intake_type', 'academic_year',
@@ -655,6 +617,55 @@ class SemesterController extends Controller
     }
 
     // Private helper methods
+
+    /**
+     * Get filter options dynamically from database
+     */
+    private function getFilterOptions()
+    {
+        try {
+            // Get school codes from the schools table
+            $schoolCodes = School::where('is_active', true)
+                ->orderBy('code')
+                ->pluck('code')
+                ->filter()
+                ->values();
+
+            // Get intake types from semesters table (existing data)
+            $intakeTypes = Semester::distinct()
+                ->whereNotNull('intake_type')
+                ->pluck('intake_type')
+                ->filter()
+                ->sort()
+                ->values();
+
+            // Get academic years from semesters table (existing data)
+            $academicYears = Semester::distinct()
+                ->whereNotNull('academic_year')
+                ->pluck('academic_year')
+                ->filter()
+                ->sort()
+                ->values();
+
+            return [
+                'intake_types' => $intakeTypes,
+                'academic_years' => $academicYears,
+                'school_codes' => $schoolCodes,
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Error getting filter options', [
+                'error' => $e->getMessage()
+            ]);
+
+            // Return empty collections on error
+            return [
+                'intake_types' => collect([]),
+                'academic_years' => collect([]),
+                'school_codes' => collect([]),
+            ];
+        }
+    }
 
     /**
      * Get semester statistics

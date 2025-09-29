@@ -63,6 +63,9 @@ interface PageProps {
   filters: {
     search?: string
     is_active?: boolean
+    intake_type?: string
+    academic_year?: string
+    school_code?: string
     sort_field?: string
     sort_direction?: string
   }
@@ -119,14 +122,14 @@ const SemesterManagement: React.FC = () => {
     is_active: true // Default to active
   })
 
-  // Filter state
+  // Filter state - CHANGED: intake and year filters now use filter props
   const [searchTerm, setSearchTerm] = useState(filters.search || '')
   const [statusFilter, setStatusFilter] = useState<string>(
     filters.is_active !== undefined ? (filters.is_active ? 'active' : 'inactive') : 'all'
   )
-  const [intakeFilter, setIntakeFilter] = useState<string>('all')
-  const [yearFilter, setYearFilter] = useState<string>('all')
-  const [schoolFilter, setSchoolFilter] = useState<string>('all')
+  const [intakeFilter, setIntakeFilter] = useState<string>(filters.intake_type || '')
+  const [yearFilter, setYearFilter] = useState<string>(filters.academic_year || '')
+  const [schoolFilter, setSchoolFilter] = useState<string>(filters.school_code || 'all')
   const [sortField, setSortField] = useState(filters.sort_field || 'created_at')
   const [sortDirection, setSortDirection] = useState(filters.sort_direction || 'desc')
 
@@ -406,8 +409,8 @@ const SemesterManagement: React.FC = () => {
     if (statusFilter !== 'all') {
       params.set('is_active', statusFilter === 'active' ? '1' : '0')
     }
-    if (intakeFilter !== 'all') params.set('intake_type', intakeFilter)
-    if (yearFilter !== 'all') params.set('academic_year', yearFilter)
+    if (intakeFilter) params.set('intake_type', intakeFilter)
+    if (yearFilter) params.set('academic_year', yearFilter)
     if (schoolFilter !== 'all') params.set('school_code', schoolFilter)
     params.set('sort_field', sortField)
     params.set('sort_direction', sortDirection)
@@ -464,7 +467,7 @@ const SemesterManagement: React.FC = () => {
             </div>
           </div>
 
-          {/* Enhanced Filters */}
+          {/* Enhanced Filters - CHANGED: Text inputs for intake and academic year */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 p-6 mb-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
               <div className="lg:col-span-2">
@@ -490,27 +493,45 @@ const SemesterManagement: React.FC = () => {
                 <option value="inactive">Inactive</option>
               </select>
 
-              <select
-                value={intakeFilter}
-                onChange={(e) => setIntakeFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Intakes</option>
-                {filterOptions?.intake_types?.map(intake => (
-                  <option key={intake} value={intake}>{intake}</option>
-                ))}
-              </select>
+              {/* CHANGED: Intake Type - from select to text input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Filter by intake (e.g., September)"
+                  value={intakeFilter}
+                  onChange={(e) => setIntakeFilter(e.target.value)}
+                  className="w-full px-4 py-2 pr-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                {intakeFilter && (
+                  <button
+                    onClick={() => setIntakeFilter('')}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    title="Clear intake filter"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
 
-              <select
-                value={yearFilter}
-                onChange={(e) => setYearFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Years</option>
-                {filterOptions?.academic_years?.map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
+              {/* CHANGED: Academic Year - from select to text input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Filter by year (e.g., 2024/25)"
+                  value={yearFilter}
+                  onChange={(e) => setYearFilter(e.target.value)}
+                  className="w-full px-4 py-2 pr-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                {yearFilter && (
+                  <button
+                    onClick={() => setYearFilter('')}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    title="Clear year filter"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
 
               <select
                 value={schoolFilter}
@@ -757,7 +778,7 @@ const SemesterManagement: React.FC = () => {
             )}
           </div>
 
-          {/* Create/Edit Modal */}
+          {/* Create/Edit Modal - CHANGED: Text inputs for intake_type and academic_year */}
           {(isCreateModalOpen || isEditModalOpen) && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -798,36 +819,32 @@ const SemesterManagement: React.FC = () => {
                       </select>
                     </div>
 
+                    {/* CHANGED: Intake Type - from select to text input */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Intake Type
                       </label>
-                      <select
+                      <input
+                        type="text"
                         value={formData.intake_type}
                         onChange={(e) => setFormData(prev => ({ ...prev, intake_type: e.target.value }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                      >
-                        <option value="">Select Intake</option>
-                        {filterOptions?.intake_types?.map(intake => (
-                          <option key={intake} value={intake}>{intake}</option>
-                        ))}
-                      </select>
+                        placeholder="e.g., September, January, May"
+                      />
                     </div>
 
-                    <div>
+                    {/* CHANGED: Academic Year - from select to text input */}
+                    <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Academic Year
                       </label>
-                      <select
+                      <input
+                        type="text"
                         value={formData.academic_year}
                         onChange={(e) => setFormData(prev => ({ ...prev, academic_year: e.target.value }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                      >
-                        <option value="">Select Year</option>
-                        {filterOptions?.academic_years?.map(year => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </select>
+                        placeholder="e.g., 2024/25, 2025/26"
+                      />
                     </div>
 
                     <div>

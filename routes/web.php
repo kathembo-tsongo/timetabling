@@ -274,6 +274,7 @@ Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->
             Route::get('/workload', [LecturerAssignmentController::class, 'getLecturerWorkload'])->name('workload');
         });
 
+        
         // System Settings
         Route::get('/settings', [SettingsController::class, 'index'])->name('admin.settings.index');
         Route::put('/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
