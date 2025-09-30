@@ -78,7 +78,7 @@ class EnrollmentController extends Controller
         // Order by latest enrollments first
         $query->orderBy('created_at', 'desc');
 
-        // Paginate results (15 per page)
+        // Paginate results
         $enrollments = $query->paginate(5)->withQueryString();
         
         $students = User::with(['school', 'program'])
@@ -86,43 +86,29 @@ class EnrollmentController extends Controller
             ->orderByRaw("CONCAT(first_name, ' ', last_name)")
             ->get();
 
-            // ADD THIS: Fetch lecturers from users table
         $lecturers = User::role('Lecturer')
-        ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
-        ->orderByRaw("CONCAT(first_name, ' ', last_name)")
-        ->get();
+            ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
+            ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+            ->get();
 
-        $lecturers = User::role('Lecturer')
-    ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
-    ->orderByRaw("CONCAT(first_name, ' ', last_name)")
-    ->get();
+        // Fetch lecturer assignments
+        $lecturerAssignments = UnitAssignment::with([
+            'unit.school',
+            'unit.program', 
+            'class.program.school',
+            'semester'
+        ])
+        ->whereNotNull('lecturer_code')
+        ->whereNotNull('class_id')
+        ->orderBy('created_at', 'desc')
+        ->take(20)
+        ->get()
+        ->map(function ($assignment) {
+            $lecturer = User::where('code', $assignment->lecturer_code)->first();
+            $assignment->lecturer = $lecturer;
+            return $assignment;
+        });
 
-// Fetch lecturer assignments
-$lecturerAssignments = UnitAssignment::with([
-    'unit.school',
-    'unit.program', 
-    'class.program.school',
-    'semester'
-])
-->whereNotNull('lecturer_code')
-->whereNotNull('class_id')  // Add this to ensure class_id exists
-->orderBy('created_at', 'desc')
-->take(20)
-->get()
-->map(function ($assignment) {
-    $lecturer = User::where('code', $assignment->lecturer_code)->first();
-    $assignment->lecturer = $lecturer;
-    return $assignment;
-});
-
-// Get units that are assigned to classes
-$units = Unit::with(['school', 'program'])
-    ->whereHas('assignments')
-    ->where('is_active', true)
-    ->get();
-
-        
-        
         // Get units that are assigned to classes
         $units = Unit::with(['school', 'program'])
             ->whereHas('assignments')
@@ -138,36 +124,35 @@ $units = Unit::with(['school', 'program'])
             ->orderBy('section')
             ->get();
         
-        // Calculate statistics based on ALL enrollments (not just paginated ones)
+        // Calculate statistics
         $allEnrollments = Enrollment::all();
         $stats = [
-            'total' => $allEnrollments->pluck('student_code')->unique()->count(), // Unique students enrolled
-            'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(), // Unique active students
-            'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(), // Unique dropped students
-            'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(), // Unique completed students
-            // Optional: Add total enrollment records for reference
-            'total_enrollments' => $allEnrollments->count(), // Total enrollment records
-            'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(), // Total active enrollment records
+            'total' => $allEnrollments->pluck('student_code')->unique()->count(),
+            'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(),
+            'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(),
+            'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(),
+            'total_enrollments' => $allEnrollments->count(),
+            'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(),
         ];
         
-        return Inertia::render('Admin/Enrollments/Index', [
-        'enrollments' => $enrollments,
-        'students' => $students,
-        'lecturers' => $lecturers,
-        'lecturerAssignments' => $lecturerAssignments,
-        'units' => $units,
-        'schools' => $schools,
-        'programs' => $programs,
-        'semesters' => $semesters,
-        'classes' => $classes,
-        'stats' => $stats,
-        'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
-        'can' => [
-            'create' => auth()->user()->can('create-enrollments'),
-            'update' => auth()->user()->can('edit-enrollments'),
-            'delete' => auth()->user()->can('delete-enrollments'),
-        ]
-    ]);
+        return Inertia::render('Schools/SCES/Programs/Enrollments/Index', [
+            'enrollments' => $enrollments,
+            'students' => $students,
+            'lecturers' => $lecturers,
+            'lecturerAssignments' => $lecturerAssignments,
+            'units' => $units,
+            'schools' => $schools,
+            'programs' => $programs,
+            'semesters' => $semesters,
+            'classes' => $classes,
+            'stats' => $stats,
+            'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
+            'can' => [
+                'create' => auth()->user()->can('create-enrollments'),
+                'update' => auth()->user()->can('edit-enrollments'),
+                'delete' => auth()->user()->can('delete-enrollments'),
+            ]
+        ]);
     }
 
     public function store(Request $request)
@@ -190,7 +175,6 @@ $units = Unit::with(['school', 'program'])
         try {
             DB::beginTransaction();
 
-            // Find student by code
             $student = User::with(['school', 'program'])->where('code', $request->student_code)
                 ->role('Student')
                 ->first();
@@ -203,21 +187,18 @@ $units = Unit::with(['school', 'program'])
             $class = ClassModel::with(['program.school'])->find($request->class_id);
             $semester = Semester::find($request->semester_id);
             
-            // Count current UNIQUE enrolled students in this class for this semester
             $currentEnrollments = Enrollment::where('class_id', $request->class_id)
                 ->where('semester_id', $request->semester_id)
                 ->where('status', 'enrolled')
                 ->distinct('student_code')
                 ->count();
 
-            // Check if adding this student would exceed capacity
             if ($currentEnrollments >= $class->capacity) {
                 DB::rollBack();
                 return redirect()->back()
                     ->with('error', "Cannot enroll student. Class \"{$class->name} Section {$class->section}\" has reached its capacity of {$class->capacity} students. Currently enrolled: {$currentEnrollments} students.");
             }
 
-            // Check if student is already enrolled in this class for this semester
             $existingClassEnrollment = Enrollment::where('student_code', $request->student_code)
                 ->where('class_id', $request->class_id)
                 ->where('semester_id', $request->semester_id)
@@ -234,7 +215,6 @@ $units = Unit::with(['school', 'program'])
             $skippedUnits = [];
 
             foreach ($request->unit_ids as $unitId) {
-                // Check if student is already enrolled in this unit for this semester
                 $existingEnrollment = Enrollment::where('student_code', $request->student_code)
                     ->where('unit_id', $unitId)
                     ->where('semester_id', $request->semester_id)
@@ -247,7 +227,6 @@ $units = Unit::with(['school', 'program'])
                     continue;
                 }
 
-                // Verify unit is assigned to this class
                 $unitAssignment = UnitAssignment::where('unit_id', $unitId)
                     ->where('class_id', $request->class_id)
                     ->where('semester_id', $request->semester_id)
@@ -260,23 +239,18 @@ $units = Unit::with(['school', 'program'])
                     continue;
                 }
 
-                // Get unit details for additional fields
                 $unit = Unit::find($unitId);
-
-                // **FIXED: PROPER school_id ASSIGNMENT**
-                // Priority order: student's school_id > class program's school_id > unit's school_id
                 $schoolId = $student->school_id ?? $class->program->school_id ?? $unit->school_id;
 
-                // Create enrollment with correct database schema
                 Enrollment::create([
                     'student_code' => $request->student_code,
-                    'lecturer_code' => '', // You'll need to determine how to get this
-                    'group_id' => '', // You'll need to determine how to get this  
+                    'lecturer_code' => $unitAssignment->lecturer_code ?? '',
+                    'group_id' => '',
                     'unit_id' => $unitId,
                     'class_id' => $request->class_id,
                     'semester_id' => $request->semester_id,
                     'program_id' => $class->program_id,
-                    'school_id' => $schoolId, // Fixed: Now properly assigns school_id
+                    'school_id' => $schoolId,
                     'status' => $request->status,
                     'enrollment_date' => now()
                 ]);
@@ -284,7 +258,6 @@ $units = Unit::with(['school', 'program'])
                 $createdCount++;
             }
 
-            // **NEW: UPDATE CLASS STUDENT COUNT**
             $this->updateClassStudentCount($request->class_id, $request->semester_id);
 
             DB::commit();
@@ -299,8 +272,7 @@ $units = Unit::with(['school', 'program'])
                 $message .= " {$skippedCount} units were skipped: " . implode(', ', $skippedUnits);
             }
 
-            // Add capacity warning if getting close to limit
-            $newTotalEnrollments = $currentEnrollments + 1; // +1 for this student
+            $newTotalEnrollments = $currentEnrollments + 1;
             $remainingCapacity = $class->capacity - $newTotalEnrollments;
             
             if ($remainingCapacity <= 2 && $remainingCapacity > 0) {
@@ -341,8 +313,8 @@ $units = Unit::with(['school', 'program'])
             
             $enrollment->update([
                 'status' => $request->status
-            ]);            
-            // If status changed between enrolled/not-enrolled states, update count
+            ]);
+            
             if (($oldStatus === 'enrolled') !== ($request->status === 'enrolled')) {
                 $this->updateClassStudentCount($enrollment->class_id, $enrollment->semester_id);
             }
@@ -372,7 +344,6 @@ $units = Unit::with(['school', 'program'])
             
             $enrollment->delete();
             
-            // **NEW: UPDATE CLASS STUDENT COUNT AFTER DELETION**
             $this->updateClassStudentCount($classId, $semesterId);
             
             DB::commit();
@@ -384,18 +355,15 @@ $units = Unit::with(['school', 'program'])
         }
     }
 
-    // **NEW: METHOD TO UPDATE CLASS STUDENT COUNT**
     private function updateClassStudentCount($classId, $semesterId)
     {
         try {
-            // Count unique enrolled students in this class for this semester
             $studentCount = Enrollment::where('class_id', $classId)
                 ->where('semester_id', $semesterId)
                 ->where('status', 'enrolled')
                 ->distinct('student_code')
                 ->count();
 
-            // Update the class record
             ClassModel::where('id', $classId)
                 ->update(['students_count' => $studentCount]);
                 
@@ -406,7 +374,6 @@ $units = Unit::with(['school', 'program'])
         }
     }
 
-    // Add method to get units for a specific class
     public function getUnitsForClass(Request $request)
     {
         $request->validate([
@@ -418,7 +385,7 @@ $units = Unit::with(['school', 'program'])
             $units = Unit::whereHas('assignments', function($query) use ($request) {
                 $query->where('class_id', $request->class_id)
                       ->where('semester_id', $request->semester_id)
-                      ->where('is_active', true); // Only check if assignment is active
+                      ->where('is_active', true);
             })
             ->with(['school', 'program'])
             ->get();
@@ -430,7 +397,6 @@ $units = Unit::with(['school', 'program'])
         }
     }
 
-    // **UPDATED: Get class capacity info with CORRECT student count**
     public function getClassCapacityInfo(Request $request)
     {
         $request->validate([
@@ -441,7 +407,6 @@ $units = Unit::with(['school', 'program'])
         try {
             $class = ClassModel::find($request->class_id);
             
-            // **FIXED: Count unique enrolled students correctly**
             $currentEnrollments = Enrollment::where('class_id', $request->class_id)
                 ->where('semester_id', $request->semester_id)
                 ->where('status', 'enrolled')
@@ -460,14 +425,12 @@ $units = Unit::with(['school', 'program'])
         }
     }
 
-    // **NEW: Method to refresh all class student counts (useful for fixing existing data)**
     public function refreshAllClassCounts()
     {
         try {
             $classes = ClassModel::all();
             
             foreach ($classes as $class) {
-                // Get the most recent semester for this class
                 $latestSemester = Enrollment::where('class_id', $class->id)
                     ->orderBy('created_at', 'desc')
                     ->value('semester_id');
@@ -482,5 +445,140 @@ $units = Unit::with(['school', 'program'])
             Log::error('Error refreshing class counts: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to refresh counts'], 500);
         }
+    }
+
+    public function programEnrollments(Program $program, Request $request, $schoolCode)
+    {
+        $school = School::where('code', $schoolCode)->firstOrFail();
+        
+        if ($program->school_id !== $school->id) {
+            abort(403, 'Program does not belong to this school');
+        }
+
+        $query = Enrollment::with([
+            'student.school',
+            'student.program',
+            'unit.school',
+            'unit.program',
+            'semester',
+            'class',
+            'program',
+            'school'
+        ])->where('program_id', $program->id);
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('student_code', 'like', '%' . $search . '%')
+                  ->orWhereHas('unit', function($unitQuery) use ($search) {
+                      $unitQuery->where('code', 'like', '%' . $search . '%')
+                               ->orWhere('name', 'like', '%' . $search . '%');
+                  })
+                  ->orWhereHas('class', function($classQuery) use ($search) {
+                      $classQuery->where('name', 'like', '%' . $search . '%');
+                  });
+            });
+        }
+
+        if ($request->filled('semester_id')) {
+            $query->where('semester_id', $request->semester_id);
+        }
+
+        if ($request->filled('class_id')) {
+            $query->where('class_id', $request->class_id);
+        }
+
+        if ($request->filled('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('student_code')) {
+            $query->where('student_code', $request->student_code);
+        }
+
+        if ($request->filled('unit_id')) {
+            $query->where('unit_id', $request->unit_id);
+        }
+
+        $query->orderBy('created_at', 'desc');
+        $enrollments = $query->paginate(5)->withQueryString();
+        
+        $students = User::with(['school', 'program'])
+            ->where('programs', $program->id)
+            ->role('Student')
+            ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+            ->get();
+
+        $lecturers = User::role('Lecturer')
+            ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
+            ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+            ->get();
+
+        $lecturerAssignments = UnitAssignment::with([
+            'unit.school',
+            'unit.program', 
+            'class.program.school',
+            'semester'
+        ])
+        ->whereHas('unit', function($q) use ($program) {
+            $q->where('program_id', $program->id);
+        })
+        ->whereNotNull('lecturer_code')
+        ->whereNotNull('class_id')
+        ->orderBy('created_at', 'desc')
+        ->take(20)
+        ->get()
+        ->map(function ($assignment) {
+            $lecturer = User::where('code', $assignment->lecturer_code)->first();
+            $assignment->lecturer = $lecturer;
+            return $assignment;
+        });
+
+        $units = Unit::with(['school', 'program'])
+            ->where('program_id', $program->id)
+            ->whereHas('assignments')
+            ->where('is_active', true)
+            ->get();
+            
+        $schools = School::orderBy('name')->get();
+        $programs = Program::where('school_id', $school->id)->orderBy('name')->get();
+        $semesters = Semester::orderBy('name')->get();
+        $classes = ClassModel::with(['program', 'semester'])
+            ->where('program_id', $program->id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->orderBy('section')
+            ->get();
+        
+        $allEnrollments = Enrollment::where('program_id', $program->id)->get();
+        $stats = [
+            'total' => $allEnrollments->pluck('student_code')->unique()->count(),
+            'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(),
+            'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(),
+            'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(),
+            'total_enrollments' => $allEnrollments->count(),
+            'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(),
+        ];
+
+        return Inertia::render('Schools/SCES/Programs/Enrollments/Index', [
+            'program' => $program->load('school'),
+            'schoolCode' => $schoolCode,
+            'enrollments' => $enrollments,
+            'students' => $students,
+            'lecturers' => $lecturers,
+            'lecturerAssignments' => $lecturerAssignments,
+            'units' => $units,
+            'schools' => $schools,
+            'programs' => $programs,
+            'semesters' => $semesters,
+            'classes' => $classes,
+            'stats' => $stats,
+            'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
+            'can' => [
+                'create' => auth()->user()->can('create-enrollments'),
+                'update' => auth()->user()->can('edit-enrollments'),
+                'delete' => auth()->user()->can('delete-enrollments'),
+            ]
+        ]);
     }
 }

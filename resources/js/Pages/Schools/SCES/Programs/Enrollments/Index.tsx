@@ -625,7 +625,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
 
   // Event handlers
   const handleSearch = () => {
-    router.get('/schools/SCES/Programs/enrollments', {
+    router.get('/admin/enrollments', {
       search: searchTerm,
       semester_id: selectedSemester,
       school_id: selectedSchool,
@@ -649,7 +649,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
     setSelectedStudent('');
     setSelectedUnit('');
     setStatusFilter('all');
-    router.get('/Schools/SCES/Programs/enrollments/Index', {}, {
+    router.get('/admin/enrollments', {}, {
       preserveState: true,
       replace: true
     });
