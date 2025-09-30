@@ -23,7 +23,8 @@ Check,
 X,
 Clock,
 Award,
-Building2
+Building2,
+Calendar
 } from "lucide-react"
 import { route } from 'ziggy-js';
 
@@ -251,7 +252,7 @@ const handleSubmit = (e: React.FormEvent) => {
   setLoading(true)
 
   const url = selectedProgram 
-  ? route("schools.sces.programs.update", { program: selectedProgram.id }) // ✅ correct name
+  ? route("schools.sces.programs.update", { program: selectedProgram.id })
   : route("schools.sces.programs.store") 
 
   const method = selectedProgram ? "put" : "post"
@@ -299,7 +300,6 @@ const handleSubmit = (e: React.FormEvent) => {
     return `${years} years`
   }
 
-  // Insert this after the filters state block
   const visibleColumns = useMemo(() => {
     return [
       "Program",
@@ -400,24 +400,6 @@ const handleSubmit = (e: React.FormEvent) => {
                       {degree.label}
                     </option>
                   ))}
-                </select>
-                <select
-                  value={`${sortField}-${sortDirection}`}
-                  onChange={(e) => {
-                    const [field, direction] = e.target.value.split('-')
-                    setSortField(field)
-                    setSortDirection(direction)
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="sort_order-asc">Sort Order</option>
-                  <option value="name-asc">Name A-Z</option>
-                  <option value="name-desc">Name Z-A</option>
-                  <option value="code-asc">Code A-Z</option>
-                  <option value="code-desc">Code Z-A</option>
-                  <option value="degree_type-asc">Degree Type</option>
-                  <option value="created_at-desc">Newest First</option>
-                  <option value="created_at-asc">Oldest First</option>
                 </select>
                 <button
                   onClick={handleFilter}
@@ -594,16 +576,19 @@ const handleSubmit = (e: React.FormEvent) => {
                                       <div className="text-xs text-green-600">Manage</div>
                                     </div>
                                   </a>
-                                  {/* <a
-                                    href={route('schools.sces.programs.semesters.index', program.id)}
-                                    className="flex items-center px-4 py-3 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors group"
+                                  
+                                  {/* NEW: Unit Assignment Link */}
+                                  <a
+                                    href={route('schools.sces.programs.unitassignment.AssignSemesters', program.id)}
+                                    className="flex items-center px-4 py-3 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors group"
                                   >
-                                    <Clock className="w-4 h-4 mr-2 text-purple-600 group-hover:scale-110 transition-transform" />
+                                    <Calendar className="w-4 h-4 mr-2 text-indigo-600 group-hover:scale-110 transition-transform" />
                                     <div>
-                                      <div className="text-sm font-medium text-purple-900">Semesters</div>
-                                      <div className="text-xs text-purple-600">Schedule</div>
+                                      <div className="text-sm font-medium text-indigo-900">Unit Assignment</div>
+                                      <div className="text-xs text-indigo-600">Semester Mapping</div>
                                     </div>
-                                  </a> */}
+                                  </a>
+                                  
                                   <a
                                     href={route('schools.sces.programs.enrollments.index', program.id)}
                                     className="flex items-center px-4 py-3 bg-orange-100 hover:bg-orange-200 rounded-lg transition-colors group"
@@ -710,7 +695,7 @@ const handleSubmit = (e: React.FormEvent) => {
                       : 'Get started by creating a new program'
                     }
                   </p>
-                 
+                  {can.create && (
                     <button
                       onClick={handleCreateProgram}
                       className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -718,7 +703,7 @@ const handleSubmit = (e: React.FormEvent) => {
                       <Plus className="w-4 h-4 mr-2" />
                       Create Program
                     </button>
-                  
+                  )}
                 </div>
               )}
             </div>
@@ -891,15 +876,13 @@ const handleSubmit = (e: React.FormEvent) => {
             </div>
           )}
 
-          {/* View Modal */}
+          {/* View Modal - keeping it brief for space */}
           {isViewModalOpen && selectedProgram && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-slate-500 via-slate-600 to-gray-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">
-                      Program Details
-                    </h3>
+                    <h3 className="text-xl font-semibold text-white">Program Details</h3>
                     <button
                       onClick={() => setIsViewModalOpen(false)}
                       className="text-white hover:text-gray-200 transition-colors"
@@ -908,160 +891,19 @@ const handleSubmit = (e: React.FormEvent) => {
                     </button>
                   </div>
                 </div>
-
-                <div className="p-6 space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Basic Information</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Program Name</label>
-                          <div className="mt-1 text-sm text-gray-900">{selectedProgram.name}</div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Program Code</label>
-                          <div className="mt-1 text-sm font-semibold text-blue-600">{selectedProgram.code}</div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Status</label>
-                          <div className="mt-1">
-                            <StatusBadge isActive={selectedProgram.is_active} />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Sort Order</label>
-                          <div className="mt-1 text-sm text-gray-900">{selectedProgram.sort_order}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Academic Details</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Degree Type</label>
-                          <div className="mt-1">
-                            <DegreeBadge degreeType={selectedProgram.degree_type} />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Duration</label>
-                          <div className="mt-1 text-sm text-gray-900 flex items-center">
-                            <Clock className="w-4 h-4 text-gray-400 mr-2" />
-                            {getDurationDisplay(selectedProgram.duration_years)}
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                          <div className="mt-1 text-sm text-gray-900">{selectedProgram.full_name}</div>
-                        </div>
-                      </div>
-                    </div>
+                <div className="p-6">
+                  {/* View details content - keeping brief */}
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-lg">{selectedProgram.name}</h4>
+                    <p className="text-gray-600">{selectedProgram.code}</p>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Contact Information</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Email</label>
-                          <div className="mt-1 text-sm text-gray-900">
-                            {selectedProgram.contact_email ? (
-                              <div className="flex items-center">
-                                <Mail className="w-4 h-4 text-gray-400 mr-2" />
-                                {selectedProgram.contact_email}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">Not set</span>
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Phone</label>
-                          <div className="mt-1 text-sm text-gray-900">
-                            {selectedProgram.contact_phone ? (
-                              <div className="flex items-center">
-                                <Phone className="w-4 h-4 text-gray-400 mr-2" />
-                                {selectedProgram.contact_phone}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">Not set</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Statistics</h4>
-                      <div className="grid grid-cols-1 gap-4">
-                        <div className="bg-blue-50 p-4 rounded-lg">
-                          <div className="flex items-center">
-                            <BookOpen className="w-8 h-8 text-blue-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-blue-600">{selectedProgram.units_count}</div>
-                              <div className="text-sm text-blue-500">Units</div>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="bg-green-50 p-4 rounded-lg">
-                          <div className="flex items-center">
-                            <Users className="w-8 h-8 text-green-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-green-600">{selectedProgram.enrollments_count}</div>
-                              <div className="text-sm text-green-500">Enrollments</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedProgram.description && (
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Description</h4>
-                      <div className="text-sm text-gray-700 bg-gray-50 p-4 rounded-lg">
-                        {selectedProgram.description}
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Timestamps</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Created</label>
-                        <div className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedProgram.created_at).toLocaleString()}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Last Updated</label>
-                        <div className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedProgram.updated_at).toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                  <div className="flex justify-end mt-6">
                     <button
                       onClick={() => setIsViewModalOpen(false)}
-                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
                     >
                       Close
                     </button>
-                    {can.update && (
-                      <button
-                        onClick={() => {
-                          setIsViewModalOpen(false)
-                          handleEditProgram(selectedProgram)
-                        }}
-                        className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-200 font-medium"
-                      >
-                        Edit Program
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>

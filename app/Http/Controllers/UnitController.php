@@ -546,7 +546,7 @@ public function assignSemesters(Request $request)
             ];
         });
 
-    return Inertia::render('Admin/Units/AssignSemesters', [
+    return Inertia::render('Schools/SCES/Programs/UnitAssignments/AssignSemesters', [
         'unassigned_units' => $unassignedUnits,
         'assigned_units' => $assignedUnits,
         'schools' => $schools,
@@ -892,4 +892,200 @@ public function updateProgramUnit(Program $program, Unit $unit, Request $request
             return redirect()->back()->with('error', 'Error deleting unit. Please try again.');
         }
     }
+
+    /**
+ * Show unit assignment interface for a specific program
+ */
+public function programUnitAssignments(Program $program, Request $request, $schoolCode)
+{
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
+    }
+
+    $search = $request->search ?? '';
+    $semesterId = $request->semester_id;
+    $classId = $request->class_id;
+    
+    // Get unassigned units for this program
+    $unassignedUnits = Unit::where('program_id', $program->id)
+        ->whereDoesntHave('assignments')
+        ->when($search, function($q) use ($search) {
+            $q->where('name', 'like', '%' . $search . '%')
+              ->orWhere('code', 'like', '%' . $search . '%');
+        })
+        ->orderBy('name')
+        ->get();
+
+    // Get assigned units with their assignments for this program
+    $assignedUnitsQuery = UnitAssignment::with([
+        'unit', 
+        'semester', 
+        'class'
+    ])
+        ->whereHas('unit', function($q) use ($program) {
+            $q->where('program_id', $program->id);
+        })
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('semester_id', $semesterId);
+        })
+        ->when($classId, function($q) use ($classId) {
+            $q->where('class_id', $classId);
+        })
+        ->orderBy('created_at', 'desc');
+
+    $assignedUnits = $assignedUnitsQuery->get();
+
+    // Get semesters
+    $semesters = Semester::where('is_active', true)
+        ->select('id', 'name')
+        ->orderBy('name')
+        ->get();
+    
+    // Get classes for this program
+    $classes = ClassModel::where('program_id', $program->id)
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('semester_id', $semesterId);
+        })
+        ->where('is_active', true)
+        ->with(['semester:id,name'])
+        ->select('id', 'name', 'section', 'year_level', 'semester_id', 'program_id', 'capacity')
+        ->orderBy('name')
+        ->orderBy('section')
+        ->get()
+        ->map(function($class) {
+            return [
+                'id' => $class->id,
+                'name' => $class->name,
+                'section' => $class->section,
+                'display_name' => "{$class->name} Section {$class->section}",
+                'year_level' => $class->year_level,
+                'capacity' => $class->capacity,
+            ];
+        });
+
+    return Inertia::render('Schools/SCES/Programs/UnitAssignments/Index', [
+        'unassigned_units' => $unassignedUnits,
+        'assigned_units' => $assignedUnits,
+        'program' => $program->load('school'),
+        'schoolCode' => $schoolCode,
+        'semesters' => $semesters,
+        'classes' => $classes,
+        'filters' => [
+            'search' => $search,
+            'semester_id' => $semesterId ? (int) $semesterId : null,
+            'class_id' => $classId ? (int) $classId : null,
+        ],
+        'stats' => [
+            'total_units' => Unit::where('program_id', $program->id)->count(),
+            'unassigned_count' => $unassignedUnits->count(),
+            'assigned_count' => $assignedUnits->count(),
+        ],
+        'can' => [
+            'assign' => auth()->user()->can('create_units'),
+            'remove' => auth()->user()->can('delete_units'),
+        ],
+        'flash' => [
+            'success' => session('success'),
+            'error' => session('error'),
+        ]
+    ]);
+}
+
+/**
+ * Assign units to semester for a specific program
+ */
+public function assignProgramUnitsToSemester(Program $program, Request $request, $schoolCode)
+{
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
+    }
+
+    $validated = $request->validate([
+        'unit_ids' => 'required|array',
+        'unit_ids.*' => 'exists:units,id',
+        'semester_id' => 'required|exists:semesters,id',
+        'class_ids' => 'required|array',
+        'class_ids.*' => 'exists:classes,id'
+    ]);
+
+    try {
+        $createdAssignments = 0;
+        
+        foreach ($validated['unit_ids'] as $unitId) {
+            // Verify unit belongs to this program
+            $unit = Unit::where('id', $unitId)
+                ->where('program_id', $program->id)
+                ->firstOrFail();
+            
+            foreach ($validated['class_ids'] as $classId) {
+                // Verify class belongs to this program
+                $class = ClassModel::where('id', $classId)
+                    ->where('program_id', $program->id)
+                    ->firstOrFail();
+                
+                // Check if assignment already exists
+                $existingAssignment = UnitAssignment::where([
+                    'unit_id' => $unitId,
+                    'semester_id' => $validated['semester_id'],
+                    'class_id' => $classId,
+                ])->first();
+                
+                if (!$existingAssignment) {
+                    UnitAssignment::create([
+                        'unit_id' => $unitId,
+                        'semester_id' => $validated['semester_id'],
+                        'class_id' => $classId,
+                        'program_id' => $program->id,
+                        'is_active' => true
+                    ]);
+                    $createdAssignments++;
+                }
+            }
+        }
+
+        $message = "Successfully assigned units to {$createdAssignments} class-unit combinations";
+        return redirect()->back()->with('success', $message);
+        
+    } catch (\Exception $e) {
+        Log::error('Error assigning program units: ' . $e->getMessage());
+        return redirect()->back()->with('error', 'Error assigning units. Please try again.');
+    }
+}
+
+/**
+ * Remove units from semester for a specific program
+ */
+public function removeProgramUnitsFromSemester(Program $program, Request $request, $schoolCode)
+{
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
+    }
+
+    $validated = $request->validate([
+        'assignment_ids' => 'required|array',
+        'assignment_ids.*' => 'exists:unit_assignments,id',
+    ]);
+
+    try {
+        // Verify all assignments belong to this program
+        $assignments = UnitAssignment::whereIn('id', $validated['assignment_ids'])
+            ->where('program_id', $program->id)
+            ->get();
+        
+        if ($assignments->count() !== count($validated['assignment_ids'])) {
+            return redirect()->back()->with('error', 'Some assignments do not belong to this program.');
+        }
+        
+        $removed = UnitAssignment::whereIn('id', $validated['assignment_ids'])->delete();
+        
+        return redirect()->back()->with('success', "Successfully removed {$removed} unit assignments.");
+        
+    } catch (\Exception $e) {
+        Log::error('Error removing program unit assignments: ' . $e->getMessage());
+        return redirect()->back()->with('error', 'Error removing assignments. Please try again.');
+    }
+}
 }

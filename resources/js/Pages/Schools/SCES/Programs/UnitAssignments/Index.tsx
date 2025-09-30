@@ -13,11 +13,9 @@ import {
   Building2,
   GraduationCap,
   Clock,
-  ChevronRight,
-  ArrowRight,
-  UserCheck,
   AlertCircle,
-  School
+  School,
+  UserCheck
 } from 'lucide-react';
 
 type Unit = {
@@ -25,19 +23,8 @@ type Unit = {
   code: string;
   name: string;
   program_id: number;
-  program: {
-    id: number;
-    code: string;
-    name: string;
-    school: {
-      id: number;
-      code: string;
-      name: string;
-    };
-  };
   credit_hours: number;
   is_active: boolean;
-  assignments?: UnitAssignment[];
 };
 
 type UnitAssignment = {
@@ -60,17 +47,15 @@ type UnitAssignment = {
   };
 };
 
-type School = {
-  id: number;
-  code: string;
-  name: string;
-};
-
 type Program = {
   id: number;
   code: string;
   name: string;
-  school_id: number;
+  school: {
+    id: number;
+    code: string;
+    name: string;
+  };
 };
 
 type Semester = {
@@ -86,27 +71,29 @@ type Class = {
   display_name: string;
   year_level: number;
   capacity: number;
-  program_id: number;
-  semester_id: number;
+  semester_id?: number;
 };
 
 type PageProps = {
   unassigned_units: Unit[];
   assigned_units: UnitAssignment[];
-  schools: School[];
-  programs: Program[];
+  program: Program;
+  schoolCode: string;
   semesters: Semester[];
   classes: Class[];
   filters: {
     search?: string;
     semester_id?: number;
-    program_id?: number;
     class_id?: number;
   };
   stats: {
     total_units: number;
     unassigned_count: number;
     assigned_count: number;
+  };
+  can: {
+    assign: boolean;
+    remove: boolean;
   };
   flash?: {
     success?: string;
@@ -119,8 +106,8 @@ export default function UnitAssignments() {
   const { 
     unassigned_units = [], 
     assigned_units = [],
-    schools = [], 
-    programs = [], 
+    program,
+    schoolCode,
     semesters = [],
     classes = [],
     filters = {},
@@ -129,20 +116,22 @@ export default function UnitAssignments() {
       unassigned_count: 0,
       assigned_count: 0
     },
+    can = {
+      assign: false,
+      remove: false
+    },
     flash
   } = props;
 
   // State management
   const [selectedUnits, setSelectedUnits] = useState<Set<number>>(new Set());
   const [selectedSemester, setSelectedSemester] = useState<number | ''>(filters.semester_id || '');
-  const [selectedProgram, setSelectedProgram] = useState<number | ''>(filters.program_id || '');
-  const [selectedClasses, setSelectedClasses] = useState<number[]>([]); // Changed to array for multiple selection
+  const [selectedClasses, setSelectedClasses] = useState<number[]>([]);
   const [availableClasses, setAvailableClasses] = useState<Class[]>(classes);
   const [loading, setLoading] = useState(false);
   
   // Filter state
   const [searchTerm, setSearchTerm] = useState(filters.search || '');
-  const [selectedSchoolFilter, setSelectedSchoolFilter] = useState<string | number>('');
 
   // Handle flash messages
   useEffect(() => {
@@ -154,26 +143,17 @@ export default function UnitAssignments() {
     }
   }, [flash]);
 
-  // Load classes when semester and program change
+  // Filter classes by selected semester
   useEffect(() => {
-    if (selectedSemester && selectedProgram) {
-      fetchClasses();
+    if (selectedSemester) {
+      const filtered = classes.filter(c => c.semester_id === selectedSemester);
+      setAvailableClasses(filtered);
+      setSelectedClasses([]);
     } else {
-      setAvailableClasses([]);
-      setSelectedClasses([]); // Clear selected classes
+      setAvailableClasses(classes);
+      setSelectedClasses([]);
     }
-  }, [selectedSemester, selectedProgram]);
-
-  const fetchClasses = async () => {
-    try {
-      const response = await fetch(`/admin/api/classes/by-program-semester?program_id=${selectedProgram}&semester_id=${selectedSemester}`);
-      const data = await response.json();
-      setAvailableClasses(data);
-    } catch (error) {
-      console.error('Failed to fetch classes:', error);
-      toast.error('Failed to load classes');
-    }
-  };
+  }, [selectedSemester, classes]);
 
   // Filter unassigned units
   const filteredUnassignedUnits = unassigned_units.filter(unit => {
@@ -181,10 +161,7 @@ export default function UnitAssignments() {
       unit.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       unit.code?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesProgram = !selectedProgram || unit.program_id == selectedProgram;
-    const matchesSchool = !selectedSchoolFilter || unit.program.school.id == selectedSchoolFilter;
-    
-    return matchesSearch && matchesProgram && matchesSchool;
+    return matchesSearch;
   });
 
   // Filter assigned units
@@ -194,10 +171,9 @@ export default function UnitAssignments() {
       assignment.unit?.code?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesSemester = !selectedSemester || assignment.semester_id == selectedSemester;
-    const matchesProgram = !selectedProgram || assignment.program_id == selectedProgram;
-    const matchesClass = !selectedClasses.length || selectedClasses.includes(assignment.class_id);
+    const matchesClass = selectedClasses.length === 0 || selectedClasses.includes(assignment.class_id);
     
-    return matchesSearch && matchesSemester && matchesProgram && matchesClass;
+    return matchesSearch && matchesSemester && matchesClass;
   });
 
   // Toggle unit selection
@@ -222,7 +198,7 @@ export default function UnitAssignments() {
     setSelectedClasses([]);
   };
 
-  // Assign units to multiple classes - FIXED
+  // Assign units to multiple classes
   const handleAssignToClass = () => {
     if (selectedUnits.size === 0) {
       toast.error('Please select at least one unit');
@@ -240,17 +216,17 @@ export default function UnitAssignments() {
     }
 
     setLoading(true);
-    router.post(route('admin.units.assign-semester'), {
+    router.post(route('schools.sces.programs.unitassignment.assign', program.id), {
       unit_ids: Array.from(selectedUnits),
       semester_id: selectedSemester,
-      class_ids: selectedClasses // Send array of class IDs
+      class_ids: selectedClasses
     }, {
       onSuccess: () => {
         setSelectedUnits(new Set());
         setSelectedClasses([]);
-        router.reload();
+        toast.success('Units assigned successfully!');
       },
-      onError: (errors) => {
+      onError: (errors: any) => {
         toast.error(errors.error || 'Failed to assign units to classes');
       },
       onFinish: () => setLoading(false)
@@ -263,13 +239,13 @@ export default function UnitAssignments() {
 
     if (confirm(`Are you sure you want to remove ${assignmentIds.length} assignment(s)?`)) {
       setLoading(true);
-      router.post(route('admin.units.remove-semester'), {
+      router.post(route('schools.sces.programs.unitassignment.remove', program.id), {
         assignment_ids: assignmentIds
       }, {
         onSuccess: () => {
-          router.reload();
+          toast.success('Assignments removed successfully!');
         },
-        onError: (errors) => {
+        onError: (errors: any) => {
           toast.error(errors.error || 'Failed to remove assignments');
         },
         onFinish: () => setLoading(false)
@@ -277,22 +253,21 @@ export default function UnitAssignments() {
     }
   };
 
-  // Apply filters - FIXED
+  // Apply filters
   const applyFilters = () => {
     const params = new URLSearchParams();
     if (searchTerm) params.append('search', searchTerm);
     if (selectedSemester) params.append('semester_id', selectedSemester.toString());
-    if (selectedProgram) params.append('program_id', selectedProgram.toString());
     if (selectedClasses.length > 0) {
-      selectedClasses.forEach(classId => params.append('class_id[]', classId.toString()));
+      params.append('class_id', selectedClasses[0].toString());
     }
 
-    router.get(`/Schools/SCES/Programs/UnitAssignments?${params.toString()}`);
+    router.get(`${route('schools.sces.programs.unitassignment.AssignSemesters', program.id)}?${params.toString()}`);
   };
 
   return (
     <AuthenticatedLayout>
-      <Head title="Assign Units to Classes" />
+      <Head title={`Unit Assignment - ${program.name}`} />
       
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -302,11 +277,15 @@ export default function UnitAssignments() {
             <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-slate-200/50 p-8">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-blue-800 to-indigo-800 bg-clip-text text-transparent mb-2">
-                    Assign Units to Classes
-                  </h1>
+                  <div className="flex items-center mb-2">
+                    <Calendar className="w-8 h-8 text-indigo-600 mr-3" />
+                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-blue-800 to-indigo-800 bg-clip-text text-transparent">
+                      Unit Assignment
+                    </h1>
+                  </div>
+                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">{program.name}</h2>
                   <p className="text-slate-600 text-lg">
-                    Manage unit assignments to specific classes within semesters
+                    {program.school.name} - Assign units to semesters and classes
                   </p>
                   <div className="flex items-center gap-6 mt-4">
                     <div className="text-sm text-slate-600">
@@ -320,12 +299,19 @@ export default function UnitAssignments() {
                     </div>
                   </div>
                 </div>
+                
+                <a
+                  href={route('schools.sces.programs.index')}
+                  className="mt-4 sm:mt-0 px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  Back to Programs
+                </a>
               </div>
             </div>
           </div>
 
-          {/* Assignment Panel - FIXED */}
-          {selectedUnits.size > 0 && (
+          {/* Assignment Panel */}
+          {can.assign && selectedUnits.size > 0 && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 mb-6">
               <div className="flex flex-col gap-4">
                 <div className="flex items-center">
@@ -355,34 +341,25 @@ export default function UnitAssignments() {
                   </select>
 
                   <select
-                    value={selectedProgram}
-                    onChange={(e) => setSelectedProgram(e.target.value ? parseInt(e.target.value) : '')}
-                    className="px-4 py-2 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
-                  >
-                    <option value="">Select Program</option>
-                    {programs.map(program => (
-                      <option key={program.id} value={program.id}>
-                        {program.code} - {program.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
                     multiple
                     value={selectedClasses.map(String)}
                     onChange={(e) => {
                       const selectedOptions = Array.from(e.target.selectedOptions).map(opt => parseInt(opt.value));
                       setSelectedClasses(selectedOptions);
                     }}
-                    className="px-4 py-2 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
-                    disabled={!selectedSemester || !selectedProgram}
+                    className="px-4 py-2 border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white md:col-span-2"
+                    disabled={!selectedSemester}
                     style={{ minHeight: '3.5rem' }}
                   >
-                    {availableClasses.map(cls => (
-                      <option key={cls.id} value={cls.id}>
-                        {cls.display_name}
-                      </option>
-                    ))}
+                    {availableClasses.length === 0 ? (
+                      <option disabled>No classes available for selected semester</option>
+                    ) : (
+                      availableClasses.map(cls => (
+                        <option key={cls.id} value={cls.id}>
+                          {cls.display_name}
+                        </option>
+                      ))
+                    )}
                   </select>
 
                   <div className="flex gap-2">
@@ -407,7 +384,7 @@ export default function UnitAssignments() {
 
           {/* Filters */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-2">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -420,32 +397,6 @@ export default function UnitAssignments() {
                   />
                 </div>
               </div>
-              
-              <select
-                value={selectedSchoolFilter}
-                onChange={(e) => setSelectedSchoolFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">All Schools</option>
-                {schools.map(school => (
-                  <option key={school.id} value={school.id}>
-                    {school.code} - {school.name}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={selectedProgram}
-                onChange={(e) => setSelectedProgram(e.target.value ? parseInt(e.target.value) : '')}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">All Programs</option>
-                {programs.map(program => (
-                  <option key={program.id} value={program.id}>
-                    {program.code}
-                  </option>
-                ))}
-              </select>
 
               <select
                 value={selectedSemester}
@@ -496,7 +447,7 @@ export default function UnitAssignments() {
                   </h2>
                 </div>
               </div>
-              <div className="max-h-96 overflow-y-auto">
+              <div className="max-h-[600px] overflow-y-auto">
                 {filteredUnassignedUnits.length === 0 ? (
                   <div className="p-8 text-center">
                     <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -513,11 +464,12 @@ export default function UnitAssignments() {
                         onClick={() => toggleUnitSelection(unit.id)}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center">
+                          <div className="flex items-center flex-1">
                             <input
                               type="checkbox"
                               checked={selectedUnits.has(unit.id)}
                               onChange={() => toggleUnitSelection(unit.id)}
+                              onClick={(e) => e.stopPropagation()}
                               className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
                             />
                             <BookOpen className="w-8 h-8 text-red-500 ml-3 mr-3" />
@@ -531,14 +483,6 @@ export default function UnitAssignments() {
                               <Clock className="w-3 h-3 mr-1" />
                               {unit.credit_hours}h
                             </div>
-                          </div>
-                        </div>
-                        <div className="mt-2 ml-12">
-                          <div className="flex items-center text-xs text-gray-600">
-                            <Building2 className="w-3 h-3 mr-1" />
-                            <span className="mr-4">{unit.program.school.code}</span>
-                            <GraduationCap className="w-3 h-3 mr-1" />
-                            <span>{unit.program.code}</span>
                           </div>
                         </div>
                       </div>
@@ -560,7 +504,7 @@ export default function UnitAssignments() {
                   </div>
                 </div>
               </div>
-              <div className="max-h-96 overflow-y-auto">
+              <div className="max-h-[600px] overflow-y-auto">
                 {filteredAssignedUnits.length === 0 ? (
                   <div className="p-8 text-center">
                     <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -571,7 +515,7 @@ export default function UnitAssignments() {
                     {filteredAssignedUnits.map(assignment => (
                       <div key={assignment.id} className="p-4 hover:bg-gray-50">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center">
+                          <div className="flex items-center flex-1">
                             <BookOpen className="w-8 h-8 text-green-500 mr-3" />
                             <div>
                               <div className="text-sm font-medium text-gray-900">{assignment.unit?.name}</div>
@@ -584,13 +528,16 @@ export default function UnitAssignments() {
                               </div>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleRemoveAssignments([assignment.id])}
-                            className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
-                            title="Remove assignment"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                          {can.remove && (
+                            <button
+                              onClick={() => handleRemoveAssignments([assignment.id])}
+                              disabled={loading}
+                              className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50 disabled:opacity-50"
+                              title="Remove assignment"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}

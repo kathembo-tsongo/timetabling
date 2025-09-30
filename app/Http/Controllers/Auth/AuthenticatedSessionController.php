@@ -25,20 +25,54 @@ class AuthenticatedSessionController extends Controller
         ]);
     }
 
-    /**
-     * Handle an incoming authentication request.
-     */
     public function store(LoginRequest $request): RedirectResponse
-    {
-        $request->authenticate();
-
-        $request->session()->regenerate();
-
-        //Default Redirection
-
-        return redirect()->intended(RouteServiceProvider::HOME);
+{
+    $request->authenticate();
+    $request->session()->regenerate();
+    
+    // Get authenticated user with roles eager-loaded
+    $user = Auth::user()->load('roles');
+    $roles = $user->getRoleNames();
+    
+    // Direct role-based redirect
+    if ($roles->contains('Admin')) {
+        return redirect()->route('admin.dashboard');
     }
-
+    
+    if ($roles->contains('Exam office')) {
+        return redirect()->route('exam-office.dashboard');
+    }
+    
+    // NEW: Class Office check
+    if ($roles->contains('Class Office')) {
+        return redirect()->route('class-office.dashboard');
+    }
+    
+    // Faculty Admin check
+    $facultyRole = $roles->first(fn($role) => str_starts_with($role, 'Faculty Admin - '));
+    if ($facultyRole) {
+        $faculty = str_replace('Faculty Admin - ', '', $facultyRole);
+        $redirectRoute = match($faculty) {
+            'SCES' => 'facultyadmin.sces.dashboard',
+            'SBS' => 'facultyadmin.sbs.dashboard',
+            default => null
+        };
+        if ($redirectRoute) {
+            return redirect()->route($redirectRoute);
+        }
+    }
+    
+    if ($roles->contains('Lecturer')) {
+        return redirect()->route('lecturer.dashboard');
+    }
+    
+    if ($roles->contains('Student')) {
+        return redirect()->route('student.dashboard');
+    }
+    
+    // Fallback to default dashboard
+    return redirect()->intended(RouteServiceProvider::HOME);
+}
     public function destroy(Request $request): RedirectResponse
     {
         Auth::guard('web')->logout();

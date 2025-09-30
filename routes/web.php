@@ -47,6 +47,16 @@ foreach ($moduleRoutes as $routeFile) {
 require __DIR__.'/auth.php';
 
 // ===================================================================
+// ROOT ROUTE - Redirect to login or dashboard
+// ===================================================================
+Route::get('/', function () {
+    if (Auth::check()) {
+        return redirect()->route('dashboard');
+    }
+    return redirect()->route('login');
+})->name('home');
+
+// ===================================================================
 // AUTHENTICATED ROUTES
 // ===================================================================
 
@@ -478,7 +488,23 @@ Route::prefix('schools/sces')->name('schools.sces.programs.')->group(function ()
             Route::delete('/{unit}', function(Program $program, Unit $unit) {
                 return app(UnitController::class)->destroyProgramUnit($program, $unit, 'SCES');
             })->name('destroy');
+
+           
         });
+
+        // Add after the Units Management section and before Classes Management
+// Unit Assignment to Semester
+Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
+    Route::get('/', function(Program $program, Request $request) {
+        return app(UnitController::class)->programUnitAssignments($program, $request, 'SCES');
+    })->name('AssignSemesters');
+    Route::post('/assign', function(Program $program, Request $request) {
+        return app(UnitController::class)->assignProgramUnitsToSemester($program, $request, 'SCES');
+    })->name('assign');
+    Route::post('/remove', function(Program $program, Request $request) {
+        return app(UnitController::class)->removeProgramUnitsFromSemester($program, $request, 'SCES');
+    })->name('remove');
+});
 
         // Program Classes Management
         Route::prefix('classes')->name('classes.')->group(function () {
