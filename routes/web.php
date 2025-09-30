@@ -232,30 +232,6 @@ Route::get('/buildings/{building}', [BuildingController::class, 'show'])->name('
 Route::put('/buildings/{building}', [BuildingController::class, 'update'])->name('admin.buildings.update');
 Route::put('/buildings/{building}/toggle-status', [BuildingController::class, 'toggleStatus'])->name('admin.buildings.toggle-status');
 Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->name('admin.buildings.destroy');
-        // ===============================================================
-        // CLASS TIMETABLES - MAIN ROUTES
-        // ===============================================================
-        
-        // Primary classtimetable routes (without 's')
-        Route::get('/classtimetable', [ClassTimetableController::class, 'index'])->name('admin.classtimetable.index');
-        Route::post('/classtimetable', [ClassTimetableController::class, 'store'])->name('admin.classtimetable.store');
-        Route::get('/classtimetable/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetable.create');
-        Route::get('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'show'])->name('admin.classtimetable.show');
-        Route::get('/classtimetable/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetable.edit');
-        Route::put('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetable.update');
-        Route::delete('/classtimetable/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetable.destroy');
-        
-        // PDF Download Route
-        Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadPDF'])->name('classtimetable.download');
-        
-        // Alternative classtimetables routes (with 's') for React component compatibility
-        Route::get('/classtimetables', [ClassTimetableController::class, 'index'])->name('admin.classtimetables.index');
-        Route::post('/classtimetables', [ClassTimetableController::class, 'store'])->name('admin.classtimetables.store');
-        Route::get('/classtimetables/create', [ClassTimetableController::class, 'create'])->name('admin.classtimetables.create');
-        Route::get('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'show'])->name('admin.classtimetables.show');
-        Route::get('/classtimetables/{classtimetable}/edit', [ClassTimetableController::class, 'edit'])->name('admin.classtimetables.edit');
-        Route::put('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'update'])->name('admin.classtimetables.update');
-        Route::delete('/classtimetables/{classtimetable}', [ClassTimetableController::class, 'destroy'])->name('admin.classtimetables.destroy');
         
         // ===============================================================
         // LECTURER ASSIGNMENTS
@@ -448,6 +424,7 @@ Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->
 
 // School SCES Programs Management
 Route::prefix('schools/sces')->name('schools.sces.programs.')->group(function () {
+    
     Route::get('programs', function(Request $request) {
         return app(ProgramController::class)->index($request, 'SCES');
     })->name('index');
@@ -550,6 +527,31 @@ Route::prefix('schools/sces')->name('schools.sces.programs.')->group(function ()
             })->name('update');
             Route::delete('/{semester}', function(Program $program, $semester) {
                 return app(SemesterController::class)->destroyProgramSemester($program, $semester, 'SCES');
+            })->name('destroy');
+        });
+
+        // Class Timetables Management
+        Route::prefix('timetables')->name('timetables.')->group(function () {
+            Route::get('/', function(Program $program, Request $request) {
+                return app(TimetableController::class)->programTimetables($program, $request, 'SCES');
+            })->name('index');      
+            Route::post('/', function(Program $program, Request $request) {
+                return app(TimetableController::class)->storeProgramTimetable($program, $request, 'SCES');
+            })->name('store');
+            Route::get('/create', function(Program $program) {
+                return app(TimetableController::class)->createProgramTimetable($program, 'SCES');
+            })->name('create');
+            Route::get('/{timetable}', function(Program $program, $timetable) {
+                return app(TimetableController::class)->showProgramTimetable($program, $timetable, 'SCES');
+            })->name('show');
+            Route::get('/{timetable}/edit', function(Program $program, $timetable) {
+                return app(TimetableController::class)->editProgramTimetable($program, $timetable, 'SCES');
+            })->name('edit');
+            Route::put('/{timetable}', function(Program $program, $timetable, Request $request) {
+                return app(TimetableController::class)->updateProgramTimetable($program, $timetable, $request, 'SCES');
+            })->name('update');
+            Route::delete('/{timetable}', function(Program $program, $timetable) {
+                return app(TimetableController::class)->destroyProgramTimetable($program, $timetable, 'SCES');
             })->name('destroy');
         });
 

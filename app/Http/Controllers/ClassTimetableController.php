@@ -188,7 +188,7 @@ class ClassTimetableController extends Controller
     $programs = DB::table('programs')->select('id', 'code', 'name')->get();
     $schools = DB::table('schools')->select('id', 'name', 'code')->get();
 
-    return Inertia::render('Admin/Classtimetable/Index', [
+    return Inertia::render('Schools/SCES/Programs/ClassTimetables/Index', [
         'classTimetables' => $classTimetables,
         'lecturers' => $lecturers,
         'perPage' => $perPage,
@@ -2947,4 +2947,313 @@ public function downloadStudentPDF(Request $request)
 
         return ['conflicts_resolved' => $resolved];
     }
+    // specific method to handles timetable within schools and programs
+
+public function programClassTimetables(Program $program, Request $request, $schoolCode)
+{
+    $user = auth()->user();
+
+    if (!$user->can('manage-classtimetables')) {
+        abort(403, 'Unauthorized action.');
+    }
+
+    $perPage = $request->input('per_page', 100);
+    $search = $request->input('search', '');
+
+    // Fetch class timetables for this specific program
+    $classTimetables = ClassTimetable::query()
+        ->leftJoin('units', 'class_timetable.unit_id', '=', 'units.id')
+        ->leftJoin('semesters', 'class_timetable.semester_id', '=', 'semesters.id')
+        ->leftJoin('classes', 'class_timetable.class_id', '=', 'classes.id')
+        ->leftJoin('groups', 'class_timetable.group_id', '=', 'groups.id')
+        ->leftJoin('programs', 'class_timetable.program_id', '=', 'programs.id')
+        ->leftJoin('schools', 'class_timetable.school_id', '=', 'schools.id')
+        ->leftJoin('users', 'users.code', '=', 'class_timetable.lecturer')
+        ->where('class_timetable.program_id', $program->id)
+        ->select(
+            'class_timetable.*',
+            'units.code as unit_code',
+            'units.name as unit_name',
+            'semesters.name as semester_name',
+            'programs.code as program_code',
+            'programs.name as program_name',
+            'schools.code as school_code',
+            'schools.name as school_name',
+            DB::raw("CASE 
+                WHEN classes.section IS NOT NULL AND classes.year_level IS NOT NULL 
+                THEN CONCAT(classes.name, ' - Section ', classes.section, ' (Year ', classes.year_level, ')')
+                WHEN classes.section IS NOT NULL 
+                THEN CONCAT(classes.name, ' - Section ', classes.section)
+                WHEN classes.year_level IS NOT NULL 
+                THEN CONCAT(classes.name, ' (Year ', classes.year_level, ')')
+                ELSE classes.name 
+                END as class_name"),
+            'classes.section as class_section',
+            'classes.year_level as class_year_level',
+            'groups.name as group_name',
+            DB::raw("CASE 
+                WHEN users.id IS NOT NULL 
+                THEN CONCAT(users.first_name, ' ', users.last_name) 
+                ELSE class_timetable.lecturer 
+                END as lecturer"),
+            'class_timetable.lecturer as lecturer_code'
+        )
+        ->when($search, function ($query) use ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('class_timetable.day', 'like', "%{$search}%")
+                  ->orWhere('units.code', 'like', "%{$search}%")
+                  ->orWhere('units.name', 'like', "%{$search}%")
+                  ->orWhere('class_timetable.venue', 'like', "%{$search}%");
+            });
+        })
+        ->orderBy('class_timetable.day')
+        ->orderBy('class_timetable.start_time')
+        ->paginate($perPage);
+
+    // ✅ ADD ALL THE MISSING DATA THAT YOUR COMPONENT NEEDS:
+    
+    $lecturers = User::role('Lecturer')
+        ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
+        ->get();
+
+    $semesters = Semester::all();
+    $classrooms = Classroom::all();
+    $classtimeSlots = ClassTimeSlot::all();
+    $allUnits = Unit::select('id', 'code', 'name', 'semester_id', 'credit_hours')->get();
+    
+    // Filter classes by program
+    $classes = ClassModel::where('program_id', $program->id)
+        ->select('id', 'name', 'section', 'year_level', 'program_id')
+        ->get()
+        ->map(function ($class) {
+            $displayName = $class->name;
+            if ($class->section) {
+                $displayName .= ' - Section ' . $class->section;
+            }
+            if ($class->year_level) {
+                $displayName .= ' (Year ' . $class->year_level . ')';
+            }
+            
+            return [
+                'id' => $class->id,
+                'name' => $class->name,
+                'display_name' => $displayName,
+                'section' => $class->section,
+                'year_level' => $class->year_level,
+                'program_id' => $class->program_id
+            ];
+        });
+
+    // Get groups for classes in this program
+    $classIds = $classes->pluck('id');
+    $groups = Group::whereIn('class_id', $classIds)
+        ->select('id', 'name', 'class_id', 'capacity')
+        ->get()
+        ->map(function ($group) {
+            $actualStudentCount = DB::table('enrollments')
+                ->where('group_id', $group->id)
+                ->distinct('student_code')
+                ->count('student_code');
+
+            return [
+                'id' => $group->id,
+                'name' => $group->name,
+                'class_id' => $group->class_id,
+                'student_count' => $actualStudentCount,
+                'capacity' => $group->capacity
+            ];
+        });
+
+    $programs = DB::table('programs')->select('id', 'code', 'name')->get();
+    $schools = DB::table('schools')->select('id', 'name', 'code')->get();
+
+    return Inertia::render('Schools/SCES/Programs/ClassTimetables/Index', [
+        'program' => $program,
+        'schoolCode' => strtoupper($schoolCode),
+        'classTimetables' => $classTimetables,
+        'lecturers' => $lecturers,
+        'perPage' => $perPage,
+        'search' => $search,
+        'semesters' => $semesters,
+        'classrooms' => $classrooms,
+        'classtimeSlots' => $classtimeSlots,
+        'units' => $allUnits,
+        'enrollments' => [],
+        'classes' => $classes,
+        'groups' => $groups,
+        'programs' => $programs,
+        'schools' => $schools,
+        'can' => [
+            'create' => $user->can('create-classtimetables'),
+            'edit' => $user->can('update-classtimetables'),
+            'delete' => $user->can('delete-classtimetables'),
+            'process' => $user->can('process-classtimetables'),
+            'solve_conflicts' => $user->can('solve-class-conflicts'),
+            'download' => $user->can('download-classtimetables'),
+        ],
+    ]);
+}
+
+/**
+ * Store class timetable for a specific program
+ */
+public function storeProgramClassTimetable(Program $program, Request $request, $schoolCode)
+{
+    // Validate the request
+    $request->validate([
+        'day' => 'nullable|string',
+        'unit_id' => 'required|exists:units,id',
+        'semester_id' => 'required|exists:semesters,id',
+        'class_id' => 'required|exists:classes,id',
+        'group_id' => 'nullable|exists:groups,id',
+        'venue' => 'nullable|string',
+        'location' => 'nullable|string',
+        'no' => 'required|integer|min:1',
+        'lecturer' => 'required|string',
+        'start_time' => 'nullable|string',
+        'end_time' => 'nullable|string',
+        'teaching_mode' => 'nullable|in:physical,online',
+        'program_id' => 'nullable|exists:programs,id',
+        'school_id' => 'nullable|exists:schools,id',
+        'classtimeslot_id' => 'nullable|integer',
+    ]);
+
+    try {
+        \Log::info('Creating class timetable for program', [
+            'program_id' => $program->id,
+            'school_code' => $schoolCode,
+            'request_data' => $request->all()
+        ]);
+
+        $unit = Unit::findOrFail($request->unit_id);
+        $class = ClassModel::find($request->class_id);
+        
+        // Use the program from route parameter
+        $programId = $program->id;
+        $schoolId = $request->school_id ?: $program->school_id;
+
+        // Handle lecturer - check if it's a name or code
+        $lecturerToStore = $request->lecturer;
+        
+        $lecturer = User::where(DB::raw("CONCAT(first_name, ' ', last_name)"), $request->lecturer)->first();
+        if ($lecturer) {
+            $lecturerToStore = $lecturer->code;
+            \Log::info('Found lecturer code for name', [
+                'lecturer_name' => $request->lecturer,
+                'lecturer_code' => $lecturer->code
+            ]);
+        }
+
+        // Determine teaching mode based on duration
+        $teachingMode = $request->teaching_mode;
+        if ($request->start_time && $request->end_time) {
+            $duration = \Carbon\Carbon::parse($request->start_time)
+                ->diffInHours(\Carbon\Carbon::parse($request->end_time));
+            $teachingMode = $duration >= 2 ? 'physical' : 'online';
+        }
+
+        // Auto-assign venue based on teaching mode
+        $venue = $request->venue;
+        $location = $request->location;
+        
+        if (!$venue) {
+            if ($teachingMode === 'online') {
+                $venue = 'Remote';
+                $location = 'Online';
+            } else {
+                $suitableClassroom = Classroom::where('capacity', '>=', $request->no)
+                    ->orderBy('capacity', 'asc')
+                    ->first();
+                $venue = $suitableClassroom ? $suitableClassroom->name : 'TBD';
+                $location = $suitableClassroom ? $suitableClassroom->location : 'Physical';
+            }
+        }
+
+        $classTimetable = ClassTimetable::create([
+            'day' => $request->day,
+            'unit_id' => $unit->id,
+            'semester_id' => $request->semester_id,
+            'class_id' => $request->class_id,
+            'group_id' => $request->group_id ?: null,
+            'venue' => $venue,
+            'location' => $location,
+            'no' => $request->no,
+            'lecturer' => $lecturerToStore,
+            'start_time' => $request->start_time,
+            'end_time' => $request->end_time,
+            'teaching_mode' => $teachingMode,
+            'program_id' => $programId,
+            'school_id' => $schoolId,
+        ]);
+
+        \Log::info('Class timetable created successfully for program', [
+            'timetable_id' => $classTimetable->id,
+            'program_id' => $program->id,
+            'unit_code' => $unit->code,
+        ]);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Class timetable created successfully.',
+                'data' => $classTimetable->fresh()
+            ]);
+        }
+
+        return redirect()->route('schools.' . strtolower($schoolCode) . '.programs.class-timetables.index', $program)
+            ->with('success', 'Class timetable created successfully.');
+
+    } catch (\Exception $e) {
+        \Log::error('Failed to create class timetable for program: ' . $e->getMessage(), [
+            'program_id' => $program->id,
+            'request_data' => $request->all(),
+            'exception' => $e->getTraceAsString()
+        ]);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create class timetable: ' . $e->getMessage(),
+                'errors' => ['error' => $e->getMessage()]
+            ], 500);
+        }
+
+        return redirect()->back()
+            ->withErrors(['error' => 'Failed to create class timetable: ' . $e->getMessage()])
+            ->withInput();
+    }
+}
+
+/**
+ * Update class timetable for a specific program
+ */
+public function updateProgramClassTimetable(Program $program, $timetable, Request $request, $schoolCode)
+{
+    $timetableRecord = ClassTimetable::findOrFail($timetable);
+    
+    // Use the existing update logic but ensure it's for this program
+    $request->merge(['program_id' => $program->id]);
+    
+    return $this->update($request, $timetableRecord->id);
+}
+
+/**
+ * Delete class timetable for a specific program
+ */
+public function destroyProgramClassTimetable(Program $program, $timetable, $schoolCode)
+{
+    try {
+        $timetableRecord = ClassTimetable::where('id', $timetable)
+            ->where('program_id', $program->id)
+            ->firstOrFail();
+            
+        $timetableRecord->delete();
+
+        return redirect()->back()->with('success', 'Class timetable deleted successfully.');
+    } catch (\Exception $e) {
+        \Log::error('Failed to delete class timetable: ' . $e->getMessage());
+        return response()->json(['success' => false, 'message' => 'Failed to delete class timetable.'], 500);
+    }
+}
+
 }

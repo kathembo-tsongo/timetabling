@@ -649,7 +649,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
     setSelectedStudent('');
     setSelectedUnit('');
     setStatusFilter('all');
-    router.get('/Schools/SCES/Programs/enrollments/Index', {}, {
+    router.get('/admin/enrollments', {}, {
       preserveState: true,
       replace: true
     });
