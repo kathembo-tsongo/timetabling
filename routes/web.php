@@ -93,8 +93,8 @@ Route::middleware(['auth'])->group(function () {
             if (str_starts_with($role, 'Faculty Admin - ')) {
                 $faculty = str_replace('Faculty Admin - ', '', $role);
                 $schoolRoute = match($faculty) {
-                    'SCES' => 'facultyadmin.sces.dashboard',
-                    'SBS' => 'facultyadmin.sbs.dashboard',
+                    'SCES' => 'schools.sces.Programs.dashboard',
+                    'SBS' => 'schools.sbs.Programs.dashboard',
                     default => null
                 };
                 if ($schoolRoute) {
@@ -243,7 +243,10 @@ Route::put('/buildings/{building}', [BuildingController::class, 'update'])->name
 Route::put('/buildings/{building}/toggle-status', [BuildingController::class, 'toggleStatus'])->name('admin.buildings.toggle-status');
 Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->name('admin.buildings.destroy');
         
-        // ===============================================================
+
+
+
+// ===============================================================
         // LECTURER ASSIGNMENTS
         // ===============================================================
         
@@ -329,6 +332,20 @@ Route::delete('/buildings/{building}', [BuildingController::class, 'destroy'])->
             Route::get('/lecturerassignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
         });    
     }); // Close admin prefix group
+
+    // Faculty Admin routes are handled within their respective school program management sections below
+
+    Route::prefix('schools/sces')->group(function() {
+        // Faculty Admin - SCES Dashboard
+        Route::prefix('programs')->middleware(['role:Faculty Admin - SCES'])->group(function() {
+            Route::get('/dashboard', [DashboardController::class, 'scesDashboard'])->name('schools.sces.Programs.dashboard');
+            Route::get('/profile', [DashboardController::class, 'scesProfile'])->name('schools.sces.Programs.profile');
+            Route::get('/settings', [DashboardController::class, 'scesSettings'])->name('schools.sces.Programs.settings');
+        });
+
+        
+        
+    });
 
     // ===============================================================
     // STUDENTS DASHBOARD & ROUTES

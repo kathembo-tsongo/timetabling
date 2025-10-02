@@ -43,9 +43,9 @@ class DashboardController extends Controller
             if (str_starts_with($role, 'Faculty Admin - ')) {
                 $faculty = str_replace('Faculty Admin - ', '', $role);
                 $schoolRoute = match($faculty) {
-                    'SCES' => 'faculty.dashboard.sces',
+                    'SCES' => 'schools.sces.Programs.dashboard',
                     'SBS' => 'faculty.dashboard.sbs',
-                    
+                    'SET' => 'faculty.dashboard.set',
                     default => null
                 };
                 
@@ -738,7 +738,7 @@ class DashboardController extends Controller
             ];
         }
 
-        return Inertia::render('FacultyAdmin/sces/Dashboard', [
+        return Inertia::render('Schools/sces/Programs/Dashboard', [
             'currentSemester' => $currentSemester,
             'facultyStats' => $facultyStats,
             'userPermissions' => $user->getAllPermissions()->pluck('name'),
@@ -1006,7 +1006,7 @@ class DashboardController extends Controller
                 Log::warning('Error calculating faculty info', ['error' => $e->getMessage()]);
             }
 
-            return Inertia::render('FacultyAdmin/sces/Dashboard', [
+            return Inertia::render('Schools/sces/Programs/Dashboard', [
                 'schoolCode' => 'SCES',
                 'schoolName' => 'School of Computing and Engineering Sciences',
                 'currentSemester' => $currentSemester,
@@ -1057,7 +1057,7 @@ class DashboardController extends Controller
             ]);
 
             // Return safe defaults in case of error
-            return Inertia::render('FacultyAdmin/sces/Dashboard', [
+            return Inertia::render('Schools/sces/Programs/Dashboard', [
                 'schoolCode' => 'SCES',
                 'schoolName' => 'School of Computing and Engineering Sciences',
                 'currentSemester' => $currentSemester,
@@ -1208,7 +1208,7 @@ class DashboardController extends Controller
             'stats' => $stats
         ]);
 
-        return Inertia::render('FacultyAdmin/' . strtolower($schoolCode) . '/Dashboard', [
+        return Inertia::render('Schools/' . strtolower($schoolCode) . '/Programs/Dashboard', [
             'schoolCode' => $schoolCode,
             'schoolName' => $schoolName,
             'currentSemester' => $currentSemester,
