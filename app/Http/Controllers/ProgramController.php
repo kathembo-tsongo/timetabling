@@ -596,27 +596,37 @@ class ProgramController extends Controller
      * Check if user has permission for a specific school action.
      */
     private function hasSchoolPermission($user, $schoolCode, $action)
-    {
-        if ($user->hasRole('Admin')) {
-            return true;
-        }
-
-        $schoolCode = strtolower($schoolCode);
-        
-        switch ($action) {
-            case 'view':
-                return $user->can("view-faculty-programs-{$schoolCode}");
-            case 'create':
-                return $user->can("create-faculty-programs-{$schoolCode}");
-            case 'edit':
-                return $user->can("edit-faculty-programs-{$schoolCode}");
-            case 'delete':
-                return $user->can("delete-faculty-programs-{$schoolCode}");
-            default:
-                return false;
-        }
+{
+    // Admin has all permissions
+    if ($user->hasRole('Admin')) {
+        return true;
     }
 
+    $schoolCodeLower = strtolower($schoolCode);
+    
+    // Check if user is Faculty Admin for this school
+    $isFacultyAdmin = $user->hasRole("Faculty Admin - " . strtoupper($schoolCode));
+    
+    switch ($action) {
+        case 'view':
+            // Can view if they have view-programs OR view-schools-{school} permission
+            return $user->can('view-programs') || 
+                   $user->can("view-schools-{$schoolCodeLower}") ||
+                   $isFacultyAdmin;
+                   
+        case 'create':
+            return $user->can('create-programs') || $isFacultyAdmin;
+            
+        case 'edit':
+            return $user->can('edit-programs') || $isFacultyAdmin;
+            
+        case 'delete':
+            return $user->can('delete-programs') || $isFacultyAdmin;
+            
+        default:
+            return false;
+    }
+}
     /**
      * Get available degree types for a school.
      */
