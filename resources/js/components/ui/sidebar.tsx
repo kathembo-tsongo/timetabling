@@ -101,6 +101,13 @@ export default function Sidebar() {
                 <span>Classrooms</span>
               </Link>
             )}
+            {/* schools */}
+            {can('view-schools') && (
+              <Link href="/schools/sces/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Building className="mr-3 h-5 w-5" />
+                <span>Schools</span>
+              </Link>
+            )}
           </div>
         )}
 
