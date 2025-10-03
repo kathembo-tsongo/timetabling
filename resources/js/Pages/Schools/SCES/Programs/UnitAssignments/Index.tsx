@@ -127,7 +127,6 @@ export default function UnitAssignments() {
   const [selectedUnits, setSelectedUnits] = useState<Set<number>>(new Set());
   const [selectedSemester, setSelectedSemester] = useState<number | ''>(filters.semester_id || '');
   const [selectedClasses, setSelectedClasses] = useState<number[]>([]);
-  const [availableClasses, setAvailableClasses] = useState<Class[]>(classes);
   const [loading, setLoading] = useState(false);
   
   // Filter state
@@ -143,17 +142,10 @@ export default function UnitAssignments() {
     }
   }, [flash]);
 
-  // Filter classes by selected semester
+  // Clear selected classes when semester changes
   useEffect(() => {
-    if (selectedSemester) {
-      const filtered = classes.filter(c => c.semester_id === selectedSemester);
-      setAvailableClasses(filtered);
-      setSelectedClasses([]);
-    } else {
-      setAvailableClasses(classes);
-      setSelectedClasses([]);
-    }
-  }, [selectedSemester, classes]);
+    setSelectedClasses([]);
+  }, [selectedSemester]);
 
   // Filter unassigned units
   const filteredUnassignedUnits = unassigned_units.filter(unit => {
@@ -351,10 +343,10 @@ export default function UnitAssignments() {
                     disabled={!selectedSemester}
                     style={{ minHeight: '3.5rem' }}
                   >
-                    {availableClasses.length === 0 ? (
-                      <option disabled>No classes available for selected semester</option>
+                    {classes.length === 0 ? (
+                      <option disabled>No classes available</option>
                     ) : (
-                      availableClasses.map(cls => (
+                      classes.map(cls => (
                         <option key={cls.id} value={cls.id}>
                           {cls.display_name}
                         </option>

@@ -15,73 +15,49 @@ use Illuminate\Support\Facades\DB;
 class ClassController extends Controller
 {
     public function index(Request $request)
-    {
-        $perPage = $request->per_page ?? 15;
-        $search = $request->search ?? '';
-        $semesterId = $request->semester_id;
-        $programId = $request->program_id;
-        $yearLevel = $request->year_level;
-        
-        // Build the query using Eloquent relationships
-        $query = ClassModel::with(['semester', 'program.school'])
-            ->when($search, function($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
-                  ->orWhereHas('semester', function($sq) use ($search) {
-                      $sq->where('name', 'like', '%' . $search . '%');
-                  })
-                  ->orWhereHas('program', function($pq) use ($search) {
-                      $pq->where('name', 'like', '%' . $search . '%')
-                        ->orWhere('code', 'like', '%' . $search . '%');
-                  });
-            })
-            ->when($semesterId, function($q) use ($semesterId) {
-                $q->where('semester_id', $semesterId);
-            })
-            ->when($programId, function($q) use ($programId) {
-                $q->where('program_id', $programId);
-            })
-            ->when($yearLevel, function($q) use ($yearLevel) {
-                $q->where('year_level', $yearLevel);
-            })
-            ->orderBy('created_at', 'desc');
-        
-        // Get paginated results
-        $classes = $query->paginate($perPage)->withQueryString();
-        
-        // Get semesters and programs for dropdowns
-        $semesters = Semester::select('id', 'name', 'is_active')
-            ->orderBy('name')
-            ->get();
-            
-        $programs = Program::with('school:id,name')
-            ->select('id', 'name', 'code', 'school_id')
-            ->orderBy('name')
-            ->get();
-        
-        return Inertia::render('Admin/Classes/Index', [
-            'classes' => $classes,
-            'semesters' => $semesters,
-            'programs' => $programs,
-            'filters' => [
-                'search' => $search,
-                'semester_id' => $semesterId ? (int) $semesterId : null,
-                'program_id' => $programId ? (int) $programId : null,
-                'year_level' => $yearLevel ? (int) $yearLevel : null,
-                'per_page' => (int) $perPage,
-            ],
-            'can' => [
-                'create_classes' => auth()->user()->can('create_classes'),
-                'update_classes' => auth()->user()->can('update_classes'),
-                'delete_classes' => auth()->user()->can('delete_classes'),
-            ],
-            'flash' => [
-                'success' => session('success'),
-                'error' => session('error'),
-            ],
-            'errors' => session('errors') ? session('errors')->getBag('default')->toArray() : [],
-        ]);
-    }
+{
+    $perPage = $request->per_page ?? 15;
+    $search = $request->search ?? '';
+    $semesterId = $request->semester_id;
+    $programId = $request->program_id;
+    $yearLevel = $request->year_level;
     
+    $user = auth()->user(); // Add this
+    
+    // ... rest of the query code ...
+    
+    return Inertia::render('Admin/Classes/Index', [
+        'classes' => $classes,
+        'semesters' => $semesters,
+        'programs' => $programs,
+        'filters' => [
+            'search' => $search,
+            'semester_id' => $semesterId ? (int) $semesterId : null,
+            'program_id' => $programId ? (int) $programId : null,
+            'year_level' => $yearLevel ? (int) $yearLevel : null,
+            'per_page' => (int) $perPage,
+        ],
+        'can' => [
+            // ✅ Fixed: Use hyphens
+            'create' => $user->hasRole('Admin') || 
+                       $user->can('manage-classes') || 
+                       $user->can('create-classes'),
+            
+            'update' => $user->hasRole('Admin') || 
+                       $user->can('manage-classes') || 
+                       $user->can('edit-classes'),
+            
+            'delete' => $user->hasRole('Admin') || 
+                       $user->can('manage-classes') || 
+                       $user->can('delete-classes'),
+        ],
+        'flash' => [
+            'success' => session('success'),
+            'error' => session('error'),
+        ],
+        'errors' => session('errors') ? session('errors')->getBag('default')->toArray() : [],
+    ]);
+}
     public function store(Request $request)
     {
         Log::info('Form Data Received:', $request->all());
@@ -653,76 +629,80 @@ public function getByProgramAndSemester(Request $request)
             return response()->json(['error' => 'Class not found'], 404);
         }
     }
-
-    // special method 
-    // Add these methods to your ClassController class
-
-    /**
-     * Display classes for a specific program
-     */
-    public function programClasses(Program $program, Request $request, $schoolCode)
-    {
-        $perPage = $request->per_page ?? 15;
-        $search = $request->search ?? '';
-        $semesterId = $request->semester_id;
-        $yearLevel = $request->year_level;
-        
-        // Verify program belongs to the correct school
-        if ($program->school->code !== $schoolCode) {
-            abort(404, 'Program not found in this school.');
-        }
-
-        // Build the query for program-specific classes
-        $query = ClassModel::with(['semester', 'program.school'])
-            ->where('program_id', $program->id)
-            ->when($search, function($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
-                  ->orWhere('section', 'like', '%' . $search . '%')
-                  ->orWhereHas('semester', function($sq) use ($search) {
-                      $sq->where('name', 'like', '%' . $search . '%');
-                  });
-            })
-            ->when($semesterId, function($q) use ($semesterId) {
-                $q->where('semester_id', $semesterId);
-            })
-            ->when($yearLevel, function($q) use ($yearLevel) {
-                $q->where('year_level', $yearLevel);
-            })
-            ->orderBy('year_level')
-            ->orderBy('name')
-            ->orderBy('section');
-        
-        // Get paginated results
-        $classes = $query->paginate($perPage)->withQueryString();
-        
-        // Get semesters for dropdowns
-        $semesters = Semester::select('id', 'name', 'is_active')
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get();
-        
-        return Inertia::render('Schools/SCES/Programs/Classes/Index', [
-            'classes' => $classes,
-            'program' => $program->load('school'),
-            'semesters' => $semesters,
-            'schoolCode' => $schoolCode,
-            'filters' => [
-                'search' => $search,
-                'semester_id' => $semesterId ? (int) $semesterId : null,
-                'year_level' => $yearLevel ? (int) $yearLevel : null,
-                'per_page' => (int) $perPage,
-            ],
-            'can' => [
-                'create_classes' => auth()->user()->can('create_classes'),
-                'update_classes' => auth()->user()->can('update_classes'),
-                'delete_classes' => auth()->user()->can('delete_classes'),
-            ],
-            'flash' => [
-                'success' => session('success'),
-                'error' => session('error'),
-            ],
-        ]);
+public function programClasses(Program $program, Request $request, $schoolCode)
+{
+    $perPage = $request->per_page ?? 15;
+    $search = $request->search ?? '';
+    $semesterId = $request->semester_id;
+    $yearLevel = $request->year_level;
+    
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
     }
+
+    $user = auth()->user(); // Add this line
+
+    // Build the query for program-specific classes
+    $query = ClassModel::with(['semester', 'program.school'])
+        ->where('program_id', $program->id)
+        ->when($search, function($q) use ($search) {
+            $q->where('name', 'like', '%' . $search . '%')
+              ->orWhere('section', 'like', '%' . $search . '%')
+              ->orWhereHas('semester', function($sq) use ($search) {
+                  $sq->where('name', 'like', '%' . $search . '%');
+              });
+        })
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('semester_id', $semesterId);
+        })
+        ->when($yearLevel, function($q) use ($yearLevel) {
+            $q->where('year_level', $yearLevel);
+        })
+        ->orderBy('year_level')
+        ->orderBy('name')
+        ->orderBy('section');
+    
+    // Get paginated results
+    $classes = $query->paginate($perPage)->withQueryString();
+    
+    // Get semesters for dropdowns
+    $semesters = Semester::select('id', 'name', 'is_active')
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->get();
+    
+    return Inertia::render('Schools/SCES/Programs/Classes/Index', [
+        'classes' => $classes,
+        'program' => $program->load('school'),
+        'semesters' => $semesters,
+        'schoolCode' => $schoolCode,
+        'filters' => [
+            'search' => $search,
+            'semester_id' => $semesterId ? (int) $semesterId : null,
+            'year_level' => $yearLevel ? (int) $yearLevel : null,
+            'per_page' => (int) $perPage,
+        ],
+        'can' => [
+            // ✅ Fixed: Use hyphens to match actual permissions
+            'create' => $user->hasRole('Admin') || 
+                       $user->can('manage-classes') || 
+                       $user->can('create-classes'),
+            
+            'update' => $user->hasRole('Admin') || 
+                       $user->can('manage-classes') || 
+                       $user->can('edit-classes'),
+            
+            'delete' => $user->hasRole('Admin') || 
+                       $user->can('manage-classes') || 
+                       $user->can('delete-classes'),
+        ],
+        'flash' => [
+            'success' => session('success'),
+            'error' => session('error'),
+        ],
+    ]);
+}
 
     /**
      * Store a new class for a specific program

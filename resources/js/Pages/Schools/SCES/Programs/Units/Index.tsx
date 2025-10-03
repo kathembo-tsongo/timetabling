@@ -21,7 +21,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  AlertTriangle,
+  Info
 } from "lucide-react"
 import { route } from 'ziggy-js'
 
@@ -120,6 +122,7 @@ const ProgramUnitsIndex: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
   
   // Form state
@@ -192,6 +195,11 @@ const ProgramUnitsIndex: React.FC = () => {
     setIsViewModalOpen(true)
   }
 
+  const handleDeleteClick = (unit: Unit) => {
+    setSelectedUnit(unit)
+    setIsDeleteModalOpen(true)
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -218,31 +226,40 @@ const ProgramUnitsIndex: React.FC = () => {
     })
   }
 
-  const handleDelete = (unit: Unit) => {
-    if (confirm(`Are you sure you want to delete "${unit.name}"? This action cannot be undone.`)) {
-      setLoading(true)
-      const deleteRoute = route(`schools.${schoolCode.toLowerCase()}.programs.units.destroy`, [program.id, unit.id])
-      
-      router.delete(deleteRoute, {
-        onSuccess: () => {
-          toast.success('Unit deleted successfully!')
-        },
-        onError: (errors) => {
-          toast.error(errors.error || 'Failed to delete unit')
-        },
-        onFinish: () => setLoading(false)
-      })
-    }
+  const handleDelete = () => {
+    if (!selectedUnit) return
+    
+    setLoading(true)
+    const deleteRoute = route(`schools.${schoolCode.toLowerCase()}.programs.units.destroy`, [program.id, selectedUnit.id])
+    
+    router.delete(deleteRoute, {
+      onSuccess: () => {
+        toast.success('Unit deleted successfully!')
+        setIsDeleteModalOpen(false)
+        setSelectedUnit(null)
+      },
+      onError: (errors) => {
+        toast.error(errors.error || 'Failed to delete unit')
+      },
+      onFinish: () => setLoading(false)
+    })
   }
 
   const closeModals = () => {
     setIsCreateModalOpen(false)
     setIsEditModalOpen(false)
     setIsViewModalOpen(false)
+    setIsDeleteModalOpen(false)
     setSelectedUnit(null)
   }
 
   const backToProgramsRoute = route(`schools.${schoolCode.toLowerCase()}.programs.index`)
+
+  // Helper function to generate suggested code
+  const getSuggestedCode = () => {
+    const programPrefix = program.code.substring(0, 4)
+    return `${programPrefix}XXX`
+  }
 
   return (
     <AuthenticatedLayout>
@@ -251,6 +268,19 @@ const ProgramUnitsIndex: React.FC = () => {
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
+          {/* Context Breadcrumb */}
+          <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-sm border border-slate-200/50 p-4 mb-6">
+            <div className="flex items-center text-sm text-slate-600">
+              <span className="text-slate-700 font-medium">{program.school.code}</span>
+              <ChevronRight className="w-4 h-4 mx-2" />
+              <a href={backToProgramsRoute} className="hover:text-blue-600 transition-colors">
+                Programs
+              </a>
+              <ChevronRight className="w-4 h-4 mx-2" />
+              <span className="font-semibold text-slate-900">{program.code} - Units</span>
+            </div>
+          </div>
+
           {/* Header */}
           <div className="mb-8">
             <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-slate-200/50 p-8">
@@ -418,7 +448,7 @@ const ProgramUnitsIndex: React.FC = () => {
                           )}
                           {can.delete && (
                             <button
-                              onClick={() => handleDelete(unit)}
+                              onClick={() => handleDeleteClick(unit)}
                               className="text-red-600 hover:text-red-900 transition-colors p-1 rounded hover:bg-red-50"
                               title="Delete unit"
                             >
@@ -482,7 +512,6 @@ const ProgramUnitsIndex: React.FC = () => {
                     </div>
                     <div>
                       <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                        {/* First Page */}
                         <button
                           onClick={() => handlePaginationClick(units.links?.[0]?.url)}
                           disabled={units.meta?.current_page === 1}
@@ -491,7 +520,6 @@ const ProgramUnitsIndex: React.FC = () => {
                           <ChevronsLeft className="h-5 w-5" />
                         </button>
                         
-                        {/* Previous Page */}
                         <button
                           onClick={() => handlePaginationClick(units.links?.find(link => link.label === '&laquo; Previous')?.url)}
                           disabled={units.meta?.current_page === 1}
@@ -500,7 +528,6 @@ const ProgramUnitsIndex: React.FC = () => {
                           <ChevronLeft className="h-5 w-5" />
                         </button>
 
-                        {/* Page Numbers */}
                         {units.links && units.links.slice(1, -1).map((link, index) => (
                           <button
                             key={index}
@@ -514,7 +541,6 @@ const ProgramUnitsIndex: React.FC = () => {
                           />
                         ))}
 
-                        {/* Next Page */}
                         <button
                           onClick={() => handlePaginationClick(units.links?.find(link => link.label === 'Next &raquo;')?.url)}
                           disabled={units.meta?.current_page === units.meta?.last_page}
@@ -523,7 +549,6 @@ const ProgramUnitsIndex: React.FC = () => {
                           <ChevronRight className="h-5 w-5" />
                         </button>
 
-                        {/* Last Page */}
                         <button
                           onClick={() => handlePaginationClick(units.links?.[units.links.length - 1]?.url)}
                           disabled={units.meta?.current_page === units.meta?.last_page}
@@ -539,15 +564,31 @@ const ProgramUnitsIndex: React.FC = () => {
             )}
           </div>
 
-          {/* Create/Edit Modal */}
-          {(isCreateModalOpen || isEditModalOpen) && (
+          {/* CREATE MODAL - Enhanced with Context */}
+          {isCreateModalOpen && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">
-                      {selectedUnit ? 'Edit Unit' : 'Create New Unit'}
-                    </h3>
+                    <div>
+                      <h3 className="text-xl font-semibold text-white">
+                        Create New Unit
+                      </h3>
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center text-emerald-50 text-sm">
+                          <Building2 className="w-4 h-4 mr-2" />
+                          <span className="font-medium">{program.school.name}</span>
+                          <span className="mx-2">•</span>
+                          <span className="text-emerald-100">{program.school.code}</span>
+                        </div>
+                        <div className="flex items-center text-emerald-50 text-sm">
+                          <Award className="w-4 h-4 mr-2" />
+                          <span className="font-medium">{program.name}</span>
+                          <span className="mx-2">•</span>
+                          <span className="text-emerald-100">{program.code}</span>
+                        </div>
+                      </div>
+                    </div>
                     <button
                       onClick={closeModals}
                       className="text-white hover:text-gray-200 transition-colors"
@@ -558,6 +599,27 @@ const ProgramUnitsIndex: React.FC = () => {
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+                      </div>
+                      <div className="ml-3">
+                        <h4 className="text-sm font-medium text-blue-900">
+                          Creating unit for:
+                        </h4>
+                        <p className="mt-1 text-sm text-blue-700">
+                          <span className="font-semibold">{program.name}</span>
+                          <span className="mx-2">•</span>
+                          <span>{program.school.name}</span>
+                        </p>
+                        <p className="mt-1 text-xs text-blue-600">
+                          This unit will be automatically assigned to program: {program.code}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -568,10 +630,13 @@ const ProgramUnitsIndex: React.FC = () => {
                         value={formData.code}
                         onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        placeholder="e.g., ICT101, MATH201"
+                        placeholder={`e.g., ${getSuggestedCode()}`}
                         maxLength={20}
                         required
                       />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Suggested format: {getSuggestedCode()} (e.g., {program.code.substring(0, 4)}101)
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -629,7 +694,7 @@ const ProgramUnitsIndex: React.FC = () => {
                       disabled={loading}
                       className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {loading ? 'Processing...' : selectedUnit ? 'Update Unit' : 'Create Unit'}
+                      {loading ? 'Processing...' : 'Create Unit'}
                     </button>
                   </div>
                 </form>
@@ -637,7 +702,142 @@ const ProgramUnitsIndex: React.FC = () => {
             </div>
           )}
 
-          {/* View Modal */}
+          {/* EDIT MODAL - Enhanced with Context */}
+          {isEditModalOpen && selectedUnit && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-semibold text-white">
+                        Edit Unit
+                      </h3>
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center text-indigo-50 text-sm">
+                          <Building2 className="w-4 h-4 mr-2" />
+                          <span className="font-medium">{program.school.name}</span>
+                          <span className="mx-2">•</span>
+                          <span className="text-indigo-100">{program.school.code}</span>
+                        </div>
+                        <div className="flex items-center text-indigo-50 text-sm">
+                          <Award className="w-4 h-4 mr-2" />
+                          <span className="font-medium">{program.name}</span>
+                          <span className="mx-2">•</span>
+                          <span className="text-indigo-100">{program.code}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={closeModals}
+                      className="text-white hover:text-gray-200 transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <Info className="w-5 h-5 text-amber-600 mt-0.5" />
+                      </div>
+                      <div className="ml-3">
+                        <h4 className="text-sm font-medium text-amber-900">
+                          Editing unit: {selectedUnit.code}
+                        </h4>
+                        <p className="mt-1 text-sm text-amber-700">
+                          Program: <span className="font-semibold">{program.name}</span>
+                          <span className="mx-2">•</span>
+                          School: <span className="font-semibold">{program.school.name}</span>
+                        </p>
+                        <p className="mt-1 text-xs text-amber-600">
+                          Changes will affect all references to this unit across the system
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Unit Code *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.code}
+                        onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder={`e.g., ${getSuggestedCode()}`}
+                        maxLength={20}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Credit Hours *
+                      </label>
+                      <input
+                        type="number"
+                        value={formData.credit_hours}
+                        onChange={(e) => setFormData(prev => ({ ...prev, credit_hours: parseInt(e.target.value) || 1 }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        min={1}
+                        max={10}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Unit Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="e.g., Introduction to Programming"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="is_active_edit"
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+                      className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                    />
+                    <label htmlFor="is_active_edit" className="ml-2 text-sm font-medium text-gray-700">
+                      Unit is active
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={closeModals}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Updating...' : 'Update Unit'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW MODAL - Enhanced with Full Context */}
           {isViewModalOpen && selectedUnit && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -664,6 +864,28 @@ const ProgramUnitsIndex: React.FC = () => {
                 </div>
 
                 <div className="p-8 space-y-8">
+                  {/* Context Banner */}
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-blue-600 font-medium">Belongs to:</p>
+                        <p className="text-lg font-bold text-blue-900">{program.name} ({program.code})</p>
+                        <p className="text-sm text-blue-700">{program.school.name} - {program.school.code}</p>
+                      </div>
+                      {selectedUnit.is_active ? (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white bg-green-500">
+                          <Check className="w-4 h-4 mr-1" />
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white bg-gray-500">
+                          <X className="w-4 h-4 mr-1" />
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Header Info Card */}
                   <div className="bg-gradient-to-r from-slate-50 to-blue-50 p-6 rounded-xl border border-slate-200">
                     <div className="flex items-center justify-between">
@@ -675,19 +897,6 @@ const ProgramUnitsIndex: React.FC = () => {
                           <h4 className="text-xl font-bold text-slate-900">{selectedUnit.name}</h4>
                           <p className="text-blue-600 font-semibold text-lg">{selectedUnit.code}</p>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        {selectedUnit.is_active ? (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white bg-green-500">
-                            <Check className="w-4 h-4 mr-1" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white bg-gray-500">
-                            <X className="w-4 h-4 mr-1" />
-                            Inactive
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -735,7 +944,7 @@ const ProgramUnitsIndex: React.FC = () => {
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                       <h4 className="font-bold text-slate-900 mb-6 text-lg flex items-center">
                         <Building2 className="w-5 h-5 mr-2 text-indigo-600" />
-                        Program Details
+                        Program & School Details
                       </h4>
                       <div className="space-y-4">
                         <div>
@@ -809,9 +1018,85 @@ const ProgramUnitsIndex: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* DELETE CONFIRMATION MODAL - Enhanced with Context */}
+          {isDeleteModalOpen && selectedUnit && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full">
+                <div className="bg-gradient-to-r from-red-500 via-red-600 to-rose-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <AlertTriangle className="w-8 h-8 text-white" />
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-xl font-semibold text-white">
+                        Delete Unit
+                      </h3>
+                      <p className="text-red-100 text-sm mt-1">
+                        This action cannot be undone
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-4">
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5" />
+                      </div>
+                      <div className="ml-3">
+                        <h4 className="text-sm font-medium text-red-900">
+                          You are about to delete:
+                        </h4>
+                        <div className="mt-2 space-y-1">
+                          <p className="text-sm text-red-800">
+                            <span className="font-semibold">Unit:</span> {selectedUnit.name} ({selectedUnit.code})
+                          </p>
+                          <p className="text-sm text-red-700">
+                            <span className="font-semibold">Program:</span> {program.name} ({program.code})
+                          </p>
+                          <p className="text-sm text-red-700">
+                            <span className="font-semibold">School:</span> {program.school.name}
+                          </p>
+                        </div>
+                        <p className="mt-3 text-xs text-red-600 font-medium">
+                          ⚠ This will remove all associations with classes, semesters, and enrollments
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-700">
+                      Are you absolutely sure you want to delete this unit? This action is permanent and cannot be reversed.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={closeModals}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDelete}
+                      disabled={loading}
+                      className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Deleting...' : 'Yes, Delete Unit'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </AuthenticatedLayout>
   )
 }
+
 export default ProgramUnitsIndex

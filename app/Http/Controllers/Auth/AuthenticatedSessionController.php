@@ -53,8 +53,8 @@ class AuthenticatedSessionController extends Controller
     if ($facultyRole) {
         $faculty = str_replace('Faculty Admin - ', '', $facultyRole);
         $redirectRoute = match($faculty) {
-            'SCES' => 'facultyadmin.sces.dashboard',
-            'SBS' => 'facultyadmin.sbs.dashboard',
+            'SCES' => 'school.admin.dashboard',
+            'SBS' => 'school.admin.dashboard',
             default => null
         };
         if ($redirectRoute) {

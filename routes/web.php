@@ -373,17 +373,19 @@ Route::middleware(['auth'])->group(function () {
             });
 
             // Unit Assignment
-            Route::prefix('unitassignment')->name('unitassignment.')->middleware(['permission:edit-units'])->group(function () {
-                Route::get('/', function(Program $program, Request $request) {
-                    return app(UnitController::class)->programUnitAssignments($program, $request, 'SCES');
-                })->name('AssignSemesters');
-                Route::post('/assign', function(Program $program, Request $request) {
-                    return app(UnitController::class)->assignProgramUnitsToSemester($program, $request, 'SCES');
-                })->name('assign');
-                Route::post('/remove', function(Program $program, Request $request) {
-                    return app(UnitController::class)->removeProgramUnitsFromSemester($program, $request, 'SCES');
-                })->name('remove');
-            });
+Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
+    Route::get('/', function(Program $program, Request $request) {
+        return app(UnitController::class)->programUnitAssignments($program, $request, 'SCES');
+    })->middleware(['permission:view-units'])->name('AssignSemesters');
+    
+    Route::post('/assign', function(Program $program, Request $request) {
+        return app(UnitController::class)->assignProgramUnitsToSemester($program, $request, 'SCES');
+    })->middleware(['permission:edit-units', 'permission:assign-units'])->name('assign');
+    
+    Route::post('/remove', function(Program $program, Request $request) {
+        return app(UnitController::class)->removeProgramUnitsFromSemester($program, $request, 'SCES');
+    })->middleware(['permission:delete-units'])->name('remove');
+});
 
             // Classes
             Route::prefix('classes')->name('classes.')->middleware(['permission:view-classes'])->group(function () {
