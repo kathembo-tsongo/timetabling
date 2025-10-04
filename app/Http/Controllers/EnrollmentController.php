@@ -581,4 +581,300 @@ class EnrollmentController extends Controller
             ]
         ]);
     }
+
+    // special functions for handling enrollments and lecturer assignments can be added here
+    /**
+ * Get enrollments for a specific school (for School Admins)
+ */
+public function schoolEnrollments(Request $request, $schoolCode)
+{
+    $school = School::where('code', $schoolCode)->firstOrFail();
+    $user = auth()->user();
+    
+    // Check if user has access to this school
+    if (!$user->hasRole('Admin') && !$user->hasRole("Faculty Admin - {$school->code}")) {
+        abort(403, 'Unauthorized access to this school.');
+    }
+
+    $perPage = $request->per_page ?? 15;
+    $search = $request->search ?? '';
+    $semesterId = $request->semester_id;
+    $programId = $request->program_id;
+    $classId = $request->class_id;
+    $unitId = $request->unit_id;
+    $studentCode = $request->student_code;
+    $status = $request->status;
+
+    // Build query for school-specific enrollments
+    $query = Enrollment::with(['student', 'unit.program.school', 'class.program', 'semester'])
+        ->whereHas('unit', function($q) use ($school) {
+            $q->where('school_id', $school->id);
+        })
+        ->when($search, function($q) use ($search) {
+            $q->where(function($subQ) use ($search) {
+                $subQ->where('student_code', 'like', '%' . $search . '%')
+                     ->orWhereHas('student', function($sq) use ($search) {
+                         $sq->where('name', 'like', '%' . $search . '%');
+                     })
+                     ->orWhereHas('unit', function($sq) use ($search) {
+                         $sq->where('code', 'like', '%' . $search . '%')
+                            ->orWhere('name', 'like', '%' . $search . '%');
+                     });
+            });
+        })
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('semester_id', $semesterId);
+        })
+        ->when($programId, function($q) use ($programId) {
+            $q->whereHas('class', function($sq) use ($programId) {
+                $sq->where('program_id', $programId);
+            });
+        })
+        ->when($classId, function($q) use ($classId) {
+            $q->where('class_id', $classId);
+        })
+        ->when($unitId, function($q) use ($unitId) {
+            $q->where('unit_id', $unitId);
+        })
+        ->when($studentCode, function($q) use ($studentCode) {
+            $q->where('student_code', $studentCode);
+        })
+        ->when($status, function($q) use ($status) {
+            $q->where('status', $status);
+        })
+        ->orderBy('created_at', 'desc');
+
+    $enrollments = $query->paginate($perPage)->withQueryString();
+
+    // Get related data for filters
+    $students = Student::where('school_id', $school->id)
+        ->select('id', 'student_code', 'name', 'email')
+        ->orderBy('student_code')
+        ->get();
+
+    $units = Unit::where('school_id', $school->id)
+        ->with('program')
+        ->select('id', 'code', 'name', 'credit_hours', 'school_id', 'program_id')
+        ->orderBy('code')
+        ->get();
+
+    $programs = Program::where('school_id', $school->id)
+        ->select('id', 'code', 'name', 'school_id')
+        ->orderBy('code')
+        ->get();
+
+    $classes = ClassModel::whereHas('program', function($q) use ($school) {
+            $q->where('school_id', $school->id);
+        })
+        ->with('program')
+        ->select('id', 'name', 'section', 'year_level', 'capacity', 'program_id', 'semester_id')
+        ->orderBy('name')
+        ->orderBy('section')
+        ->get();
+
+    $semesters = Semester::where('is_active', true)
+        ->select('id', 'name', 'is_active')
+        ->orderBy('name')
+        ->get();
+
+    // Get lecturers for this school
+    $lecturers = User::role('Lecturer')
+        ->whereHas('schools', function($q) use ($school) {
+            $q->where('schools.code', $school->code);
+        })
+        ->with('lecturer')
+        ->get()
+        ->map(function($user) {
+            return [
+                'id' => $user->id,
+                'code' => $user->lecturer->code ?? null,
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'email' => $user->email,
+                'display_name' => "{$user->first_name} {$user->last_name}",
+                'schools' => $school->code,
+            ];
+        });
+
+    // Get lecturer assignments for this school
+    $lecturerAssignments = DB::table('lecturer_assignments')
+        ->join('units', 'lecturer_assignments.unit_id', '=', 'units.id')
+        ->join('semesters', 'lecturer_assignments.semester_id', '=', 'semesters.id')
+        ->join('classes', 'lecturer_assignments.class_id', '=', 'classes.id')
+        ->join('programs', 'classes.program_id', '=', 'programs.id')
+        ->join('lecturers', 'lecturer_assignments.lecturer_code', '=', 'lecturers.code')
+        ->join('users', 'lecturers.user_id', '=', 'users.id')
+        ->where('units.school_id', $school->id)
+        ->select(
+            'lecturer_assignments.*',
+            'units.code as unit_code',
+            'units.name as unit_name',
+            'units.credit_hours',
+            'semesters.name as semester_name',
+            'classes.name as class_name',
+            'classes.section',
+            'classes.year_level',
+            'lecturers.code as lecturer_code',
+            'users.first_name as lecturer_first_name',
+            'users.last_name as lecturer_last_name'
+        )
+        ->get()
+        ->map(function($assignment) {
+            return [
+                'unit_id' => $assignment->unit_id,
+                'semester_id' => $assignment->semester_id,
+                'class_id' => $assignment->class_id,
+                'lecturer_code' => $assignment->lecturer_code,
+                'unit' => [
+                    'id' => $assignment->unit_id,
+                    'code' => $assignment->unit_code,
+                    'name' => $assignment->unit_name,
+                    'credit_hours' => $assignment->credit_hours,
+                ],
+                'semester' => [
+                    'id' => $assignment->semester_id,
+                    'name' => $assignment->semester_name,
+                ],
+                'class' => [
+                    'id' => $assignment->class_id,
+                    'name' => $assignment->class_name,
+                    'section' => $assignment->section,
+                    'year_level' => $assignment->year_level,
+                ],
+                'lecturer' => [
+                    'code' => $assignment->lecturer_code,
+                    'first_name' => $assignment->lecturer_first_name,
+                    'last_name' => $assignment->lecturer_last_name,
+                ],
+                'created_at' => $assignment->created_at,
+                'updated_at' => $assignment->updated_at,
+            ];
+        });
+
+    // Calculate stats
+    $stats = [
+        'total' => $enrollments->total(),
+        'active' => Enrollment::whereHas('unit', function($q) use ($school) {
+                $q->where('school_id', $school->id);
+            })
+            ->where('status', 'enrolled')
+            ->count(),
+        'dropped' => Enrollment::whereHas('unit', function($q) use ($school) {
+                $q->where('school_id', $school->id);
+            })
+            ->where('status', 'dropped')
+            ->count(),
+        'completed' => Enrollment::whereHas('unit', function($q) use ($school) {
+                $q->where('school_id', $school->id);
+            })
+            ->where('status', 'completed')
+            ->count(),
+        'total_enrollments' => Enrollment::whereHas('unit', function($q) use ($school) {
+                $q->where('school_id', $school->id);
+            })->count(),
+    ];
+
+    return Inertia::render('Schools/' . strtoupper($school->code) . '/Enrollments/Index', [
+        'enrollments' => $enrollments,
+        'students' => $students,
+        'units' => $units,
+        'lecturers' => $lecturers,
+        'lecturerAssignments' => $lecturerAssignments,
+        'schools' => [$school], // Single school for this context
+        'programs' => $programs,
+        'classes' => $classes,
+        'semesters' => $semesters,
+        'stats' => $stats,
+        'school' => $school,
+        'schoolCode' => $schoolCode,
+        'can' => [
+            'create' => $user->hasRole('Admin') || 
+                       $user->can('manage-enrollments') || 
+                       $user->can('create-enrollments'),
+            
+            'update' => $user->hasRole('Admin') || 
+                       $user->can('manage-enrollments') || 
+                       $user->can('edit-enrollments'),
+            
+            'delete' => $user->hasRole('Admin') || 
+                       $user->can('manage-enrollments') || 
+                       $user->can('delete-enrollments'),
+            
+            'assign_lecturer' => $user->hasRole('Admin') || 
+                                $user->can('manage-lecturer-assignments') || 
+                                $user->can('create-lecturer-assignments'),
+        ],
+        'filters' => [
+            'search' => $search,
+            'semester_id' => $semesterId ? (int) $semesterId : null,
+            'program_id' => $programId ? (int) $programId : null,
+            'class_id' => $classId ? (int) $classId : null,
+            'unit_id' => $unitId ? (int) $unitId : null,
+            'student_code' => $studentCode,
+            'status' => $status,
+            'per_page' => (int) $perPage,
+        ],
+        'flash' => [
+            'success' => session('success'),
+            'error' => session('error'),
+        ],
+    ]);
+}
+
+/**
+ * Store enrollment for specific school
+ */
+public function storeSchoolEnrollment(Request $request, $schoolCode)
+{
+    $school = School::where('code', $schoolCode)->firstOrFail();
+    $user = auth()->user();
+    
+    // Check permissions
+    if (!$user->hasRole('Admin') && 
+        !$user->hasRole("Faculty Admin - {$school->code}") &&
+        !$user->can('create-enrollments')) {
+        abort(403, 'Unauthorized.');
+    }
+
+    // Use the existing store logic
+    return $this->store($request);
+}
+
+/**
+ * Update enrollment for specific school
+ */
+public function updateSchoolEnrollment(Request $request, $schoolCode, $enrollmentId)
+{
+    $school = School::where('code', $schoolCode)->firstOrFail();
+    $user = auth()->user();
+    
+    // Check permissions
+    if (!$user->hasRole('Admin') && 
+        !$user->hasRole("Faculty Admin - {$school->code}") &&
+        !$user->can('edit-enrollments')) {
+        abort(403, 'Unauthorized.');
+    }
+
+    // Use the existing update logic
+    return $this->update($request, $enrollmentId);
+}
+
+/**
+ * Delete enrollment for specific school
+ */
+public function destroySchoolEnrollment($schoolCode, $enrollmentId)
+{
+    $school = School::where('code', $schoolCode)->firstOrFail();
+    $user = auth()->user();
+    
+    // Check permissions
+    if (!$user->hasRole('Admin') && 
+        !$user->hasRole("Faculty Admin - {$school->code}") &&
+        !$user->can('delete-enrollments')) {
+        abort(403, 'Unauthorized.');
+    }
+
+    // Use the existing destroy logic
+    return $this->destroy($enrollmentId);
+}
 }
