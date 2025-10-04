@@ -390,26 +390,23 @@ Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
             // Classes
             Route::prefix('classes')->name('classes.')->middleware(['permission:view-classes'])->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
-                    return app(ClassController::class)->programClasses($program, $request, 'SCES');
-                })->name('index');
-                Route::post('/', function(Program $program, Request $request) {
-                    return app(ClassController::class)->storeProgramClass($program, $request, 'SCES');
-                })->middleware(['permission:create-classes'])->name('store');
-                Route::get('/create', function(Program $program) {
-                    return app(ClassController::class)->createProgramClass($program, 'SCES');
-                })->middleware(['permission:create-classes'])->name('create');
-                Route::get('/{class}', function(Program $program, ClassModel $class) {
-                    return app(ClassController::class)->showProgramClass($program, $class, 'SCES');
-                })->name('show');
-                Route::get('/{class}/edit', function(Program $program, ClassModel $class) {
-                    return app(ClassController::class)->editProgramClass($program, $class, 'SCES');
-                })->middleware(['permission:edit-classes'])->name('edit');
-                Route::put('/{class}', function(Program $program, ClassModel $class, Request $request) {
-                    return app(ClassController::class)->updateProgramClass($program, $class, $request, 'SCES');
-                })->middleware(['permission:edit-classes'])->name('update');
-                Route::delete('/{class}', function(Program $program, ClassModel $class) {
-                    return app(ClassController::class)->destroyProgramClass($program, $class, 'SCES');
-                })->middleware(['permission:delete-classes'])->name('destroy');
+        return app(ClassController::class)->programClasses($program, $request, 'SCES');
+    })->name('index');
+    
+    // Store - handles form submission from create modal
+    Route::post('/', function(Program $program, Request $request) {
+        return app(ClassController::class)->storeProgramClass($program, $request, 'SCES');
+    })->middleware(['permission:create-classes'])->name('store');
+    
+    // Update - handles form submission from edit modal
+    Route::put('/{class}', function(Program $program, ClassModel $class, Request $request) {
+        return app(ClassController::class)->updateProgramClass($program, $class, $request, 'SCES');
+    })->middleware(['permission:edit-classes'])->name('update');
+    
+    // Destroy - handles deletion
+    Route::delete('/{class}', function(Program $program, ClassModel $class) {
+        return app(ClassController::class)->destroyProgramClass($program, $class, 'SCES');
+    })->middleware(['permission:delete-classes'])->name('destroy');
             });
 
             // Enrollments

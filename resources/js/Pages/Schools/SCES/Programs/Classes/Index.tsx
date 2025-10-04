@@ -11,14 +11,11 @@ import {
   Filter,
   Edit,
   Trash2,
-  Eye,
   ArrowLeft,
   GraduationCap,
   Building2,
-  Clock,
-  BookOpen
+  X
 } from "lucide-react"
-import { route } from 'ziggy-js'
 
 // Interfaces
 interface Class {
@@ -32,7 +29,7 @@ interface Class {
   semester: {
     id: number
     name: string
-  }
+  } 
   program: {
     id: number
     name: string
@@ -53,6 +50,12 @@ interface Program {
   }
 }
 
+interface Semester {
+  id: number
+  name: string
+  is_active: boolean
+}
+
 interface PageProps {
   classes: {
     data: Class[]
@@ -61,7 +64,7 @@ interface PageProps {
   }
   program: Program
   schoolCode: string
-  semesters: any[]
+  semesters: Semester[]
   filters: {
     search?: string
     semester_id?: number
@@ -75,8 +78,17 @@ interface PageProps {
   }
   flash?: {
     success?: string
+    error?: string
   }
   errors?: any
+}
+
+interface ClassFormData {
+  name: string
+  semester_id: number | ''
+  year_level: number | ''
+  section: string
+  capacity: number | ''
 }
 
 const ProgramClassesIndex: React.FC = () => {
@@ -97,25 +109,126 @@ const ProgramClassesIndex: React.FC = () => {
   const [yearLevelFilter, setYearLevelFilter] = useState<number | string>(filters.year_level || 'all')
   const [loading, setLoading] = useState(false)
 
-  // Error handling
+  // Modal states
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [selectedClass, setSelectedClass] = useState<Class | null>(null)
+
+  // Form data
+  const [formData, setFormData] = useState<ClassFormData>({
+    name: '',
+    semester_id: '',
+    year_level: '',
+    section: '',
+    capacity: 50
+  })
+
+  // Flash messages
   useEffect(() => {
-    if (errors?.error) {
-      toast.error(errors.error)
-    }
     if (flash?.success) {
       toast.success(flash.success)
+    }
+    if (flash?.error) {
+      toast.error(flash.error)
+    }
+    if (errors?.error) {
+      toast.error(errors.error)
     }
   }, [errors, flash])
 
   const handleFilter = () => {
-    const params = new URLSearchParams()
+    const params: any = {}
     
-    if (searchTerm) params.set('search', searchTerm)
-    if (semesterFilter !== 'all') params.set('semester_id', semesterFilter.toString())
-    if (yearLevelFilter !== 'all') params.set('year_level', yearLevelFilter.toString())
+    if (searchTerm) params.search = searchTerm
+    if (semesterFilter !== 'all') params.semester_id = semesterFilter
+    if (yearLevelFilter !== 'all') params.year_level = yearLevelFilter
     
-    const indexRoute = route(`schools.${schoolCode.toLowerCase()}.programs.classes.index`, program.id)
-    router.get(`${indexRoute}?${params.toString()}`)
+    router.get(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes`, params, {
+      preserveState: true,
+      replace: true
+    })
+  }
+
+  const clearFilters = () => {
+    setSearchTerm('')
+    setSemesterFilter('all')
+    setYearLevelFilter('all')
+    router.get(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes`, {}, {
+      preserveState: true,
+      replace: true
+    })
+  }
+
+  const handleCreateClass = () => {
+    setFormData({
+      name: '',
+      semester_id: '',
+      year_level: '',
+      section: '',
+      capacity: 50
+    })
+    setIsCreateModalOpen(true)
+  }
+
+  const handleEditClass = (classItem: Class) => {
+    setSelectedClass(classItem)
+    setFormData({
+      name: classItem.name,
+      semester_id: classItem.semester.id,
+      year_level: classItem.year_level,
+      section: classItem.section,
+      capacity: classItem.capacity
+    })
+    setIsEditModalOpen(true)
+  }
+
+  const handleSubmitCreate = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!formData.name || !formData.semester_id || !formData.section) {
+      toast.error('Please fill in all required fields')
+      return
+    }
+
+    setLoading(true)
+
+    router.post(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes`, formData, {
+      onSuccess: () => {
+        toast.success('Class created successfully!')
+        setIsCreateModalOpen(false)
+        setFormData({
+          name: '',
+          semester_id: '',
+          year_level: '',
+          section: '',
+          capacity: 50
+        })
+      },
+      onError: (errors) => {
+        toast.error(errors.error || 'Failed to create class')
+      },
+      onFinish: () => setLoading(false)
+    })
+  }
+
+  const handleSubmitEdit = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!selectedClass) return
+
+    setLoading(true)
+
+    router.put(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes/${selectedClass.id}`, formData, {
+      onSuccess: () => {
+        toast.success('Class updated successfully!')
+        setIsEditModalOpen(false)
+        setSelectedClass(null)
+      },
+      onError: (errors) => {
+        toast.error(errors.error || 'Failed to update class')
+      },
+      onFinish: () => setLoading(false)
+    })
   }
 
   const handleDelete = (classItem: Class) => {
@@ -126,9 +239,8 @@ const ProgramClassesIndex: React.FC = () => {
 
     if (confirm(`Are you sure you want to delete "${classItem.name} Section ${classItem.section}"? This action cannot be undone.`)) {
       setLoading(true)
-      const deleteRoute = route(`schools.${schoolCode.toLowerCase()}.programs.classes.destroy`, [program.id, classItem.id])
       
-      router.delete(deleteRoute, {
+      router.delete(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes/${classItem.id}`, {
         onSuccess: () => {
           toast.success('Class deleted successfully!')
         },
@@ -139,8 +251,6 @@ const ProgramClassesIndex: React.FC = () => {
       })
     }
   }
-
-  const backToProgramsRoute = route(`schools.${schoolCode.toLowerCase()}.programs.index`)
 
   return (
     <AuthenticatedLayout>
@@ -156,7 +266,7 @@ const ProgramClassesIndex: React.FC = () => {
                 <div>
                   <div className="flex items-center mb-2">
                     <a
-                      href={backToProgramsRoute}
+                      href={`/schools/${schoolCode.toLowerCase()}/programs`}
                       className="mr-4 p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                     >
                       <ArrowLeft className="w-5 h-5" />
@@ -173,7 +283,7 @@ const ProgramClassesIndex: React.FC = () => {
                   </div>
                   <h2 className="text-2xl font-semibold text-slate-700 mb-2">Classes Management</h2>
                   <p className="text-slate-600 text-lg">
-                    manage classes, sections, and student capacity for this program
+                    Manage classes, sections, and student capacity for this program
                   </p>
                   <div className="flex items-center gap-4 mt-4">
                     <div className="text-sm text-slate-600">
@@ -189,13 +299,13 @@ const ProgramClassesIndex: React.FC = () => {
                 </div>
                 <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end">
                   {can.create && (
-                    <a
-                      href={route(`schools.${schoolCode.toLowerCase()}.programs.classes.create`, program.id)}
+                    <button
+                      onClick={handleCreateClass}
                       className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
                     >
                       <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
                       Create Class
-                    </a>
+                    </button>
                   )}
                 </div>
               </div>
@@ -204,8 +314,8 @@ const ProgramClassesIndex: React.FC = () => {
 
           {/* Filters */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 p-6 mb-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+              <div className="flex-1 max-w-md">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -213,15 +323,16 @@ const ProgramClassesIndex: React.FC = () => {
                     placeholder="Search classes..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onKeyPress={(e) => e.key === 'Enter' && handleFilter()}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-3">
                 <select
                   value={semesterFilter}
                   onChange={(e) => setSemesterFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Semesters</option>
                   {semesters.map((semester) => (
@@ -233,7 +344,7 @@ const ProgramClassesIndex: React.FC = () => {
                 <select
                   value={yearLevelFilter}
                   onChange={(e) => setYearLevelFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Year Levels</option>
                   <option value="1">Year 1</option>
@@ -243,9 +354,15 @@ const ProgramClassesIndex: React.FC = () => {
                 </select>
                 <button
                   onClick={handleFilter}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                 >
                   <Filter className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={clearFilters}
+                  className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Clear
                 </button>
               </div>
             </div>
@@ -323,21 +440,14 @@ const ProgramClassesIndex: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-sm font-medium">
                         <div className="flex items-center space-x-2">
-                          <a
-                            href={route(`schools.${schoolCode.toLowerCase()}.programs.classes.show`, [program.id, classItem.id])}
-                            className="text-blue-600 hover:text-blue-900 transition-colors p-1 rounded hover:bg-blue-50"
-                            title="View details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </a>
                           {can.update && (
-                            <a
-                              href={route(`schools.${schoolCode.toLowerCase()}.programs.classes.edit`, [program.id, classItem.id])}
+                            <button
+                              onClick={() => handleEditClass(classItem)}
                               className="text-indigo-600 hover:text-indigo-900 transition-colors p-1 rounded hover:bg-indigo-50"
                               title="Edit class"
                             >
                               <Edit className="w-4 h-4" />
-                            </a>
+                            </button>
                           )}
                           {can.delete && (
                             <button
@@ -358,24 +468,241 @@ const ProgramClassesIndex: React.FC = () => {
               
               {classes.data.length === 0 && (
                 <div className="text-center py-12">
-                  <Users className="mx-auto h-12 w-12 text-gray-400" />
+                  <GraduationCap className="mx-auto h-12 w-12 text-gray-400" />
                   <h3 className="mt-2 text-sm font-medium text-gray-900">No classes found</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     Get started by creating a new class for this program
                   </p>
                   {can.create && (
-                    <a
-                      href={route(`schools.${schoolCode.toLowerCase()}.programs.classes.create`, program.id)}
+                    <button
+                      onClick={handleCreateClass}
                       className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create Class
-                    </a>
+                    </button>
                   )}
                 </div>
               )}
             </div>
           </div>
+
+          {/* Create Modal */}
+          {isCreateModalOpen && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-semibold text-white">Create New Class</h3>
+                    <button
+                      onClick={() => setIsCreateModalOpen(false)}
+                      className="text-white hover:text-gray-200 transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSubmitCreate} className="p-6 space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Class Name *</label>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      placeholder="e.g., BBIT 1.1"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Semester *</label>
+                    <select
+                      value={formData.semester_id}
+                      onChange={(e) => setFormData({...formData, semester_id: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      required
+                    >
+                      <option value="">Select Semester</option>
+                      {semesters.map((semester) => (
+                        <option key={semester.id} value={semester.id}>
+                          {semester.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Year Level</label>
+                      <select
+                        value={formData.year_level}
+                        onChange={(e) => setFormData({...formData, year_level: parseInt(e.target.value)})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      >
+                        <option value="">Select Year</option>
+                        <option value="1">Year 1</option>
+                        <option value="2">Year 2</option>
+                        <option value="3">Year 3</option>
+                        <option value="4">Year 4</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Section *</label>
+                      <input
+                        type="text"
+                        value={formData.section}
+                        onChange={(e) => setFormData({...formData, section: e.target.value.toUpperCase()})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        placeholder="A"
+                        maxLength={1}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Capacity</label>
+                    <input
+                      type="number"
+                      value={formData.capacity}
+                      onChange={(e) => setFormData({...formData, capacity: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      min="1"
+                      max="200"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreateModalOpen(false)}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Creating...' : 'Create Class'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Modal */}
+          {isEditModalOpen && selectedClass && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-semibold text-white">Edit Class</h3>
+                    <button
+                      onClick={() => setIsEditModalOpen(false)}
+                      className="text-white hover:text-gray-200 transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSubmitEdit} className="p-6 space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Class Name *</label>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Semester *</label>
+                    <select
+                      value={formData.semester_id}
+                      onChange={(e) => setFormData({...formData, semester_id: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      <option value="">Select Semester</option>
+                      {semesters.map((semester) => (
+                        <option key={semester.id} value={semester.id}>
+                          {semester.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Year Level</label>
+                      <select
+                        value={formData.year_level}
+                        onChange={(e) => setFormData({...formData, year_level: parseInt(e.target.value)})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Select Year</option>
+                        <option value="1">Year 1</option>
+                        <option value="2">Year 2</option>
+                        <option value="3">Year 3</option>
+                        <option value="4">Year 4</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Section *</label>
+                      <input
+                        type="text"
+                        value={formData.section}
+                        onChange={(e) => setFormData({...formData, section: e.target.value.toUpperCase()})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        maxLength={1}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Capacity</label>
+                    <input
+                      type="number"
+                      value={formData.capacity}
+                      onChange={(e) => setFormData({...formData, capacity: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      min="1"
+                      max="200"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditModalOpen(false)}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Updating...' : 'Update Class'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </AuthenticatedLayout>
