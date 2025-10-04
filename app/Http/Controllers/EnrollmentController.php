@@ -148,10 +148,12 @@ class EnrollmentController extends Controller
             'stats' => $stats,
             'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
             'can' => [
-                'create' => auth()->user()->can('create-enrollments'),
-                'update' => auth()->user()->can('edit-enrollments'),
-                'delete' => auth()->user()->can('delete-enrollments'),
-            ]
+    'create' => auth()->user()->can('create-enrollments'),
+    'update' => auth()->user()->can('edit-enrollments'),
+    'delete' => auth()->user()->can('delete-enrollments'),
+    'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
+                        auth()->user()->can('create-lecturer-assignments'),
+]
         ]);
     }
 
@@ -575,10 +577,12 @@ class EnrollmentController extends Controller
             'stats' => $stats,
             'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
             'can' => [
-                'create' => auth()->user()->can('create-enrollments'),
-                'update' => auth()->user()->can('edit-enrollments'),
-                'delete' => auth()->user()->can('delete-enrollments'),
-            ]
+    'create' => auth()->user()->can('create-enrollments'),
+    'update' => auth()->user()->can('edit-enrollments'),
+    'delete' => auth()->user()->can('delete-enrollments'),
+    'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
+                        auth()->user()->can('create-lecturer-assignments'),
+]
         ]);
     }
 

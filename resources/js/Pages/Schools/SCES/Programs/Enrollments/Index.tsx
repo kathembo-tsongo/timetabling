@@ -186,10 +186,11 @@ type PageProps = {
     active_enrollments?: number;
   };
   can: {
-    create: boolean;
-    update: boolean;
-    delete: boolean;
-  };
+  create: boolean;
+  update: boolean;
+  delete: boolean;
+  assign_lecturer: boolean; 
+};
   filters: {
     search?: string;
     student_code?: string;
@@ -372,7 +373,7 @@ export default function EnrollmentsIndex() {
     classes = [],
     semesters = [], 
     stats, 
-    can = { create: false, update: false, delete: false }, 
+    can = { create: false, update: false, delete: false, assign_lecturer: false },
     filters = {}, 
     flash,
     auth
@@ -893,15 +894,15 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                     </button>
                   )}
                   
-                  {auth.user.roles?.includes('Admin') && (
-                    <button
-                      onClick={handleLecturerAssignment}
-                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-blue-600 hover:via-blue-700 hover:to-indigo-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
-                    >
-                      <UserCheck className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
-                      Lecturer Assignments
-                    </button>
-                  )}
+                  {can.assign_lecturer && (
+  <button
+    onClick={handleLecturerAssignment}
+    className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg..."
+  >
+    <UserCheck className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
+    Lecturer Assignments
+  </button>
+)}
                 </div>
               </div>
             </div>
