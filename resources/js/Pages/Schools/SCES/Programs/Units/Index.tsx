@@ -84,6 +84,14 @@ interface PageProps {
     search?: string
     per_page?: number
   }
+  stats: {  // ✅ ADD THIS
+    total: number
+    active: number
+    inactive: number
+    total_credits: number
+    assigned_to_semester: number
+    unassigned: number
+  }
   can: {
     create: boolean
     update: boolean
@@ -94,7 +102,6 @@ interface PageProps {
   }
   errors?: any
 }
-
 interface UnitFormData {
   code: string
   name: string
@@ -104,14 +111,15 @@ interface UnitFormData {
 
 const ProgramUnitsIndex: React.FC = () => {
   const { 
-    units, 
-    program, 
-    schoolCode, 
-    filters, 
-    can = { create: false, update: false, delete: false }, 
-    flash, 
-    errors 
-  } = usePage<PageProps>().props
+  units, 
+  program, 
+  schoolCode, 
+  filters,
+  stats,  
+  can = { create: false, update: false, delete: false }, 
+  flash, 
+  errors 
+} = usePage<PageProps>().props
 
   // State management
   const [searchTerm, setSearchTerm] = useState(filters.search || '')
@@ -308,16 +316,16 @@ const ProgramUnitsIndex: React.FC = () => {
                     Manage academic units and course modules for this program
                   </p>
                   <div className="flex items-center gap-4 mt-4">
-                    <div className="text-sm text-slate-600">
-                      Total Units: <span className="font-semibold">{units.meta?.total || 0}</span>
-                    </div>
-                    <div className="text-sm text-slate-600">
-                      Active: <span className="font-semibold">{units.data ? units.data.filter(u => u.is_active).length : 0}</span>
-                    </div>
-                    <div className="text-sm text-slate-600">
-                      Total Credits: <span className="font-semibold">{units.data ? units.data.reduce((sum, u) => sum + u.credit_hours, 0) : 0}</span>
-                    </div>
-                  </div>
+  <div className="text-sm text-slate-600">
+    Total Units: <span className="font-semibold">{stats?.total || 0}</span>
+  </div>
+  <div className="text-sm text-slate-600">
+    Active: <span className="font-semibold">{stats?.active || 0}</span>
+  </div>
+  <div className="text-sm text-slate-600">
+    Total Credits: <span className="font-semibold">{stats?.total_credits || 0}</span>
+  </div>
+</div>
                 </div>
                 <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end">
                   {can.create && (

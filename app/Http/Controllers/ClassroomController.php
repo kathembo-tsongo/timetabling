@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class ClassroomController extends Controller
 {
@@ -29,7 +31,6 @@ class ClassroomController extends Controller
                 $q->where('name', 'like', '%' . $search . '%')
                   ->orWhere('code', 'like', '%' . $search . '%');
                   
-                // Only search building if the column exists
                 if (Schema::hasColumn('classrooms', 'building')) {
                     $q->orWhere('building', 'like', '%' . $search . '%');
                 }
@@ -41,7 +42,6 @@ class ClassroomController extends Controller
         }
 
         if ($buildingFilter) {
-            // Only filter by building if the column exists
             if (Schema::hasColumn('classrooms', 'building')) {
                 $query->where('building', $buildingFilter);
             }
@@ -56,15 +56,12 @@ class ClassroomController extends Controller
 
         // Get classrooms with building relationships
         $classrooms = $query->with('building')->get()->map(function ($classroom) {
-            // Add usage stats using the model attribute
             $classroom->usage_stats = $classroom->usage_stats;
             
-            // Ensure facilities is always an array
             $classroom->facilities = is_string($classroom->facilities) 
                 ? json_decode($classroom->facilities, true) ?? []
                 : ($classroom->facilities ?? []);
 
-            // Add building name for display - try relationship first, then fallback to string field
             if ($classroom->building && is_object($classroom->building)) {
                 $classroom->building_name = $classroom->building->name;
             } else {
@@ -86,12 +83,10 @@ class ClassroomController extends Controller
             'by_building' => $this->getBuildingStats()
         ];
 
-        // Get buildings for dropdown - now from the building table
         $buildings = $this->getBuildingsForDropdown();
-            
         $types = ['lecture_hall', 'laboratory', 'seminar_room', 'computer_lab', 'auditorium', 'meeting_room', 'other'];
 
-        // User permissions - use actual permission system
+        // User permissions
         $user = Auth::user();
         $can = [
             'create' => $user->can('create-classrooms'),
@@ -117,88 +112,6 @@ class ClassroomController extends Controller
         ]);
     }
 
-    private function getBuildingStats()
-    {
-        try {
-            if (Schema::hasColumn('classrooms', 'building')) {
-                return Classroom::selectRaw('building, COUNT(*) as count')
-                    ->whereNotNull('building')
-                    ->where('building', '!=', '')
-                    ->groupBy('building')
-                    ->pluck('count', 'building')
-                    ->toArray();
-            }
-        } catch (\Exception $e) {
-            \Log::warning('Error getting building stats: ' . $e->getMessage());
-        }
-        
-        return [];
-    }
-
-    private function getBuildingsForDropdown()
-    {
-        try {
-            // Check if building table exists (singular 'building')
-            if (Schema::hasTable('building')) {
-                $buildings = Building::where('is_active', true)
-                    ->orderBy('name')
-                    ->get(['id', 'name', 'code']);
-
-                \Log::info('Buildings found: ' . $buildings->count());
-                
-                return $buildings->map(function($building) {
-                    return [
-                        'id' => $building->id,
-                        'name' => $building->name,
-                        'code' => $building->code
-                    ];
-                })->toArray();
-            }
-            
-            // Also check for 'buildings' table (plural)
-            if (Schema::hasTable('buildings')) {
-                $buildings = Building::where('is_active', true)
-                    ->orderBy('name')
-                    ->get(['id', 'name', 'code']);
-
-                \Log::info('Buildings found in buildings table: ' . $buildings->count());
-                
-                return $buildings->map(function($building) {
-                    return [
-                        'id' => $building->id,
-                        'name' => $building->name,
-                        'code' => $building->code
-                    ];
-                })->toArray();
-            }
-            
-            // Fallback: get from classrooms table if building table doesn't exist
-            if (Schema::hasColumn('classrooms', 'building')) {
-                $buildings = Classroom::distinct()
-                    ->whereNotNull('building')
-                    ->where('building', '!=', '')
-                    ->pluck('building')
-                    ->sort()
-                    ->values();
-
-                \Log::info('Buildings from classrooms: ' . $buildings->count());
-                    
-                return $buildings->map(function($name) {
-                    return [
-                        'id' => $name, 
-                        'name' => $name, 
-                        'code' => ''
-                    ];
-                })->toArray();
-            }
-        } catch (\Exception $e) {
-            \Log::error('Error getting buildings for dropdown: ' . $e->getMessage());
-        }
-        
-        \Log::warning('No buildings found - returning empty array');
-        return [];
-    }
-
     public function create()
     {
         try {
@@ -206,11 +119,11 @@ class ClassroomController extends Controller
             \Log::info('Attempting to load buildings...');
             
             // Try raw DB query first
-            $buildingsRaw = \DB::table('building')->get();
+            $buildingsRaw = DB::table('building')->get();
             \Log::info('Raw DB query result: ' . $buildingsRaw->count() . ' buildings found');
             
             // Try to get buildings from database
-            $buildings = \DB::table('building')
+            $buildings = DB::table('building')
                 ->where('is_active', 1)
                 ->orderBy('name')
                 ->select('id', 'name', 'code')
@@ -277,14 +190,12 @@ class ClassroomController extends Controller
             'is_active' => 'boolean'
         ];
 
-        // Add building validation - should match building names from the building table
         if (Schema::hasColumn('classrooms', 'building')) {
             $rules['building'] = 'required|string|max:255';
         }
 
         $validated = $request->validate($rules);
 
-        // Ensure facilities is properly formatted
         $validated['facilities'] = json_encode($validated['facilities'] ?? []);
         $validated['is_active'] = $validated['is_active'] ?? true;
 
@@ -302,10 +213,8 @@ class ClassroomController extends Controller
 
     public function show(Classroom $classroom)
     {
-        // Add usage stats using the model attribute
         $classroom->usage_stats = $classroom->usage_stats;
 
-        // Ensure facilities is an array
         $classroom->facilities = is_string($classroom->facilities) 
             ? json_decode($classroom->facilities, true) ?? []
             : ($classroom->facilities ?? []);
@@ -320,7 +229,6 @@ class ClassroomController extends Controller
         $buildings = $this->getBuildingsForDropdown();
         $types = ['lecture_hall', 'laboratory', 'seminar_room', 'computer_lab', 'auditorium', 'meeting_room', 'other'];
 
-        // Ensure facilities is an array
         $classroom->facilities = is_string($classroom->facilities) 
             ? json_decode($classroom->facilities, true) ?? []
             : ($classroom->facilities ?? []);
@@ -347,14 +255,12 @@ class ClassroomController extends Controller
             'is_active' => 'boolean'
         ];
 
-        // Add building validation
         if (Schema::hasColumn('classrooms', 'building')) {
             $rules['building'] = 'required|string|max:255';
         }
 
         $validated = $request->validate($rules);
 
-        // Ensure facilities is properly formatted
         $validated['facilities'] = json_encode($validated['facilities'] ?? []);
         $validated['is_active'] = $validated['is_active'] ?? true;
 
@@ -375,7 +281,6 @@ class ClassroomController extends Controller
         try {
             $classroom->delete();
 
-            // Return JSON response for AJAX requests
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => true,
@@ -385,7 +290,6 @@ class ClassroomController extends Controller
 
             return redirect()->back()->with('success', 'Classroom deleted successfully!');
         } catch (\Exception $e) {
-            // Return JSON error response for AJAX requests
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
@@ -395,5 +299,68 @@ class ClassroomController extends Controller
 
             return redirect()->back()->with('error', 'Failed to delete classroom. Please try again.');
         }
+    }
+
+    private function getBuildingStats()
+    {
+        try {
+            if (Schema::hasColumn('classrooms', 'building')) {
+                return Classroom::selectRaw('building, COUNT(*) as count')
+                    ->whereNotNull('building')
+                    ->where('building', '!=', '')
+                    ->groupBy('building')
+                    ->pluck('count', 'building')
+                    ->toArray();
+            }
+        } catch (\Exception $e) {
+            \Log::warning('Error getting building stats: ' . $e->getMessage());
+        }
+        
+        return [];
+    }
+
+    private function getBuildingsForDropdown()
+    {
+        try {
+            if (Schema::hasTable('building') || Schema::hasTable('buildings')) {
+                $buildings = Building::where('is_active', true)
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'code']);
+
+                \Log::info('Buildings found: ' . $buildings->count());
+                
+                return $buildings->map(function($building) {
+                    return [
+                        'id' => $building->id,
+                        'name' => $building->name,
+                        'code' => $building->code
+                    ];
+                })->toArray();
+            }
+            
+            if (Schema::hasColumn('classrooms', 'building')) {
+                $buildings = Classroom::distinct()
+                    ->whereNotNull('building')
+                    ->where('building', '!=', '')
+                    ->pluck('building')
+                    ->sort()
+                    ->values();
+
+                \Log::info('Buildings from classrooms: ' . $buildings->count());
+                    
+                return $buildings->map(function($name) {
+                    return [
+                        'id' => $name, 
+                        'name' => $name, 
+                        'code' => ''
+                    ];
+                })->toArray();
+            }
+        } catch (\Exception $e) {
+            \Log::error('Error getting buildings for dropdown: ' . $e->getMessage());
+        }
+        
+        \Log::warning('No buildings found - returning empty array');
+        return [];
     }
 }

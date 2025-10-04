@@ -89,7 +89,7 @@ export default function Sidebar() {
                 <span>Semesters</span>
               </Link>
             )}
-            {can('view-classes') && (
+            {/* {can('view-classes') && (
               <Link href="/admin/classes" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Users className="mr-3 h-5 w-5" />
                 <span>Classes</span>
@@ -100,7 +100,7 @@ export default function Sidebar() {
                 <Users className="mr-3 h-5 w-5" />
                 <span>Groups</span>
               </Link>
-            )}
+            )} */}
             {can('view-buildings') && (
               <Link href="/admin/buildings" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Building className="mr-3 h-5 w-5" />
@@ -227,7 +227,7 @@ export default function Sidebar() {
                 )}
               </div>
             )}
-
+{/* 
             {can('view-units') && (
               <Link href="/admin/units" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <ClipboardList className="mr-3 h-5 w-5" />
@@ -239,7 +239,7 @@ export default function Sidebar() {
                 <Users className="mr-3 h-5 w-5" />
                 <span>Lecturer Assignments</span>
               </Link>
-            )}
+            )} */}
           </div>
         )}
 

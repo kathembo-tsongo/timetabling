@@ -23,9 +23,34 @@ class UnitController extends Controller
     }
 
     /**
-     * Display units for a specific program with enhanced context
-     */
-    public function programUnits(Program $program, Request $request, $schoolCode)
+ * Get statistics for units in a specific program
+ */
+private function getProgramUnitsStats($programId)
+{
+    return [
+        'total' => Unit::where('program_id', $programId)->count(),
+        'active' => Unit::where('program_id', $programId)
+            ->where('is_active', true)
+            ->count(),
+        'inactive' => Unit::where('program_id', $programId)
+            ->where('is_active', false)
+            ->count(),
+        'total_credits' => Unit::where('program_id', $programId)
+            ->where('is_active', true)
+            ->sum('credit_hours'),
+        'assigned_to_semester' => Unit::where('program_id', $programId)
+            ->whereNotNull('semester_id')
+            ->count(),
+        'unassigned' => Unit::where('program_id', $programId)
+            ->whereNull('semester_id')
+            ->count(),
+    ];
+}
+
+/**
+ * Display units for a specific program with enhanced context
+ */
+public function programUnits(Program $program, Request $request, $schoolCode)
 {
     $schoolCode = strtoupper($schoolCode);
     $user = auth()->user();
@@ -67,8 +92,8 @@ class UnitController extends Controller
             'search' => $search,
             'per_page' => (int) $perPage,
         ],
+        'stats' => $this->getProgramUnitsStats($program->id), // ✅ ADD THIS LINE
         'can' => [
-            // ✅ Fixed: Use hyphens to match actual permissions
             'create' => $user->hasRole('Admin') || 
                        $user->can('manage-units') || 
                        $user->can('edit-units'),
@@ -87,7 +112,6 @@ class UnitController extends Controller
         ],
     ]);
 }
-
     /**
      * Update program unit with enhanced validation and context logging
      */
@@ -612,5 +636,94 @@ public function programUnitAssignments(Program $program, Request $request, $scho
             'error' => session('error'),
         ]
     ]);
+}
+/**
+ * Store a new unit for a specific program
+ */
+public function storeProgramUnit(Program $program, Request $request, $schoolCode)
+{
+    $schoolCode = strtoupper($schoolCode);
+    
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
+    }
+
+    $validator = Validator::make($request->all(), [
+        'code' => [
+            'required',
+            'string',
+            'max:20',
+            Rule::unique('units', 'code')
+        ],
+        'name' => 'required|string|max:255',
+        'credit_hours' => 'required|integer|min:1|max:10',
+        'description' => 'nullable|string|max:1000',
+        'is_active' => 'boolean',
+    ], [
+        'code.unique' => 'This unit code is already in use by another unit.',
+        'code.required' => 'Unit code is required.',
+        'name.required' => 'Unit name is required.',
+        'credit_hours.required' => 'Credit hours are required.',
+        'credit_hours.min' => 'Credit hours must be at least 1.',
+        'credit_hours.max' => 'Credit hours cannot exceed 10.',
+    ]);
+
+    if ($validator->fails()) {
+        return redirect()->back()
+            ->withErrors($validator)
+            ->withInput()
+            ->with('error', 'Please check the form for errors.');
+    }
+    
+    try {
+        DB::beginTransaction();
+
+        $unit = Unit::create([
+            'code' => strtoupper($request->code),
+            'name' => $request->name,
+            'credit_hours' => $request->credit_hours,
+            'description' => $request->description,
+            'is_active' => $request->boolean('is_active', true),
+            'program_id' => $program->id,
+            'school_id' => $program->school_id,
+        ]);
+
+        Log::info("Unit created successfully", [
+            'unit_id' => $unit->id,
+            'unit_code' => $unit->code,
+            'unit_name' => $unit->name,
+            'program_id' => $program->id,
+            'program_code' => $program->code,
+            'program_name' => $program->name,
+            'school_code' => $schoolCode,
+            'school_name' => $program->school->name,
+            'created_by' => auth()->id(),
+            'created_at' => $unit->created_at->toDateTimeString()
+        ]);
+
+        DB::commit();
+        
+        return redirect()->route('schools.SCES.programs.units.index', [
+            'schoolCode' => $schoolCode,
+            'program' => $program->id
+        ])->with('success', "Unit '{$unit->code}' created successfully!");
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        Log::error("Error creating program unit", [
+            'program_id' => $program->id,
+            'school_code' => $schoolCode,
+            'data' => $request->except(['_token']),
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+            'user_id' => auth()->id()
+        ]);
+
+        return redirect()->back()
+            ->withInput()
+            ->with('error', 'Error creating unit. Please try again or contact support.');
+    }
 }
 }
