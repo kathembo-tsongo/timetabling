@@ -574,6 +574,17 @@ public function programUnitAssignments(Program $program, Request $request, $scho
         ->orderBy('created_at', 'desc');
 
     $assignedUnits = $assignedUnitsQuery->get();
+    
+    // Calculate stats correctly - count UNIQUE units, not assignment records
+    $totalUnits = Unit::where('program_id', $program->id)->count();
+    
+    // Count unique units that have at least one assignment
+    $uniqueAssignedUnitIds = UnitAssignment::whereHas('unit', function($q) use ($program) {
+        $q->where('program_id', $program->id);
+    })->distinct()->pluck('unit_id');
+    
+    $assignedCount = $uniqueAssignedUnitIds->count();
+    $unassignedCount = $totalUnits - $assignedCount;
 
     // Get semesters
     $semesters = Semester::where('is_active', true)
@@ -618,9 +629,9 @@ public function programUnitAssignments(Program $program, Request $request, $scho
             'class_id' => $classId ? (int) $classId : null,
         ],
         'stats' => [
-            'total_units' => Unit::where('program_id', $program->id)->count(),
-            'unassigned_count' => $unassignedUnits->count(),
-            'assigned_count' => $assignedUnits->count(),
+            'total_units' => $totalUnits,
+            'unassigned_count' => $unassignedCount,
+            'assigned_count' => $assignedCount,
         ],
         'can' => [
             'assign' => $user->hasRole('Admin') || 
@@ -855,4 +866,104 @@ public function assignProgramUnitsToSemester($schoolCode, Program $program, Requ
         return redirect()->back()->with('error', 'Failed to assign units. Please try again.');
     }
 }
+// remove assigned units from semester
+/**
+ * Remove units from semester and class assignments
+ */
+public function removeProgramUnitsFromSemester($schoolCode, Program $program, Request $request)
+{
+    $schoolCode = strtoupper($schoolCode);
+    
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
+    }
+    
+    $validator = Validator::make($request->all(), [
+        'assignment_ids' => 'required|array|min:1',
+        'assignment_ids.*' => 'exists:unit_assignments,id',
+    ], [
+        'assignment_ids.required' => 'Please select at least one assignment to remove.',
+        'assignment_ids.array' => 'Invalid assignment selection.',
+        'assignment_ids.min' => 'Please select at least one assignment to remove.',
+        'assignment_ids.*.exists' => 'One or more selected assignments do not exist.',
+    ]);
+    
+    if ($validator->fails()) {
+        return redirect()->back()
+            ->withErrors($validator)
+            ->withInput()
+            ->with('error', 'Please check the form for errors.');
+    }
+    
+    $assignmentIds = $request->input('assignment_ids');
+    
+    try {
+        DB::beginTransaction();
+        
+        $removedCount = 0;
+        $skippedCount = 0;
+        
+        foreach ($assignmentIds as $assignmentId) {
+            $assignment = UnitAssignment::with('unit')->find($assignmentId);
+            
+            if (!$assignment) {
+                Log::warning("Assignment not found, skipping", [
+                    'assignment_id' => $assignmentId,
+                    'user_id' => auth()->id()
+                ]);
+                $skippedCount++;
+                continue;
+            }
+            
+            // Verify the assignment belongs to a unit in this program
+            if ($assignment->unit->program_id !== $program->id) {
+                Log::warning("Attempt to remove assignment from different program", [
+                    'assignment_id' => $assignmentId,
+                    'unit_program_id' => $assignment->unit->program_id,
+                    'expected_program_id' => $program->id,
+                    'user_id' => auth()->id()
+                ]);
+                $skippedCount++;
+                continue;
+            }
+            
+            Log::info("Unit assignment removed", [
+                'assignment_id' => $assignment->id,
+                'unit_id' => $assignment->unit_id,
+                'unit_code' => $assignment->unit->code,
+                'semester_id' => $assignment->semester_id,
+                'class_id' => $assignment->class_id,
+                'program_id' => $program->id,
+                'user_id' => auth()->id()
+            ]);
+            
+            $assignment->delete();
+            $removedCount++;
+        }
+        
+        DB::commit();
+        
+        $message = "Successfully removed {$removedCount} assignment(s).";
+        if ($skippedCount > 0) {
+            $message .= " {$skippedCount} assignment(s) were skipped (not found or invalid).";
+        }
+        
+        return redirect()->back()->with('success', $message);
+        
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        Log::error("Error removing unit assignments", [
+            'program_id' => $program->id,
+            'assignment_ids' => $assignmentIds,
+            'user_id' => auth()->id(),
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return redirect()->back()->with('error', 'Failed to remove assignments. Please try again.');
+    }
+}
+
 }

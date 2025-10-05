@@ -405,8 +405,8 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
 })->middleware(['permission:edit-units'])->name('assign');
                 
                 Route::post('/remove', function(Program $program, Request $request) {
-                    return app(UnitController::class)->removeProgramUnitsFromSemester($program, $request, 'SCES');
-                })->middleware(['permission:delete-units'])->name('remove');
+    return app(UnitController::class)->removeProgramUnitsFromSemester('SCES', $program, $request);
+})->middleware(['permission:delete-units'])->name('remove');
             });
 
             // CLASSES
