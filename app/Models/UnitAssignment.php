@@ -12,7 +12,8 @@ class UnitAssignment extends Model
         'semester_id', 
         'class_id',
         'lecturer_code',
-        'assigned_at'
+        'assigned_at',
+        
     ];
 
     protected $casts = [

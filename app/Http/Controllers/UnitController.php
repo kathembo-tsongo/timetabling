@@ -726,4 +726,133 @@ public function storeProgramUnit(Program $program, Request $request, $schoolCode
             ->with('error', 'Error creating unit. Please try again or contact support.');
     }
 }
+public function assignProgramUnitsToSemester($schoolCode, Program $program, Request $request)
+{
+    $schoolCode = strtoupper($schoolCode);
+    
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
+    }
+    
+    $validator = Validator::make($request->all(), [
+        'unit_ids' => 'required|array|min:1',
+        'unit_ids.*' => 'exists:units,id',
+        'semester_id' => 'required|exists:semesters,id',
+        'class_ids' => 'required|array|min:1',
+        'class_ids.*' => 'exists:classes,id',
+    ], [
+        'unit_ids.required' => 'Please select at least one unit to assign.',
+        'unit_ids.array' => 'Invalid units selection.',
+        'unit_ids.min' => 'Please select at least one unit to assign.',
+        'unit_ids.*.exists' => 'One or more selected units do not exist.',
+        'semester_id.required' => 'Please select a semester for assignment.',
+        'semester_id.exists' => 'The selected semester does not exist.',
+        'class_ids.required' => 'Please select at least one class.',
+        'class_ids.array' => 'Invalid class selection.',
+        'class_ids.*.exists' => 'One or more selected classes do not exist.',
+    ]);
+    
+    if ($validator->fails()) {
+        return redirect()->back()
+            ->withErrors($validator)
+            ->withInput()
+            ->with('error', 'Please check the form for errors.');
+    }
+    
+    $unitIds = $request->input('unit_ids');
+    $semesterId = $request->input('semester_id');
+    $classIds = $request->input('class_ids');
+    
+    try {
+        DB::beginTransaction();
+        
+        $assignedCount = 0;
+        $skippedCount = 0;
+        
+        foreach ($unitIds as $unitId) {
+            $unit = Unit::find($unitId);
+            
+            if (!$unit) {
+                Log::warning("Unit not found, skipping", [
+                    'unit_id' => $unitId,
+                    'program_id' => $program->id,
+                    'user_id' => auth()->id()
+                ]);
+                $skippedCount++;
+                continue;
+            }
+            
+            if ($unit->program_id !== $program->id) {
+                Log::warning("Attempt to assign unit from different program", [
+                    'unit_id' => $unit->id,
+                    'unit_program_id' => $unit->program_id,
+                    'expected_program_id' => $program->id,
+                    'user_id' => auth()->id()
+                ]);
+                $skippedCount++;
+                continue;
+            }
+            
+            // Loop through each class
+            foreach ($classIds as $classId) {
+                $existingAssignment = UnitAssignment::where('unit_id', $unit->id)
+                    ->where('semester_id', $semesterId)
+                    ->where('class_id', $classId)
+                    ->first();
+                
+                if ($existingAssignment) {
+                    Log::info("Unit already assigned to semester/class, skipping", [
+                        'unit_id' => $unit->id,
+                        'semester_id' => $semesterId,
+                        'class_id' => $classId,
+                        'user_id' => auth()->id()
+                    ]);
+                    $skippedCount++;
+                    continue;
+                }
+                
+                UnitAssignment::create([
+                    'unit_id' => $unit->id,
+                    'semester_id' => $semesterId,
+                    'class_id' => $classId,
+                ]);
+                
+                $assignedCount++;
+                
+                Log::info("Unit assigned successfully", [
+                    'unit_id' => $unit->id,
+                    'unit_code' => $unit->code,
+                    'semester_id' => $semesterId,
+                    'class_id' => $classId,
+                    'program_id' => $program->id,
+                    'user_id' => auth()->id()
+                ]);
+            }
+        }
+        
+        DB::commit();
+        
+        $message = "Successfully assigned {$assignedCount} unit(s) to class(es).";
+        if ($skippedCount > 0) {
+            $message .= " {$skippedCount} assignment(s) were skipped (already assigned or invalid).";
+        }
+        
+        return redirect()->back()->with('success', $message);
+        
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        Log::error("Error assigning units to semester", [
+            'program_id' => $program->id,
+            'semester_id' => $semesterId,
+            'class_ids' => $classIds,
+            'user_id' => auth()->id(),
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return redirect()->back()->with('error', 'Failed to assign units. Please try again.');
+    }
+}
 }

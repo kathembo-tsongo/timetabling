@@ -401,8 +401,8 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 })->middleware(['permission:view-units'])->name('AssignSemesters');
                 
                 Route::post('/assign', function(Program $program, Request $request) {
-                    return app(UnitController::class)->assignProgramUnitsToSemester($program, $request, 'SCES');
-                })->middleware(['permission:edit-units'])->name('assign');
+    return app(UnitController::class)->assignProgramUnitsToSemester('SCES', $program, $request);
+})->middleware(['permission:edit-units'])->name('assign');
                 
                 Route::post('/remove', function(Program $program, Request $request) {
                     return app(UnitController::class)->removeProgramUnitsFromSemester($program, $request, 'SCES');
@@ -520,96 +520,7 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
     });
 });
 
-    // SBS Routes (Same structure as SCES, just replace 'SCES' with 'SBS')
-    Route::prefix('schools/sbs')->name('schools.sbs.programs.')->middleware(['permission:view-programs'])->group(function () {
-        Route::get('programs', function(Request $request) {
-            return app(ProgramController::class)->index($request, 'SBS');
-        })->name('index');
-        Route::post('programs', function(Request $request) {
-            return app(ProgramController::class)->store($request, 'SBS');
-        })->middleware(['permission:create-programs'])->name('store');
-        Route::get('programs/create', function() {
-            return app(ProgramController::class)->create('SBS');
-        })->middleware(['permission:create-programs'])->name('create');
-        Route::get('programs/{program}', function(Program $program) {
-            return app(ProgramController::class)->show('SBS', $program);
-        })->name('show');
-        Route::get('programs/{program}/edit', function(Program $program) {
-            return app(ProgramController::class)->edit('SBS', $program);
-        })->middleware(['permission:edit-programs'])->name('edit');
-        Route::put('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->update($request, 'SBS', $program);
-        })->middleware(['permission:edit-programs'])->name('update');
-        Route::patch('programs/{program}', function(Request $request, Program $program) {
-            return app(ProgramController::class)->update($request, 'SBS', $program);
-        })->middleware(['permission:edit-programs'])->name('patch');
-        Route::delete('programs/{program}', function(Program $program) {
-            return app(ProgramController::class)->destroy('SBS', $program);
-        })->middleware(['permission:delete-programs'])->name('destroy');
-
-        // Same nested routes for SBS (units, classes, enrollments, timetables)
-        Route::prefix('programs/{program}')->group(function () {
-            Route::prefix('units')->name('units.')->middleware(['permission:view-units'])->group(function () {
-                Route::get('/', function(Program $program, Request $request) {
-                    return app(UnitController::class)->programUnits($program, $request, 'SBS');
-                })->name('index');
-                Route::post('/', function(Program $program, Request $request) {
-                    return app(UnitController::class)->storeProgramUnit($program, $request, 'SBS');
-                })->middleware(['permission:create-units'])->name('store');
-                Route::get('/create', function(Program $program) {
-                    return app(UnitController::class)->createProgramUnit($program, 'SBS');
-                })->middleware(['permission:create-units'])->name('create');
-                Route::get('/{unit}', function(Program $program, Unit $unit) {
-                    return app(UnitController::class)->showProgramUnit($program, $unit, 'SBS');
-                })->name('show');
-                Route::get('/{unit}/edit', function(Program $program, Unit $unit) {
-                    return app(UnitController::class)->editProgramUnit($program, $unit, 'SBS');
-                })->middleware(['permission:edit-units'])->name('edit');
-                Route::put('/{unit}', function(Program $program, Unit $unit, Request $request) {
-                    return app(UnitController::class)->updateProgramUnit($program, $unit, $request, 'SBS');
-                })->middleware(['permission:edit-units'])->name('update');
-                Route::delete('/{unit}', function(Program $program, Unit $unit) {
-                    return app(UnitController::class)->destroyProgramUnit($program, $unit, 'SBS');
-                })->middleware(['permission:delete-units'])->name('destroy');
-            });
-            
-            Route::prefix('unitassignment')->name('unitassignment.')->middleware(['permission:edit-units'])->group(function () {
-                Route::get('/', function(Program $program, Request $request) {
-                    return app(UnitController::class)->programUnitAssignments($program, $request, 'SBS');
-                })->name('AssignSemesters');
-                Route::post('/assign', function(Program $program, Request $request) {
-                    return app(UnitController::class)->assignProgramUnitsToSemester($program, $request, 'SBS');
-                })->name('assign');
-                Route::post('/remove', function(Program $program, Request $request) {
-                    return app(UnitController::class)->removeProgramUnitsFromSemester($program, $request, 'SBS');
-                })->name('remove');
-            });
-
-            Route::prefix('classes')->name('classes.')->middleware(['permission:view-classes'])->group(function () {
-                Route::get('/', function(Program $program, Request $request) {
-                    return app(ClassController::class)->programClasses($program, $request, 'SBS');
-                })->name('index');
-                Route::post('/', function(Program $program, Request $request) {
-                    return app(ClassController::class)->storeProgramClass($program, $request, 'SBS');
-                })->middleware(['permission:create-classes'])->name('store');
-                Route::get('/create', function(Program $program) {
-                    return app(ClassController::class)->createProgramClass($program, 'SBS');
-                })->middleware(['permission:create-classes'])->name('create');
-                Route::get('/{class}', function(Program $program, ClassModel $class) {
-                    return app(ClassController::class)->showProgramClass($program, $class, 'SBS');
-                })->name('show');
-                Route::get('/{class}/edit', function(Program $program, ClassModel $class) {
-                    return app(ClassController::class)->editProgramClass($program, $class, 'SBS');
-                })->middleware(['permission:edit-classes'])->name('edit');
-                Route::put('/{class}', function(Program $program, ClassModel $class, Request $request) {
-                    return app(ClassController::class)->updateProgramClass($program, $class, $request, 'SBS');
-                })->middleware(['permission:edit-classes'])->name('update');
-                Route::delete('/{class}', function(Program $program, ClassModel $class) {
-                    return app(ClassController::class)->destroyProgramClass($program, $class, 'SBS');
-                })->middleware(['permission:delete-classes'])->name('destroy');
-            });
-        });
-    });
+    
 
     // STUDENTS ROUTES
     Route::prefix('student')->middleware(['role:Student'])->group(function () {
