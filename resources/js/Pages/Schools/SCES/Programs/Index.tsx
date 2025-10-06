@@ -6,91 +6,106 @@ import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { toast } from "react-hot-toast"
 import {
-GraduationCap,
-Plus,
-Search,
-Filter,
-Edit,
-Trash2,
-Eye,
-ChevronDown,
-ChevronUp,
-BookOpen,
-Users,
-Phone,
-Mail,
-Check,
-X,
-Clock,
-Award,
-Building2,
-Calendar
+  GraduationCap,
+  Plus,
+  Search,
+  Filter,
+  Edit,
+  Trash2,
+  Eye,
+  ChevronDown,
+  ChevronUp,
+  BookOpen,
+  Users,
+  Phone,
+  Mail,
+  Check,
+  X,
+  Clock,
+  Award,
+  Building2,
+  Calendar
 } from "lucide-react"
 import { route } from 'ziggy-js';
 
 // Interfaces
 interface Program {
-id: number
-code: string
-name: string
-full_name: string
-degree_type: string
-duration_years: number
-description?: string
-is_active: boolean
-contact_email?: string
-contact_phone?: string
-sort_order: number
-school_name: string
-units_count: number
-enrollments_count: number
-created_at: string
-updated_at: string
+  id: number
+  code: string
+  name: string
+  full_name: string
+  degree_type: string
+  duration_years: number
+  description?: string
+  is_active: boolean
+  contact_email?: string
+  contact_phone?: string
+  sort_order: number
+  school_name: string
+  units_count: number
+  enrollments_count: number
+  created_at: string
+  updated_at: string
 }
 
 interface School {
-id: number
-name: string
-code: string
+  id: number
+  name: string
+  code: string
 }
 
 interface PageProps {
-programs: Program[]
-school: School
-filters: {
-search?: string
-is_active?: boolean
-sort_field?: string
-sort_direction?: string
-}
-can: {
-create: boolean
-update: boolean
-delete: boolean
-}
-flash?: {
-success?: string
-}
-errors?: {
-error?: string
-}
+  programs: Program[]
+  school: School
+  filters: {
+    search?: string
+    is_active?: boolean
+    sort_field?: string
+    sort_direction?: string
+  }
+  can: {
+    create: boolean
+    update: boolean
+    delete: boolean
+  }
+  flash?: {
+    success?: string
+  }
+  errors?: {
+    error?: string
+  }
+  auth?: {
+    user?: {
+      roles?: string[]
+      permissions?: string[]
+    }
+  }
 }
 
 interface ProgramFormData {
-code: string
-name: string
-degree_type: string
-duration_years: number
-description: string
-contact_email: string
-contact_phone: string
-is_active: boolean
-sort_order: number
+  code: string
+  name: string
+  degree_type: string
+  duration_years: number
+  description: string
+  contact_email: string
+  contact_phone: string
+  is_active: boolean
+  sort_order: number
 }
 
 const SCESProgramsManagement: React.FC = () => {
   
-  const { programs, school, filters, can = { create: false, update: false, delete: false }, flash, errors } = usePage<PageProps>().props
+  const { programs, school, filters, can = { create: false, update: false, delete: false }, flash, errors, auth } = usePage<PageProps>().props
+
+  // Role and permission checks
+  const user = auth?.user
+  const roles = user?.roles || []
+  const permissions = user?.permissions || []
+  
+  const canPermission = (perm: string) => permissions.includes(perm)
+  const isRole = (role: string) => roles.includes(role)
+  const isClassTimetableOffice = isRole('Class Timetable office')
 
   // State management
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -247,29 +262,29 @@ const SCESProgramsManagement: React.FC = () => {
     }
   }
 
-const handleSubmit = (e: React.FormEvent) => {
-  e.preventDefault()
-  setLoading(true)
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
 
-  const url = selectedProgram 
-  ? route("schools.sces.programs.update", { program: selectedProgram.id })
-  : route("schools.sces.programs.store") 
+    const url = selectedProgram 
+      ? route("schools.sces.programs.update", { program: selectedProgram.id })
+      : route("schools.sces.programs.store") 
 
-  const method = selectedProgram ? "put" : "post"
+    const method = selectedProgram ? "put" : "post"
 
-  router[method](url, formData, {
-    onSuccess: () => {
-      toast.success(`Program ${selectedProgram ? "updated" : "created"} successfully!`)
-      setIsCreateModalOpen(false)
-      setIsEditModalOpen(false)
-      setSelectedProgram(null)
-    },
-    onError: (errors) => {
-      toast.error(errors.error || `Failed to ${selectedProgram ? "update" : "create"} program`)
-    },
-    onFinish: () => setLoading(false)
-  })
-}
+    router[method](url, formData, {
+      onSuccess: () => {
+        toast.success(`Program ${selectedProgram ? "updated" : "created"} successfully!`)
+        setIsCreateModalOpen(false)
+        setIsEditModalOpen(false)
+        setSelectedProgram(null)
+      },
+      onError: (errors) => {
+        toast.error(errors.error || `Failed to ${selectedProgram ? "update" : "create"} program`)
+      },
+      onFinish: () => setLoading(false)
+    })
+  }
 
   const handleFilter = () => {
     const params = new URLSearchParams()
@@ -310,7 +325,6 @@ const handleSubmit = (e: React.FormEvent) => {
       "Actions"
     ]
   }, [])
-  
 
   return (
     <AuthenticatedLayout>
@@ -350,14 +364,14 @@ const handleSubmit = (e: React.FormEvent) => {
                   </div>
                 </div>
                 <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end">
-                  {can.create && (
-                  <button
-                    onClick={handleCreateProgram}
-                    className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
-                  >
-                    <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
-                    Create Program
-                  </button>
+                  {can.create && !isClassTimetableOffice && (
+                    <button
+                      onClick={handleCreateProgram}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
+                      Create Program
+                    </button>
                   )}
                 </div>
               </div>
@@ -521,7 +535,7 @@ const handleSubmit = (e: React.FormEvent) => {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {can.update && (
+                            {can.update && !isClassTimetableOffice && (
                               <button
                                 onClick={() => handleEditProgram(program)}
                                 className="text-indigo-600 hover:text-indigo-900 transition-colors p-1 rounded hover:bg-indigo-50"
@@ -530,7 +544,7 @@ const handleSubmit = (e: React.FormEvent) => {
                                 <Edit className="w-4 h-4" />
                               </button>
                             )}
-                            {can.delete && (
+                            {can.delete && !isClassTimetableOffice && (
                               <button
                                 onClick={() => handleDeleteProgram(program)}
                                 className="text-red-600 hover:text-red-900 transition-colors p-1 rounded hover:bg-red-50"
@@ -556,69 +570,89 @@ const handleSubmit = (e: React.FormEvent) => {
                                   Program Management
                                 </h4>
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                                  <a
-                                    href={route('schools.sces.programs.units.index', program.id)}
-                                    className="flex items-center px-4 py-3 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors group"
-                                  >
-                                    <BookOpen className="w-4 h-4 mr-2 text-blue-600 group-hover:scale-110 transition-transform" />
-                                    <div>
-                                      <div className="text-sm font-medium text-blue-900">Units</div>
-                                      <div className="text-xs text-blue-600">{program.units_count}</div>
-                                    </div>
-                                  </a>
-                                  <a
-                                    href={route('schools.sces.programs.classes.index', program.id)}
-                                    className="flex items-center px-4 py-3 bg-green-100 hover:bg-green-200 rounded-lg transition-colors group"
-                                  >
-                                    <Users className="w-4 h-4 mr-2 text-green-600 group-hover:scale-110 transition-transform" />
-                                    <div>
-                                      <div className="text-sm font-medium text-green-900">Classes</div>
-                                      <div className="text-xs text-green-600">Manage</div>
-                                    </div>
-                                  </a>
+                                  {/* Units - Hidden from Class Timetable office */}
+                                  {!isClassTimetableOffice && canPermission('view-units') && (
+                                    <a
+                                      href={route('schools.sces.programs.units.index', program.id)}
+                                      className="flex items-center px-4 py-3 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors group"
+                                    >
+                                      <BookOpen className="w-4 h-4 mr-2 text-blue-600 group-hover:scale-110 transition-transform" />
+                                      <div>
+                                        <div className="text-sm font-medium text-blue-900">Units</div>
+                                        <div className="text-xs text-blue-600">{program.units_count}</div>
+                                      </div>
+                                    </a>
+                                  )}
+
+                                  {/* Classes - Hidden from Class Timetable office */}
+                                  {!isClassTimetableOffice && canPermission('view-classes') && (
+                                    <a
+                                      href={route('schools.sces.programs.classes.index', program.id)}
+                                      className="flex items-center px-4 py-3 bg-green-100 hover:bg-green-200 rounded-lg transition-colors group"
+                                    >
+                                      <Users className="w-4 h-4 mr-2 text-green-600 group-hover:scale-110 transition-transform" />
+                                      <div>
+                                        <div className="text-sm font-medium text-green-900">Classes</div>
+                                        <div className="text-xs text-green-600">Manage</div>
+                                      </div>
+                                    </a>
+                                  )}
                                   
-                                  {/* NEW: Unit Assignment Link */}
-                                  <a
-                                    href={route('schools.sces.programs.unitassignment.AssignSemesters', program.id)}
-                                    className="flex items-center px-4 py-3 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors group"
-                                  >
-                                    <Calendar className="w-4 h-4 mr-2 text-indigo-600 group-hover:scale-110 transition-transform" />
-                                    <div>
-                                      <div className="text-sm font-medium text-indigo-900">Unit Assignment</div>
-                                      <div className="text-xs text-indigo-600">Semester Mapping</div>
-                                    </div>
-                                  </a>
+                                  {/* Unit Assignment - Hidden from Class Timetable office */}
+                                  {!isClassTimetableOffice && canPermission('view-unit-assignments') && (
+                                    <a
+                                      href={route('schools.sces.programs.unitassignment.AssignSemesters', program.id)}
+                                      className="flex items-center px-4 py-3 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors group"
+                                    >
+                                      <Calendar className="w-4 h-4 mr-2 text-indigo-600 group-hover:scale-110 transition-transform" />
+                                      <div>
+                                        <div className="text-sm font-medium text-indigo-900">Unit Assignment</div>
+                                        <div className="text-xs text-indigo-600">Semester Mapping</div>
+                                      </div>
+                                    </a>
+                                  )}
                                   
-                                  <a
-                                    href={route('schools.sces.programs.enrollments.index', program.id)}
-                                    className="flex items-center px-4 py-3 bg-orange-100 hover:bg-orange-200 rounded-lg transition-colors group"
-                                  >
-                                    <GraduationCap className="w-4 h-4 mr-2 text-orange-600 group-hover:scale-110 transition-transform" />
-                                    <div>
-                                      <div className="text-sm font-medium text-orange-900">Enrollment</div>
-                                      <div className="text-xs text-orange-600">{program.enrollments_count}</div>
-                                    </div>
-                                  </a>
-                                  <a
-                                    href={route('schools.sces.programs.class-timetables.index', program.id)}
-                                    className="flex items-center px-4 py-3 bg-teal-100 hover:bg-teal-200 rounded-lg transition-colors group"
-                                  >
-                                    <Clock className="w-4 h-4 mr-2 text-teal-600 group-hover:scale-110 transition-transform" />
-                                    <div>
-                                      <div className="text-sm font-medium text-teal-900">Class Timetable</div>
-                                      <div className="text-xs text-teal-600">Schedule</div>
-                                    </div>
-                                  </a>
-                                  <a
-                                    href={route('schools.sces.programs.exam-timetables.index', program.id)}
-                                    className="flex items-center px-4 py-3 bg-red-100 hover:bg-red-200 rounded-lg transition-colors group"
-                                  >
-                                    <Award className="w-4 h-4 mr-2 text-red-600 group-hover:scale-110 transition-transform" />
-                                    <div>
-                                      <div className="text-sm font-medium text-red-900">Exam Timetable</div>
-                                      <div className="text-xs text-red-600">Schedule</div>
-                                    </div>
-                                  </a>
+                                  {/* Enrollment - Hidden from Class Timetable office */}
+                                  {!isClassTimetableOffice && canPermission('view-enrollments') && (
+                                    <a
+                                      href={route('schools.sces.programs.enrollments.index', program.id)}
+                                      className="flex items-center px-4 py-3 bg-orange-100 hover:bg-orange-200 rounded-lg transition-colors group"
+                                    >
+                                      <GraduationCap className="w-4 h-4 mr-2 text-orange-600 group-hover:scale-110 transition-transform" />
+                                      <div>
+                                        <div className="text-sm font-medium text-orange-900">Enrollment</div>
+                                        <div className="text-xs text-orange-600">{program.enrollments_count}</div>
+                                      </div>
+                                    </a>
+                                  )}
+
+                                  {/* Class Timetable - ALWAYS visible if user has permission */}
+                                  {canPermission('view-class-timetables') && (
+                                    <a
+                                      href={route('schools.sces.programs.class-timetables.index', program.id)}
+                                      className="flex items-center px-4 py-3 bg-teal-100 hover:bg-teal-200 rounded-lg transition-colors group"
+                                    >
+                                      <Clock className="w-4 h-4 mr-2 text-teal-600 group-hover:scale-110 transition-transform" />
+                                      <div>
+                                        <div className="text-sm font-medium text-teal-900">Class Timetable</div>
+                                        <div className="text-xs text-teal-600">Schedule</div>
+                                      </div>
+                                    </a>
+                                  )}
+
+                                  {/* Exam Timetable - Hidden from Class Timetable office */}
+                                  {!isClassTimetableOffice && canPermission('view-exam-timetables') && (
+                                    <a
+                                      href={route('schools.sces.programs.exam-timetables.index', program.id)}
+                                      className="flex items-center px-4 py-3 bg-red-100 hover:bg-red-200 rounded-lg transition-colors group"
+                                    >
+                                      <Award className="w-4 h-4 mr-2 text-red-600 group-hover:scale-110 transition-transform" />
+                                      <div>
+                                        <div className="text-sm font-medium text-red-900">Exam Timetable</div>
+                                        <div className="text-xs text-red-600">Schedule</div>
+                                      </div>
+                                    </a>
+                                  )}
                                 </div>
                               </div>
 
@@ -695,7 +729,7 @@ const handleSubmit = (e: React.FormEvent) => {
                       : 'Get started by creating a new program'
                     }
                   </p>
-                  {can.create && (
+                  {can.create && !isClassTimetableOffice && (
                     <button
                       onClick={handleCreateProgram}
                       className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -710,7 +744,7 @@ const handleSubmit = (e: React.FormEvent) => {
           </div>
 
           {/* Create/Edit Modal */}
-          {(isCreateModalOpen || isEditModalOpen) && (
+          {(isCreateModalOpen || isEditModalOpen) && !isClassTimetableOffice && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
@@ -876,10 +910,10 @@ const handleSubmit = (e: React.FormEvent) => {
             </div>
           )}
 
-          {/* View Modal - keeping it brief for space */}
+          {/* View Modal */}
           {isViewModalOpen && selectedProgram && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-gradient-to-r from-slate-500 via-slate-600 to-gray-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xl font-semibold text-white">Program Details</h3>
@@ -891,20 +925,124 @@ const handleSubmit = (e: React.FormEvent) => {
                     </button>
                   </div>
                 </div>
-                <div className="p-6">
-                  {/* View details content - keeping brief */}
-                  <div className="space-y-4">
-                    <h4 className="font-semibold text-lg">{selectedProgram.name}</h4>
-                    <p className="text-gray-600">{selectedProgram.code}</p>
+                
+                <div className="p-6 space-y-6">
+                  {/* Header Info */}
+                  <div className="flex items-start space-x-4">
+                    <GraduationCap className="w-12 h-12 text-blue-600 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h4 className="text-2xl font-bold text-gray-900">{selectedProgram.name}</h4>
+                      <p className="text-blue-600 font-semibold mt-1">{selectedProgram.code}</p>
+                      {selectedProgram.description && (
+                        <p className="text-gray-600 mt-2">{selectedProgram.description}</p>
+                      )}
+                      <div className="flex items-center gap-3 mt-3">
+                        <DegreeBadge degreeType={selectedProgram.degree_type} />
+                        <StatusBadge isActive={selectedProgram.is_active} />
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-end mt-6">
+
+                  {/* Details Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t">
+                    <div className="space-y-4">
+                      <h5 className="font-semibold text-gray-900 text-lg">Program Information</h5>
+                      <div className="space-y-3">
+                        <div>
+                          <span className="text-sm text-gray-500">Full Name</span>
+                          <p className="font-medium text-gray-900">{selectedProgram.full_name}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500">Duration</span>
+                          <p className="font-medium text-gray-900 flex items-center">
+                            <Clock className="w-4 h-4 mr-2 text-gray-400" />
+                            {getDurationDisplay(selectedProgram.duration_years)}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500">School</span>
+                          <p className="font-medium text-gray-900">{selectedProgram.school_name}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500">Sort Order</span>
+                          <p className="font-medium text-gray-900">{selectedProgram.sort_order}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h5 className="font-semibold text-gray-900 text-lg">Contact & Statistics</h5>
+                      <div className="space-y-3">
+                        {selectedProgram.contact_email && (
+                          <div>
+                            <span className="text-sm text-gray-500">Email</span>
+                            <p className="font-medium text-gray-900 flex items-center">
+                              <Mail className="w-4 h-4 mr-2 text-gray-400" />
+                              {selectedProgram.contact_email}
+                            </p>
+                          </div>
+                        )}
+                        {selectedProgram.contact_phone && (
+                          <div>
+                            <span className="text-sm text-gray-500">Phone</span>
+                            <p className="font-medium text-gray-900 flex items-center">
+                              <Phone className="w-4 h-4 mr-2 text-gray-400" />
+                              {selectedProgram.contact_phone}
+                            </p>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-sm text-gray-500">Total Units</span>
+                          <p className="font-medium text-gray-900 flex items-center">
+                            <BookOpen className="w-4 h-4 mr-2 text-blue-500" />
+                            {selectedProgram.units_count} units
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500">Total Enrollments</span>
+                          <p className="font-medium text-gray-900 flex items-center">
+                            <Users className="w-4 h-4 mr-2 text-green-500" />
+                            {selectedProgram.enrollments_count} students
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dates */}
+                  <div className="pt-6 border-t">
+                    <h5 className="font-semibold text-gray-900 text-lg mb-3">Timeline</h5>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">Created</span>
+                        <p className="font-medium text-gray-900">{new Date(selectedProgram.created_at).toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Last Updated</span>
+                        <p className="font-medium text-gray-900">{new Date(selectedProgram.updated_at).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 px-6 pb-6">
+                  {can.update && !isClassTimetableOffice && (
                     <button
-                      onClick={() => setIsViewModalOpen(false)}
-                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                      onClick={() => {
+                        setIsViewModalOpen(false)
+                        handleEditProgram(selectedProgram)
+                      }}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                     >
-                      Close
+                      Edit Program
                     </button>
-                  </div>
+                  )}
+                  <button
+                    onClick={() => setIsViewModalOpen(false)}
+                    className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                  >
+                    Close
+                  </button>
                 </div>
               </div>
             </div>

@@ -1150,7 +1150,7 @@ public function scesDashboard()
         ]);
     }
 
-    // New method for Class Timetable Office dashboard
+    
     /**
  * Display the Class Timetable office dashboard.
  */
