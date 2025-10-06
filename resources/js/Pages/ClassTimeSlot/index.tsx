@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import Pagination from '@/components/ui/Pagination'; // Import the Pagination component
+import Pagination from '@/components/ui/Pagination';
 
 interface ClassTimeSlot {
     id: number;
     day: string;    
     start_time: string;
     end_time: string;
-    status: string; // Add status field
+    status: string;
 }
 
 interface PaginationLinks {
@@ -32,22 +32,35 @@ const ClassTimeSlot = () => {
         search?: string;
     };
 
-    // Debugging: Log the props to verify data
-    console.log('classTimeSlots props:', { classtimeSlot, perPage, search });
-
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalType, setModalType] = useState<'create' | 'edit' | 'delete' | ''>('');
     const [currentClassTimeSlot, setCurrentClassTimeSlot] = useState<ClassTimeSlot | null>(null);
     const [itemsPerPage, setItemsPerPage] = useState(perPage);
     const [searchQuery, setSearchQuery] = useState(search);
 
+    // Helper function to format time to HH:mm (24-hour format)
+    const formatTimeTo24Hour = (time: string): string => {
+        if (!time) return '';
+        // If already in HH:mm or HH:mm:ss format, extract HH:mm
+        if (time.includes(':')) {
+            const parts = time.split(':');
+            return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+        }
+        return time;
+    };
+
     const handleOpenModal = (type: 'create' | 'edit' | 'delete', classtimeSlot: ClassTimeSlot | null = null) => {
         setModalType(type);
-        setCurrentClassTimeSlot(
-            type === 'create'
-                ? { id: 0, day: '', start_time: '', end_time: '', status: '' }
-                : classtimeSlot
-        );
+        if (type === 'create') {
+            setCurrentClassTimeSlot({ id: 0, day: '', start_time: '', end_time: '', status: '' });
+        } else if (classtimeSlot) {
+            // Format times to HH:mm when opening edit modal
+            setCurrentClassTimeSlot({
+                ...classtimeSlot,
+                start_time: formatTimeTo24Hour(classtimeSlot.start_time),
+                end_time: formatTimeTo24Hour(classtimeSlot.end_time)
+            });
+        }
         setIsModalOpen(true);
     };
 
@@ -68,6 +81,10 @@ const ClassTimeSlot = () => {
                 },
                 onError: (errors) => {
                     console.error('Error creating class time slot:', errors);
+                    const errorMessages = Object.entries(errors)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join('\n');
+                    alert('Validation errors:\n' + errorMessages);
                 },
             });
         } else if (modalType === 'edit' && currentClassTimeSlot) {
@@ -78,6 +95,10 @@ const ClassTimeSlot = () => {
                 },
                 onError: (errors) => {
                     console.error('Error updating class time slot:', errors);
+                    const errorMessages = Object.entries(errors)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join('\n');
+                    alert('Validation errors:\n' + errorMessages);
                 },
             });
         } else if (modalType === 'delete' && currentClassTimeSlot) {
@@ -88,6 +109,7 @@ const ClassTimeSlot = () => {
                 },
                 onError: (errors) => {
                     console.error('Error deleting time slot:', errors);
+                    alert('Error deleting time slot. Please try again.');
                 },
             });
         }
@@ -96,12 +118,6 @@ const ClassTimeSlot = () => {
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         router.get('/classtimeslot', { search: searchQuery, per_page: itemsPerPage }, { preserveState: true });
-    };
-
-    const handleDateChange = (date: string) => {
-        const selectedDate = new Date(date);
-        const day = selectedDate.toLocaleDateString('en-US', { weekday: 'long' }); // Get the day of the week
-        setCurrentClassTimeSlot((prev) => ({ ...prev!, date, day })); // Update both date and day
     };
 
     const handlePageChange = (url: string | null) => {
@@ -116,14 +132,30 @@ const ClassTimeSlot = () => {
         router.get('/classtimeslot', { per_page: newPerPage, search: searchQuery }, { preserveState: true });
     };
 
+    // Helper to display time in readable format
+    const displayTime = (time: string): string => {
+        if (!time) return '';
+        try {
+            const [hours, minutes] = time.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours), parseInt(minutes));
+            return date.toLocaleTimeString('en-US', { 
+                hour: 'numeric', 
+                minute: '2-digit', 
+                hour12: true 
+            });
+        } catch {
+            return time;
+        }
+    };
+
     return (
         <AuthenticatedLayout>
             <Head title="Time Slots" />
             <div className="p-6 bg-white rounded-lg shadow-md">
-                {/* <h1 className="text-2xl font-semibold mb-4">Class Time Slots</h1> */}
                 <div className="flex justify-between items-center mb-4">
                     <button
-                        onClick={() => handleOpenModal('create')}
+                        onClick={() => handleOpenModal('create', null)}
                         className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
                     >
                         + Add Class Time Slot
@@ -133,7 +165,7 @@ const ClassTimeSlot = () => {
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search classrooms..."
+                            placeholder="Search time slots..."
                             className="border rounded p-2 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         <button
@@ -160,17 +192,26 @@ const ClassTimeSlot = () => {
                         </select>
                     </div>
                 </div>
+
                 <table className="min-w-full border-collapse border border-gray-200">
                     <thead className="bg-gray-100">
                         <tr>
-                            <th className="px-4 py-2 border">Day</th><th className="px-4 py-2 border">Start Time</th><th className="px-4 py-2 border">End Time</th><th className="px-4 py-2 border">Mode of Learning</th><th className="px-4 py-2 border">Actions</th>
+                            <th className="px-4 py-2 border">Day</th>
+                            <th className="px-4 py-2 border">Start Time</th>
+                            <th className="px-4 py-2 border">End Time</th>
+                            <th className="px-4 py-2 border">Mode of Learning</th>
+                            <th className="px-4 py-2 border">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {classtimeSlot.data.length > 0 ? (
                             classtimeSlot.data.map((class_time_slots) => (
                                 <tr key={class_time_slots.id} className="border-b hover:bg-gray-50">
-                                    <td className="px-4 py-2 border">{class_time_slots.day}</td><td className="px-4 py-2 border">{class_time_slots.start_time}</td><td className="px-4 py-2 border">{class_time_slots.end_time}</td><td className="px-4 py-2 border">{class_time_slots.status}</td><td className="px-4 py-2 border text-center">
+                                    <td className="px-4 py-2 border">{class_time_slots.day}</td>
+                                    <td className="px-4 py-2 border">{displayTime(class_time_slots.start_time)}</td>
+                                    <td className="px-4 py-2 border">{displayTime(class_time_slots.end_time)}</td>
+                                    <td className="px-4 py-2 border">{class_time_slots.status}</td>
+                                    <td className="px-4 py-2 border text-center">
                                         <button
                                             onClick={() => handleOpenModal('edit', class_time_slots)}
                                             className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 mr-2"
@@ -188,18 +229,21 @@ const ClassTimeSlot = () => {
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={5} className="px-4 py-2 text-center text-gray-500">No class time slots found.</td>
+                                <td colSpan={5} className="px-4 py-2 text-center text-gray-500">
+                                    No class time slots found.
+                                </td>
                             </tr>
                         )}
                     </tbody>
                 </table>
+
                 <Pagination links={classtimeSlot.links} onPageChange={handlePageChange} />
             </div>
 
             {/* Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-                    <div className="bg-white p-6 rounded shadow-md">
+                <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+                    <div className="bg-white p-6 rounded shadow-md w-96">
                         <h2 className="text-xl font-bold mb-4">
                             {modalType === 'create' && 'Add Class Time Slot'}
                             {modalType === 'edit' && 'Edit Class Time Slot'}
@@ -208,7 +252,7 @@ const ClassTimeSlot = () => {
                         {modalType !== 'delete' ? (
                             <form onSubmit={handleSubmit}>
                                 <div className="mb-4">
-                                    <label className="block text-sm font-medium text-gray-700">Day</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Day</label>
                                     <select
                                         value={currentClassTimeSlot?.day || ''}
                                         onChange={(e) =>
@@ -226,10 +270,10 @@ const ClassTimeSlot = () => {
                                     </select>
                                 </div>
                                 <div className="mb-4">
-                                    <label className="block text-sm font-medium text-gray-700">Start Time</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
                                     <input
                                         type="time"
-                                        value={currentClassTimeSlot?.start_time || ''} // Pre-populate start_time
+                                        value={currentClassTimeSlot?.start_time || ''}
                                         onChange={(e) =>
                                             setCurrentClassTimeSlot((prev) => ({ ...prev!, start_time: e.target.value }))
                                         }
@@ -238,10 +282,10 @@ const ClassTimeSlot = () => {
                                     />
                                 </div>
                                 <div className="mb-4">
-                                    <label className="block text-sm font-medium text-gray-700">End Time</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
                                     <input
                                         type="time"
-                                        value={currentClassTimeSlot?.end_time || ''} // Pre-populate end_time
+                                        value={currentClassTimeSlot?.end_time || ''}
                                         onChange={(e) =>
                                             setCurrentClassTimeSlot((prev) => ({ ...prev!, end_time: e.target.value }))
                                         }
@@ -250,7 +294,7 @@ const ClassTimeSlot = () => {
                                     />
                                 </div>
                                 <div className="mb-4">
-                                    <label className="block text-sm font-medium text-gray-700">Mode of Learning</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Mode of Learning</label>
                                     <select
                                         value={currentClassTimeSlot?.status || ''}
                                         onChange={(e) =>
@@ -259,39 +303,41 @@ const ClassTimeSlot = () => {
                                         className="w-full border rounded p-2"
                                         required
                                     >
-                                        <option value="Default">Select Mode of Study</option>
+                                        <option value="">Select Mode of Study</option>
                                         <option value="Physical">Physical</option>
                                         <option value="Online">Online</option>
                                     </select>
                                 </div>
-                                <button
-                                    type="submit"
-                                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                                >
-                                    {modalType === 'create' ? 'Create' : 'Update'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleCloseModal}
-                                    className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2"
-                                >
-                                    Cancel
-                                </button>
+                                <div className="flex space-x-2">
+                                    <button
+                                        type="submit"
+                                        className="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                                    >
+                                        {modalType === 'create' ? 'Create' : 'Update'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCloseModal}
+                                        className="flex-1 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
                             </form>
                         ) : (
                             <div>
-                                <p>Are you sure you want to delete this time slot?</p>
-                                <div className="mt-4 flex justify-end">
+                                <p className="mb-4">Are you sure you want to delete this time slot for {currentClassTimeSlot?.day}?</p>
+                                <div className="flex space-x-2">
                                     <button
                                         onClick={handleSubmit}
-                                        className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+                                        className="flex-1 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
                                     >
                                         Delete
                                     </button>
                                     <button
                                         type="button"
                                         onClick={handleCloseModal}
-                                        className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2"
+                                        className="flex-1 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500"
                                     >
                                         Cancel
                                     </button>

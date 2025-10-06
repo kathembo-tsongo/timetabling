@@ -85,14 +85,7 @@ export default function Sidebar() {
           <div className="mt-4">
             <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Timetable Management</div>
             
-            {/* All Timetables Overview - requires view-class-timetables */}
-            {can('view-class-timetables') && (
-              <Link href="/admin/classtimetables" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <Calendar className="mr-3 h-5 w-5" />
-                <span>All Timetables</span>
-              </Link>
-            )}
-
+            
             {/* Schools Timetables Dropdown - requires view-class-timetables */}
             {can('view-class-timetables') && (
               <div>
@@ -179,7 +172,7 @@ export default function Sidebar() {
 
             {/* Time Slots Management - requires view-classtimeslots or view-class-timetables */}
             {(can('view-classtimeslots') || can('view-class-timetables')) && (
-              <Link href="/admin/classtimeslots" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <Link href="/classtimeslot" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Clock className="mr-3 h-5 w-5" />
                 <span>Time Slots</span>
               </Link>
@@ -216,7 +209,14 @@ export default function Sidebar() {
                 <Layers className="mr-3 h-5 w-5" />
                 <span>Classrooms</span>
               </Link>
-            )}            
+            )} 
+             {/* ADD THIS: Time Slots for Admin */}
+    {(can('view-classtimeslots') || can('view-class-timetables')) && (
+      <Link href="/classtimeslot" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+        <Clock className="mr-3 h-5 w-5" />
+        <span>Time Slots</span>
+      </Link>
+    )}           
           </div>
         )}
 

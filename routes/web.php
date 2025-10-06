@@ -24,6 +24,7 @@ use App\Http\Controllers\RoleManagementController;
 use App\Http\Controllers\DynamicRoleController;
 use App\Http\Controllers\DynamicPermissionController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\ClassTimeSlotController;
 use App\Models\ClassModel;
 use App\Models\Program;
 use App\Models\Unit;
@@ -632,6 +633,23 @@ Route::prefix('classtimetables')->middleware(['role:Class Timetable office'])->g
         ->name('classtimetables.conflicts');
 });
 
+Route::prefix('classtimeslot')
+    ->middleware(['auth', 'permission:view-classtimeslots'])
+    ->group(function () {
+        Route::get('/', [ClassTimeSlotController::class, 'index'])
+            ->name('classtimeslot.index');
+        Route::post('/', [ClassTimeSlotController::class, 'store'])
+            ->middleware(['permission:create-classtimeslots'])
+            ->name('classtimeslot.store');
+        Route::put('/{id}', [ClassTimeSlotController::class, 'update'])
+            ->middleware(['permission:edit-classtimeslots'])
+            ->name('classtimeslot.update');
+        Route::delete('/{id}', [ClassTimeSlotController::class, 'destroy'])
+            ->middleware(['permission:delete-classtimeslot'])
+            ->name('classtimeslot.destroy');
+        Route::get('/{id}', [ClassTimeSlotController::class, 'show'])
+            ->name('classtimeslot.show');
+    });
 // CATCH-ALL ROUTE
 Route::get('/{any}', function () {
     return Inertia::render('NotFound');
