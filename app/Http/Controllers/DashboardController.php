@@ -1280,13 +1280,13 @@ public function classtimetablesDashboard(Request $request)
                 [
                     'title' => 'Create Timetable',
                     'description' => 'Add new class timetable',
-                    'route' => 'admin.classtimetables.create',
+                    'route' => 'classtimetables.create',
                     'icon' => 'plus'
                 ],
                 [
                     'title' => 'View Conflicts',
                     'description' => 'Resolve scheduling conflicts',
-                    'route' => 'admin.classtimetables.conflicts',
+                    'route' => 'classtimetables.conflicts',
                     'icon' => 'alert'
                 ],
                 [
@@ -1295,6 +1295,14 @@ public function classtimetablesDashboard(Request $request)
                     'route' => 'admin.classrooms.index',
                     'icon' => 'building'
                 ]
+            ],
+            // ADD PERMISSIONS FOR CLASS TIMETABLE OFFICE
+            'can' => [
+                'create' => $user->can('create-class-timetables') || $user->hasRole('Class Timetable office'),
+                'edit' => $user->can('edit-class-timetables') || $user->hasRole('Class Timetable office'),
+                'delete' => $user->can('delete-class-timetables') || $user->hasRole('Class Timetable office'),
+                'download' => $user->can('download-class-timetables') || $user->hasRole('Class Timetable office'),
+                'solve_conflicts' => $user->can('solve-conflicts') || $user->hasRole('Class Timetable office'),
             ],
             'userPermissions' => $user->getAllPermissions()->pluck('name'),
             'userRoles' => $user->getRoleNames()
@@ -1307,7 +1315,7 @@ public function classtimetablesDashboard(Request $request)
             'trace' => $e->getTraceAsString()
         ]);
 
-        // Return safe defaults
+        // Return safe defaults with permissions
         return Inertia::render('ClassTimetables/Dashboard', [
             'statistics' => [
                 'totalTimetables' => ['count' => 0, 'growthRate' => 0, 'period' => 'from last week'],
@@ -1322,6 +1330,13 @@ public function classtimetablesDashboard(Request $request)
             'dailySchedule' => [],
             'venueUtilization' => [],
             'quickActions' => [],
+            'can' => [
+                'create' => $user->can('create-class-timetables') || $user->hasRole('Class Timetable office'),
+                'edit' => $user->can('edit-class-timetables') || $user->hasRole('Class Timetable office'),
+                'delete' => $user->can('delete-class-timetables') || $user->hasRole('Class Timetable office'),
+                'download' => $user->can('download-class-timetables') || $user->hasRole('Class Timetable office'),
+                'solve_conflicts' => $user->can('solve-conflicts') || $user->hasRole('Class Timetable office'),
+            ],
             'userPermissions' => $user->getAllPermissions()->pluck('name'),
             'userRoles' => $user->getRoleNames(),
             'error' => 'Unable to load dashboard data'

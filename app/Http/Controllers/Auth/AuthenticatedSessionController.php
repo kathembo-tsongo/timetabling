@@ -44,8 +44,8 @@ class AuthenticatedSessionController extends Controller
     }
     
     // NEW: Class Office check
-    if ($roles->contains('Class Office')) {
-        return redirect()->route('class-office.dashboard');
+    if ($roles->contains('Class Timetable Office')) {
+        return redirect()->route('classtimetables.dashboard');
     }
     
     // Faculty Admin check

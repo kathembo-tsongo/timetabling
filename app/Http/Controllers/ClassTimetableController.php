@@ -203,10 +203,11 @@ class ClassTimetableController extends Controller
         'programs' => $programs,
         'schools' => $schools,
         'can' => [
-            'create' => $user->can('create-class-timetables'),     
-            'edit' => $user->can('edit-class-timetables'),         
-        'delete' => $user->can('delete-class-timetables'),    
-    'download' => $user->can('view-class-timetables'),  
+    'create' => $user->can('create-class-timetables') || $user->hasRole('Class Timetable office'),
+    'edit' => $user->can('edit-class-timetables') || $user->hasRole('Class Timetable office'),
+    'delete' => $user->can('delete-class-timetables') || $user->hasRole('Class Timetable office'),
+    'download' => $user->can('download-class-timetables') || $user->hasRole('Class Timetable office'),
+    'solve_conflicts' => $user->can('solve-class-conflicts') || $user->hasRole('Class Timetable office'),
 ],
     ]);
 }
@@ -3083,13 +3084,12 @@ public function programClassTimetables(Program $program, Request $request, $scho
         'programs' => $programs,
         'schools' => $schools,
         'can' => [
-            'create' => $user->can('create-classtimetables'),
-            'edit' => $user->can('update-classtimetables'),
-            'delete' => $user->can('delete-classtimetables'),
-            'process' => $user->can('process-classtimetables'),
-            'solve_conflicts' => $user->can('solve-class-conflicts'),
-            'download' => $user->can('download-classtimetables'),
-        ],
+    'create' => $user->can('create-class-timetables') || $user->hasRole('Class Timetable office'),
+    'edit' => $user->can('edit-class-timetables') || $user->hasRole('Class Timetable office'),
+    'delete' => $user->can('delete-class-timetables') || $user->hasRole('Class Timetable office'),
+    'download' => $user->can('download-class-timetables') || $user->hasRole('Class Timetable office'),
+    'solve_conflicts' => $user->can('solve-class-conflicts') || $user->hasRole('Class Timetable office'),
+],
     ]);
 }
 
