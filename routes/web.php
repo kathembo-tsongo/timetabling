@@ -595,6 +595,21 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
         Route::get('/profile', [LecturerController::class, 'profile'])->name('lecturer.profile');
     });
 
+    // CLASS TIMETABLE OFFICE ROUTES (after admin routes, before students)
+Route::prefix('classtimetables')->middleware(['role:Class Timetable office'])->group(function () {
+    Route::get('/', [DashboardController::class, 'classtimetablesDashboard'])
+        ->name('dashboard');
+    Route::get('/timetables', [ClassTimetableController::class, 'index'])->name('classtimetables.index');
+    Route::get('/timetables/create', [ClassTimetableController::class, 'create'])->name('classtimetables.create');
+    Route::post('/timetables', [ClassTimetableController::class, 'store'])->name('classtimetables.store');
+    Route::get('/timetables/{timetable}', [ClassTimetableController::class, 'show'])->name('classtimetables.show');
+    Route::get('/timetables/{timetable}/edit', [ClassTimetableController::class, 'edit'])->name('classtimetables.edit');
+    Route::put('/timetables/{timetable}', [ClassTimetableController::class, 'update'])->name('classtimetables.update');
+    Route::delete('/timetables/{timetable}', [ClassTimetableController::class, 'destroy'])->name('classtimetables.destroy');
+    Route::get('/timetables/{timetable}/download/pdf', [ClassTimetableController::class, 'downloadPDF'])->name('classtimetables.download-pdf');
+    Route::get('/timetables/download/pdf', [ClassTimetableController::class, 'downloadAllPDF'])->name('classtimetables.download-all-pdf');  
+    Route::get('/timetables/debug-class-data', [ClassTimetableController::class, 'debugClassData'])->name('classtimetables.debug-class-data');
+});
     // CATCH-ALL ROUTE
     Route::get('/{any}', function () {
         return Inertia::render('NotFound');

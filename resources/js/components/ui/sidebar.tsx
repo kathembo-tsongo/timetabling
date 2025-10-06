@@ -3,7 +3,7 @@ import { Link, usePage } from "@inertiajs/react";
 import {
   Home, Users, Building, Calendar, ClipboardList, Layers,
   ClipboardCheck, Settings, BookOpen, GraduationCap,
-  BarChart3, Scale, ChevronDown, ChevronRight
+  BarChart3, Scale, ChevronDown, ChevronRight, Clock
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -18,6 +18,7 @@ export default function Sidebar() {
   const isRole = (role: string) => roles.includes(role);
   const isAdmin = isRole('Admin');
   const isFacultyAdmin = roles.some((r: string) => r.startsWith('Faculty Admin'));
+  const isClassTimetableOffice = isRole('Class Timetable office');
 
   // Extract school code from Faculty Admin role
   const getSchoolCode = (): string | null => {
@@ -79,6 +80,121 @@ export default function Sidebar() {
           </div>
         )}
 
+        {/* CLASS TIMETABLE OFFICE - Timetable Management for All Schools */}
+        {isClassTimetableOffice && can('view-class-timetables') && (
+          <div className="mt-4">
+            <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Timetable Management</div>
+            
+            {/* All Timetables Overview - requires view-class-timetables */}
+            {can('view-class-timetables') && (
+              <Link href="/admin/classtimetables" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Calendar className="mr-3 h-5 w-5" />
+                <span>All Timetables</span>
+              </Link>
+            )}
+
+            {/* Schools Timetables Dropdown - requires view-class-timetables */}
+            {can('view-class-timetables') && (
+              <div>
+                <button
+                  onClick={() => toggleSection('timetable-schools')}
+                  className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md"
+                >
+                  <Building className="mr-3 h-5 w-5" />
+                  <span className="flex-1 text-left">School Timetables</span>
+                  {openSections['timetable-schools'] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+                
+                {openSections['timetable-schools'] && (
+                  <div className="ml-4 mt-1 space-y-1">
+                    {/* SCES Timetables - requires view-class-timetables AND view-programs */}
+                    {can('view-programs') && (
+                      <div>
+                        <button
+                          onClick={() => toggleSection('timetable-sces')}
+                          className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                        >
+                          <Building className="mr-3 h-4 w-4" />
+                          <span className="flex-1 text-left">SCES</span>
+                          {openSections['timetable-sces'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </button>
+                        {openSections['timetable-sces'] && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            <Link href="/schools/sces/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                              <BookOpen className="mr-3 h-3 w-3" />
+                              <span>SCES Programs</span>
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* SBS Timetables - requires view-class-timetables AND view-programs */}
+                    {can('view-programs') && (
+                      <div>
+                        <button
+                          onClick={() => toggleSection('timetable-sbs')}
+                          className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                        >
+                          <Building className="mr-3 h-4 w-4" />
+                          <span className="flex-1 text-left">SBS</span>
+                          {openSections['timetable-sbs'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </button>
+                        {openSections['timetable-sbs'] && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            <Link href="/schools/sbs/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                              <BookOpen className="mr-3 h-3 w-3" />
+                              <span>SBS Programs</span>
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* SLS Timetables - requires view-class-timetables AND view-programs */}
+                    {can('view-programs') && (
+                      <div>
+                        <button
+                          onClick={() => toggleSection('timetable-sls')}
+                          className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                        >
+                          <Building className="mr-3 h-4 w-4" />
+                          <span className="flex-1 text-left">SLS</span>
+                          {openSections['timetable-sls'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </button>
+                        {openSections['timetable-sls'] && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            <Link href="/schools/sls/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                              <BookOpen className="mr-3 h-3 w-3" />
+                              <span>SLS Programs</span>
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Time Slots Management - requires view-classtimeslots or view-class-timetables */}
+            {(can('view-classtimeslots') || can('view-class-timetables')) && (
+              <Link href="/admin/classtimeslots" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Clock className="mr-3 h-5 w-5" />
+                <span>Time Slots</span>
+              </Link>
+            )}
+
+            {/* Classrooms - requires view-classrooms permission */}
+            {can('view-classrooms') && (
+              <Link href="/admin/classrooms" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Layers className="mr-3 h-5 w-5" />
+                <span>Classrooms</span>
+              </Link>
+            )}
+          </div>
+        )}
+
         {/* ACADEMIC INFRASTRUCTURE */}
         {(isFacultyAdmin || isAdmin) && (
           <div className="mt-4">
@@ -89,18 +205,6 @@ export default function Sidebar() {
                 <span>Semesters</span>
               </Link>
             )}
-            {/* {can('view-classes') && (
-              <Link href="/admin/classes" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <Users className="mr-3 h-5 w-5" />
-                <span>Classes</span>
-              </Link>
-            )}
-            {can('view-groups') && (
-              <Link href="/admin/groups" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <Users className="mr-3 h-5 w-5" />
-                <span>Groups</span>
-              </Link>
-            )} */}
             {can('view-buildings') && (
               <Link href="/admin/buildings" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Building className="mr-3 h-5 w-5" />
@@ -135,64 +239,70 @@ export default function Sidebar() {
               {openSections['schools'] && (
                 <div className="ml-4 mt-1 space-y-1">
                   {/* SCES */}
-                  <div>
-                    <button
-                      onClick={() => toggleSection('sces')}
-                      className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
-                    >
-                      <Building className="mr-3 h-4 w-4" />
-                      <span className="flex-1 text-left">SCES</span>
-                      {openSections['sces'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                    </button>
-                    {openSections['sces'] && (
-                      <div className="ml-6 mt-1 space-y-1">
-                        <Link href="/schools/sces/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
-                          <BookOpen className="mr-3 h-3 w-3" />
-                          <span>Programs</span>
-                        </Link>
-                      </div>
-                    )}
-                  </div>
+                  {can('view-programs') && (
+                    <div>
+                      <button
+                        onClick={() => toggleSection('sces')}
+                        className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                      >
+                        <Building className="mr-3 h-4 w-4" />
+                        <span className="flex-1 text-left">SCES</span>
+                        {openSections['sces'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      </button>
+                      {openSections['sces'] && (
+                        <div className="ml-6 mt-1 space-y-1">
+                          <Link href="/schools/sces/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                            <BookOpen className="mr-3 h-3 w-3" />
+                            <span>Programs</span>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* SBS */}
-                  <div>
-                    <button
-                      onClick={() => toggleSection('sbs')}
-                      className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
-                    >
-                      <Building className="mr-3 h-4 w-4" />
-                      <span className="flex-1 text-left">SBS</span>
-                      {openSections['sbs'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                    </button>
-                    {openSections['sbs'] && (
-                      <div className="ml-6 mt-1 space-y-1">
-                        <Link href="/schools/sbs/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
-                          <BookOpen className="mr-3 h-3 w-3" />
-                          <span>Programs</span>
-                        </Link>
-                      </div>
-                    )}
-                  </div>
+                  {can('view-programs') && (
+                    <div>
+                      <button
+                        onClick={() => toggleSection('sbs')}
+                        className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                      >
+                        <Building className="mr-3 h-4 w-4" />
+                        <span className="flex-1 text-left">SBS</span>
+                        {openSections['sbs'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      </button>
+                      {openSections['sbs'] && (
+                        <div className="ml-6 mt-1 space-y-1">
+                          <Link href="/schools/sbs/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                            <BookOpen className="mr-3 h-3 w-3" />
+                            <span>Programs</span>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* SLS */}
-                  <div>
-                    <button
-                      onClick={() => toggleSection('sls')}
-                      className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
-                    >
-                      <Building className="mr-3 h-4 w-4" />
-                      <span className="flex-1 text-left">SLS</span>
-                      {openSections['sls'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                    </button>
-                    {openSections['sls'] && (
-                      <div className="ml-6 mt-1 space-y-1">
-                        <Link href="/schools/sls/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
-                          <BookOpen className="mr-3 h-3 w-3" />
-                          <span>Programs</span>
-                        </Link>
-                      </div>
-                    )}
-                  </div>
+                  {can('view-programs') && (
+                    <div>
+                      <button
+                        onClick={() => toggleSection('sls')}
+                        className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                      >
+                        <Building className="mr-3 h-4 w-4" />
+                        <span className="flex-1 text-left">SLS</span>
+                        {openSections['sls'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      </button>
+                      {openSections['sls'] && (
+                        <div className="ml-6 mt-1 space-y-1">
+                          <Link href="/schools/sls/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                            <BookOpen className="mr-3 h-3 w-3" />
+                            <span>Programs</span>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -227,19 +337,6 @@ export default function Sidebar() {
                 )}
               </div>
             )}
-{/* 
-            {can('view-units') && (
-              <Link href="/admin/units" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <ClipboardList className="mr-3 h-5 w-5" />
-                <span>Units</span>
-              </Link>
-            )}
-            {can('view-lecturer-assignments') && (
-              <Link href="/admin/lecturerassignment" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <Users className="mr-3 h-5 w-5" />
-                <span>Lecturer Assignments</span>
-              </Link>
-            )} */}
           </div>
         )}
 

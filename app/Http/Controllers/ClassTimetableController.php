@@ -45,10 +45,10 @@ class ClassTimetableController extends Controller
         'all_params' => $request->all()
     ]);
 
-    if (!$user->can('manage-classtimetables')) {
+    // ✅ FIXED: Check for view-class-timetables instead
+    if (!$user->can('view-class-timetables')) {
         abort(403, 'Unauthorized action.');
     }
-
     $perPage = $request->input('per_page', 100);
     $search = $request->input('search', '');
 
@@ -203,13 +203,11 @@ class ClassTimetableController extends Controller
         'programs' => $programs,
         'schools' => $schools,
         'can' => [
-            'create' => $user->can('create-classtimetables'),
-            'edit' => $user->can('update-classtimetables'),
-            'delete' => $user->can('delete-classtimetables'),
-            'process' => $user->can('process-classtimetables'),
-            'solve_conflicts' => $user->can('solve-class-conflicts'),
-            'download' => $user->can('download-classtimetables'),
-        ],
+            'create' => $user->can('create-class-timetables'),     
+            'edit' => $user->can('edit-class-timetables'),         
+        'delete' => $user->can('delete-class-timetables'),    
+    'download' => $user->can('view-class-timetables'),  
+],
     ]);
 }
 
@@ -2953,7 +2951,8 @@ public function programClassTimetables(Program $program, Request $request, $scho
 {
     $user = auth()->user();
 
-    if (!$user->can('manage-classtimetables')) {
+     // ✅ FIXED: Check for view-class-timetables instead
+    if (!$user->can('view-class-timetables')) {
         abort(403, 'Unauthorized action.');
     }
 

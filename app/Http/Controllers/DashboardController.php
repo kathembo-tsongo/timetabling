@@ -1149,4 +1149,322 @@ public function scesDashboard()
             'user_permissions' => $user->getAllPermissions()->pluck('name')
         ]);
     }
+
+    // New method for Class Timetable Office dashboard
+    /**
+ * Display the Class Timetable office dashboard.
+ */
+public function classtimetablesDashboard(Request $request)
+{
+    $user = $request->user();
+
+    // Check if user has permission to view class timetable office dashboard
+    if (!$user->can('view-class-timetables') && !$user->hasRole('Class Timetable office')) {
+        Log::warning('Unauthorized access to class timetable office dashboard', [
+            'user_id' => $user->id,
+            'roles' => $user->getRoleNames()->toArray()
+        ]);
+        abort(403, 'Unauthorized access to class timetable office dashboard.');
+    }
+
+    try {
+        // Get current semester
+        $currentSemester = Semester::where('is_active', true)->first();
+        if (!$currentSemester) {
+            $currentSemester = Semester::latest()->first();
+        }
+
+        // Date calculations
+        $now = Carbon::now();
+        $lastWeek = $now->copy()->subWeek();
+        $lastMonth = $now->copy()->subMonth();
+
+        // ===== TIMETABLE STATISTICS =====
+        
+        // Total class timetables
+        $totalTimetables = ClassTimetable::count();
+        $timetablesLastWeek = ClassTimetable::whereBetween('created_at', [$lastWeek, $now])->count();
+        $timetablesPreviousWeek = ClassTimetable::whereBetween('created_at', 
+            [$lastWeek->copy()->subWeek(), $lastWeek])->count();
+        $timetablesGrowthRate = $this->calculateGrowthRate($timetablesLastWeek, $timetablesPreviousWeek);
+
+        // Active classes with timetables
+        $activeClasses = ClassTimetable::distinct('class_id')->count('class_id');
+        
+        // Conflict detection
+        $conflicts = $this->detectTimetableConflicts();
+        
+        // Venues usage
+        $totalVenues = DB::table('classrooms')->count();
+        $venuesInUse = ClassTimetable::distinct('venue')->count('venue');
+        
+        // Teaching mode distribution
+        $physicalClasses = ClassTimetable::where('teaching_mode', 'physical')->count();
+        $onlineClasses = ClassTimetable::where('teaching_mode', 'online')->count();
+
+        // ===== SEMESTER-SPECIFIC DATA =====
+        $semesterTimetables = 0;
+        $semesterConflicts = 0;
+        
+        if ($currentSemester) {
+            $semesterTimetables = ClassTimetable::where('semester_id', $currentSemester->id)->count();
+            $semesterConflicts = count($this->detectSemesterConflicts($currentSemester->id));
+        }
+
+        // ===== RECENT ACTIVITIES =====
+        $recentTimetables = ClassTimetable::with(['unit', 'class'])
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function($timetable) {
+                return [
+                    'id' => $timetable->id,
+                    'type' => 'timetable_created',
+                    'description' => 'Timetable created for ' . 
+                                   ($timetable->unit ? $timetable->unit->name : 'Unit') . 
+                                   ' - ' . $timetable->day . ' ' . 
+                                   $timetable->start_time . '-' . $timetable->end_time,
+                    'created_at' => $timetable->created_at->toISOString(),
+                ];
+            });
+
+        // ===== DAILY SCHEDULE OVERVIEW =====
+        $dailySchedule = $this->getDailyScheduleOverview($currentSemester);
+
+        // ===== VENUE UTILIZATION =====
+        $venueUtilization = $this->getVenueUtilization();
+
+        Log::info('Class Timetable office dashboard data generated', [
+            'user_id' => $user->id,
+            'total_timetables' => $totalTimetables,
+            'semester_timetables' => $semesterTimetables,
+            'conflicts_found' => $conflicts['total_conflicts'],
+            'current_semester' => $currentSemester ? $currentSemester->name : 'None'
+        ]);
+
+        return Inertia::render('ClassTimetables/Dashboard', [
+            'statistics' => [
+                'totalTimetables' => [
+                    'count' => $totalTimetables,
+                    'growthRate' => $timetablesGrowthRate,
+                    'period' => 'from last week'
+                ],
+                'activeClasses' => [
+                    'count' => $activeClasses,
+                    'growthRate' => 0,
+                    'period' => 'current semester'
+                ],
+                'conflicts' => [
+                    'count' => $conflicts['total_conflicts'],
+                    'severity' => $conflicts['severity'],
+                    'period' => 'requires attention'
+                ],
+                'venueUtilization' => [
+                    'count' => $venuesInUse,
+                    'total' => $totalVenues,
+                    'percentage' => $totalVenues > 0 ? round(($venuesInUse / $totalVenues) * 100, 1) : 0,
+                    'period' => 'venues in use'
+                ]
+            ],
+            'currentSemester' => $currentSemester,
+            'teachingModeDistribution' => [
+                'physical' => $physicalClasses,
+                'online' => $onlineClasses,
+                'total' => $physicalClasses + $onlineClasses
+            ],
+            'conflictDetails' => $conflicts['conflicts'],
+            'recentActivities' => $recentTimetables,
+            'dailySchedule' => $dailySchedule,
+            'venueUtilization' => $venueUtilization,
+            'quickActions' => [
+                [
+                    'title' => 'Create Timetable',
+                    'description' => 'Add new class timetable',
+                    'route' => 'admin.classtimetables.create',
+                    'icon' => 'plus'
+                ],
+                [
+                    'title' => 'View Conflicts',
+                    'description' => 'Resolve scheduling conflicts',
+                    'route' => 'admin.classtimetables.conflicts',
+                    'icon' => 'alert'
+                ],
+                [
+                    'title' => 'Manage Venues',
+                    'description' => 'Configure classrooms',
+                    'route' => 'admin.classrooms.index',
+                    'icon' => 'building'
+                ]
+            ],
+            'userPermissions' => $user->getAllPermissions()->pluck('name'),
+            'userRoles' => $user->getRoleNames()
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Error in Class Timetable office dashboard', [
+            'user_id' => $user->id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        // Return safe defaults
+        return Inertia::render('ClassTimetables/Dashboard', [
+            'statistics' => [
+                'totalTimetables' => ['count' => 0, 'growthRate' => 0, 'period' => 'from last week'],
+                'activeClasses' => ['count' => 0, 'growthRate' => 0, 'period' => 'current semester'],
+                'conflicts' => ['count' => 0, 'severity' => 'none', 'period' => 'requires attention'],
+                'venueUtilization' => ['count' => 0, 'total' => 0, 'percentage' => 0, 'period' => 'venues in use']
+            ],
+            'currentSemester' => null,
+            'teachingModeDistribution' => ['physical' => 0, 'online' => 0, 'total' => 0],
+            'conflictDetails' => [],
+            'recentActivities' => [],
+            'dailySchedule' => [],
+            'venueUtilization' => [],
+            'quickActions' => [],
+            'userPermissions' => $user->getAllPermissions()->pluck('name'),
+            'userRoles' => $user->getRoleNames(),
+            'error' => 'Unable to load dashboard data'
+        ]);
+    }
+}
+
+/**
+ * Detect timetable conflicts
+ */
+private function detectTimetableConflicts()
+{
+    $conflicts = [];
+    $severity = 'none';
+    
+    try {
+        // Lecturer conflicts
+        $lecturerConflicts = DB::select("
+            SELECT lecturer, day, start_time, end_time, COUNT(*) as conflict_count
+            FROM class_timetable 
+            GROUP BY lecturer, day, start_time, end_time
+            HAVING COUNT(*) > 1
+        ");
+
+        // Venue conflicts
+        $venueConflicts = DB::select("
+            SELECT venue, day, start_time, end_time, COUNT(*) as conflict_count
+            FROM class_timetable 
+            WHERE teaching_mode = 'physical'
+            GROUP BY venue, day, start_time, end_time
+            HAVING COUNT(*) > 1
+        ");
+
+        foreach ($lecturerConflicts as $conflict) {
+            $conflicts[] = [
+                'type' => 'lecturer',
+                'description' => "Lecturer '{$conflict->lecturer}' has {$conflict->conflict_count} classes at {$conflict->day} {$conflict->start_time}",
+                'severity' => 'high'
+            ];
+        }
+
+        foreach ($venueConflicts as $conflict) {
+            $conflicts[] = [
+                'type' => 'venue',
+                'description' => "Venue '{$conflict->venue}' is double-booked on {$conflict->day} at {$conflict->start_time}",
+                'severity' => 'high'
+            ];
+        }
+
+        $totalConflicts = count($lecturerConflicts) + count($venueConflicts);
+        
+        if ($totalConflicts > 10) {
+            $severity = 'critical';
+        } elseif ($totalConflicts > 5) {
+            $severity = 'high';
+        } elseif ($totalConflicts > 0) {
+            $severity = 'medium';
+        }
+
+        return [
+            'total_conflicts' => $totalConflicts,
+            'conflicts' => $conflicts,
+            'severity' => $severity
+        ];
+
+    } catch (\Exception $e) {
+        Log::error('Error detecting conflicts: ' . $e->getMessage());
+        return ['total_conflicts' => 0, 'conflicts' => [], 'severity' => 'none'];
+    }
+}
+
+/**
+ * Detect conflicts for a specific semester
+ */
+private function detectSemesterConflicts($semesterId)
+{
+    $conflicts = [];
+    
+    try {
+        $lecturerConflicts = DB::select("
+            SELECT lecturer, day, start_time, end_time, COUNT(*) as conflict_count
+            FROM class_timetable 
+            WHERE semester_id = ?
+            GROUP BY lecturer, day, start_time, end_time
+            HAVING COUNT(*) > 1
+        ", [$semesterId]);
+
+        return $lecturerConflicts;
+    } catch (\Exception $e) {
+        return [];
+    }
+}
+
+/**
+ * Get daily schedule overview
+ */
+private function getDailyScheduleOverview($currentSemester)
+{
+    if (!$currentSemester) {
+        return [];
+    }
+
+    try {
+        $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        $schedule = [];
+
+        foreach ($days as $day) {
+            $count = ClassTimetable::where('semester_id', $currentSemester->id)
+                ->where('day', $day)
+                ->count();
+            
+            $schedule[] = [
+                'day' => $day,
+                'classes' => $count
+            ];
+        }
+
+        return $schedule;
+    } catch (\Exception $e) {
+        return [];
+    }
+}
+
+/**
+ * Get venue utilization data
+ */
+private function getVenueUtilization()
+{
+    try {
+        return ClassTimetable::select('venue', DB::raw('COUNT(*) as usage_count'))
+            ->groupBy('venue')
+            ->orderBy('usage_count', 'desc')
+            ->limit(10)
+            ->get()
+            ->map(function($item) {
+                return [
+                    'venue' => $item->venue,
+                    'usage' => $item->usage_count
+                ];
+            })
+            ->toArray();
+    } catch (\Exception $e) {
+        return [];
+    }
+}
 }
