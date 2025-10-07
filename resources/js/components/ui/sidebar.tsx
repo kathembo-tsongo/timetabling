@@ -3,7 +3,8 @@ import { Link, usePage } from "@inertiajs/react";
 import {
   Home, Users, Building, Calendar, ClipboardList, Layers,
   ClipboardCheck, Settings, BookOpen, GraduationCap,
-  BarChart3, Scale, ChevronDown, ChevronRight, Clock
+  BarChart3, Scale, ChevronDown, ChevronRight, Clock,
+  FileText, UserCheck, CalendarCheck, AlertCircle
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -19,6 +20,9 @@ export default function Sidebar() {
   const isAdmin = isRole('Admin');
   const isFacultyAdmin = roles.some((r: string) => r.startsWith('Faculty Admin'));
   const isClassTimetableOffice = isRole('Class Timetable office');
+  const isExamOffice = isRole('Exam office');
+  const isLecturer = isRole('Lecturer');
+  const isStudent = isRole('Student');
 
   // Extract school code from Faculty Admin role
   const getSchoolCode = (): string | null => {
@@ -85,8 +89,7 @@ export default function Sidebar() {
           <div className="mt-4">
             <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Timetable Management</div>
             
-            
-            {/* Schools Timetables Dropdown - requires view-class-timetables */}
+            {/* Schools Timetables Dropdown */}
             {can('view-class-timetables') && (
               <div>
                 <button
@@ -100,7 +103,7 @@ export default function Sidebar() {
                 
                 {openSections['timetable-schools'] && (
                   <div className="ml-4 mt-1 space-y-1">
-                    {/* SCES Timetables - requires view-class-timetables AND view-programs */}
+                    {/* SCES Timetables */}
                     {can('view-programs') && (
                       <div>
                         <button
@@ -122,7 +125,7 @@ export default function Sidebar() {
                       </div>
                     )}
 
-                    {/* SBS Timetables - requires view-class-timetables AND view-programs */}
+                    {/* SBS Timetables */}
                     {can('view-programs') && (
                       <div>
                         <button
@@ -144,7 +147,7 @@ export default function Sidebar() {
                       </div>
                     )}
 
-                    {/* SLS Timetables - requires view-class-timetables AND view-programs */}
+                    {/* SLS Timetables */}
                     {can('view-programs') && (
                       <div>
                         <button
@@ -170,7 +173,7 @@ export default function Sidebar() {
               </div>
             )}
 
-            {/* Time Slots Management - requires view-classtimeslots or view-class-timetables */}
+            {/* Time Slots Management */}
             {(can('view-classtimeslots') || can('view-class-timetables')) && (
               <Link href="/classtimeslot" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Clock className="mr-3 h-5 w-5" />
@@ -178,13 +181,92 @@ export default function Sidebar() {
               </Link>
             )}
 
-            {/* Classrooms - requires view-classrooms permission */}
+            {/* Classrooms */}
             {can('view-classrooms') && (
               <Link href="/admin/classrooms" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Layers className="mr-3 h-5 w-5" />
                 <span>Classrooms</span>
               </Link>
             )}
+          </div>
+        )}
+
+        {/* EXAM OFFICE - Exam Management */}
+        {isExamOffice && (
+          <div className="mt-4">
+            <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Exam Management</div>
+            
+            {can('view-exam-timetables') && (
+              <Link href="/exam-office/timetables" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <CalendarCheck className="mr-3 h-5 w-5" />
+                <span>Exam Timetables</span>
+              </Link>
+            )}
+
+            {can('view-classrooms') && (
+              <Link href="/exam-office/rooms" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Building className="mr-3 h-5 w-5" />
+                <span>Exam Rooms</span>
+              </Link>
+            )}
+
+            {can('view-exam-timetables') && (
+              <Link href="/exam-office/conflicts" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <AlertCircle className="mr-3 h-5 w-5" />
+                <span>Exam Conflicts</span>
+              </Link>
+            )}
+
+            {can('generate-reports') && (
+              <Link href="/exam-office/reports" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <FileText className="mr-3 h-5 w-5" />
+                <span>Exam Reports</span>
+              </Link>
+            )}
+          </div>
+        )}
+
+        {/* LECTURER - Lecturer Tasks */}
+        {isLecturer && (
+          <div className="mt-4">
+            <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">My Tasks</div>
+            
+            <Link href="/lecturer/classes" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <BookOpen className="mr-3 h-5 w-5" />
+              <span>My Classes</span>
+            </Link>
+
+            <Link href="/lecturer/class-timetable" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <Calendar className="mr-3 h-5 w-5" />
+              <span>My Timetable</span>
+            </Link>
+
+            <Link href="/lecturer/exam-supervision" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <UserCheck className="mr-3 h-5 w-5" />
+              <span>Exam Supervision</span>
+            </Link>
+          </div>
+        )}
+
+        {/* STUDENT - Student Tasks */}
+        {isStudent && (
+          <div className="mt-4">
+            <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">My Activities</div>
+            
+            <Link href="/student/timetable" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <Calendar className="mr-3 h-5 w-5" />
+              <span>My Timetable</span>
+            </Link>
+
+            <Link href="/student/enrollments" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <BookOpen className="mr-3 h-5 w-5" />
+              <span>My Enrollments</span>
+            </Link>
+
+            <Link href="/student/exams" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <ClipboardCheck className="mr-3 h-5 w-5" />
+              <span>My Exams</span>
+            </Link>
           </div>
         )}
 
@@ -210,13 +292,12 @@ export default function Sidebar() {
                 <span>Classrooms</span>
               </Link>
             )} 
-             {/* ADD THIS: Time Slots for Admin */}
-    {(can('view-classtimeslots') || can('view-class-timetables')) && (
-      <Link href="/classtimeslot" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-        <Clock className="mr-3 h-5 w-5" />
-        <span>Time Slots</span>
-      </Link>
-    )}           
+            {(can('view-classtimeslots') || can('view-class-timetables')) && (
+              <Link href="/classtimeslot" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Clock className="mr-3 h-5 w-5" />
+                <span>Time Slots</span>
+              </Link>
+            )}           
           </div>
         )}
 
@@ -225,7 +306,6 @@ export default function Sidebar() {
           <div className="mt-4">
             <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Schools Management</div>
             
-            {/* Admin: Main Schools Dropdown with All Schools */}
             <div>
               <button
                 onClick={() => toggleSection('schools')}
