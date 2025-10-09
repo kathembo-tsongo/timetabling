@@ -346,7 +346,9 @@ Route::prefix('SchoolAdmin')->group(function() {
 
     // SCHOOL-SPECIFIC ROUTES (SCES, SBS, SLS)
 
-   // SCES SCHOOL ROUTES
+   // ============================================
+// SCES SCHOOL ROUTES - FIXED VERSION
+// ============================================
 Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->group(function () {
     
     // ============================================
@@ -422,71 +424,35 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 })->middleware(['permission:delete-units'])->name('destroy');
             });
 
-            // UNIT ASSIGNMENT TO SEMESTERS
-            // SCES - UNIT ASSIGNMENT TO SEMESTERS
-Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
-    Route::get('/', function(Program $program, Request $request) {
-        return app(UnitController::class)->programUnitAssignments($program, $request, 'SCES');
-    })->middleware(['permission:view-units'])->name('AssignSemesters');
-    
-    // ✅ FIXED: Changed from 'permission:edit-units' to check multiple permissions
-    Route::post('/assign', function(Program $program, Request $request) {
-        // Check if user has ANY of the required permissions
-        $user = auth()->user();
-        if (!($user->hasRole('Admin') || 
-              $user->can('manage-units') || 
-              $user->can('edit-units') ||
-              $user->can('assign-units'))) {
-            abort(403, 'Unauthorized to assign units.');
-        }
-        
-        return app(UnitController::class)->assignProgramUnitsToSemester('SCES', $program, $request);
-    })->middleware(['auth'])->name('assign');
-    
-    // ✅ FIXED: Changed from 'permission:delete-units' to check multiple permissions
-    Route::post('/remove', function(Program $program, Request $request) {
-        // Check if user has ANY of the required permissions
-        $user = auth()->user();
-        if (!($user->hasRole('Admin') || 
-              $user->can('manage-units') || 
-              $user->can('delete-units'))) {
-            abort(403, 'Unauthorized to remove unit assignments.');
-        }
-        
-        return app(UnitController::class)->removeProgramUnitsFromSemester('SCES', $program, $request);
-    })->middleware(['auth'])->name('remove');
-});
-
-// SBS - UNIT ASSIGNMENT TO SEMESTERS (Apply same fix)
-Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
-    Route::get('/', function(Program $program, Request $request) {
-        return app(UnitController::class)->programUnitAssignments($program, $request, 'SBS');
-    })->middleware(['permission:view-units'])->name('AssignSemesters');
-    
-    // ✅ FIXED: Same changes for SBS
-    Route::post('/assign', function(Program $program, Request $request) {
-        $user = auth()->user();
-        if (!($user->hasRole('Admin') || 
-              $user->can('manage-units') || 
-              $user->can('edit-units') ||
-              $user->can('assign-units'))) {
-            abort(403, 'Unauthorized to assign units.');
-        }
-        
-        return app(UnitController::class)->assignProgramUnitsToSemester('SBS', $program, $request);
-    })->middleware(['auth'])->name('assign');
-    
-    Route::post('/remove', function(Program $program, Request $request) {
-        $user = auth()->user();
-        if (!($user->hasRole('Admin') || 
-              $user->can('manage-units') || 
-              $user->can('delete-units'))) {
-            abort(403, 'Unauthorized to remove unit assignments.');
-        }
-        
-        return app(UnitController::class)->removeProgramUnitsFromSemester('SBS', $program, $request);
-    })->middleware(['auth'])->name('remove');
-});
+            // ✅ FIXED: UNIT ASSIGNMENT TO SEMESTERS - NOW INSIDE {program} PREFIX
+            Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
+                Route::get('/', function(Program $program, Request $request) {
+                    return app(UnitController::class)->programUnitAssignments($program, $request, 'SCES');
+                })->middleware(['permission:view-units'])->name('AssignSemesters');
+                
+                Route::post('/assign', function(Program $program, Request $request) {
+                    $user = auth()->user();
+                    if (!($user->hasRole('Admin') || 
+                          $user->can('manage-units') || 
+                          $user->can('edit-units') ||
+                          $user->can('assign-units'))) {
+                        abort(403, 'Unauthorized to assign units.');
+                    }
+                    
+                    return app(UnitController::class)->assignProgramUnitsToSemester('SCES', $program, $request);
+                })->middleware(['auth'])->name('assign');
+                
+                Route::post('/remove', function(Program $program, Request $request) {
+                    $user = auth()->user();
+                    if (!($user->hasRole('Admin') || 
+                          $user->can('manage-units') || 
+                          $user->can('delete-units'))) {
+                        abort(403, 'Unauthorized to remove unit assignments.');
+                    }
+                    
+                    return app(UnitController::class)->removeProgramUnitsFromSemester('SCES', $program, $request);
+                })->middleware(['auth'])->name('remove');
+            });
 
             // CLASSES
             Route::prefix('classes')->name('classes.')->middleware(['permission:view-classes'])->group(function () {
@@ -527,7 +493,6 @@ Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
             });
 
             // CLASS TIMETABLES
-            // ✅ AFTER
             Route::prefix('class-timetables')->name('class-timetables.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(ClassTimetableController::class)->programClassTimetables($program, $request, 'SCES');
@@ -596,12 +561,13 @@ Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SCES');
                 })->name('download');
             });
-        });
-    });
-});
+        }); // END OF {program} PREFIX
+    }); // END OF programs PREFIX
+}); // END OF schools/sces PREFIX
 
-// sbs 
-// SBS SCHOOL ROUTES
+// ============================================
+// SBS SCHOOL ROUTES - FIXED VERSION
+// ============================================
 Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(function () {
     
     // ============================================
@@ -677,19 +643,34 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                 })->middleware(['permission:delete-units'])->name('destroy');
             });
 
-            // UNIT ASSIGNMENT TO SEMESTERS
+            // ✅ FIXED: UNIT ASSIGNMENT TO SEMESTERS - NOW INSIDE {program} PREFIX
             Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(UnitController::class)->programUnitAssignments($program, $request, 'SBS');
                 })->middleware(['permission:view-units'])->name('AssignSemesters');
                 
                 Route::post('/assign', function(Program $program, Request $request) {
+                    $user = auth()->user();
+                    if (!($user->hasRole('Admin') || 
+                          $user->can('manage-units') || 
+                          $user->can('edit-units') ||
+                          $user->can('assign-units'))) {
+                        abort(403, 'Unauthorized to assign units.');
+                    }
+                    
                     return app(UnitController::class)->assignProgramUnitsToSemester('SBS', $program, $request);
-                })->middleware(['permission:edit-units'])->name('assign');
+                })->middleware(['auth'])->name('assign');
                 
                 Route::post('/remove', function(Program $program, Request $request) {
+                    $user = auth()->user();
+                    if (!($user->hasRole('Admin') || 
+                          $user->can('manage-units') || 
+                          $user->can('delete-units'))) {
+                        abort(403, 'Unauthorized to remove unit assignments.');
+                    }
+                    
                     return app(UnitController::class)->removeProgramUnitsFromSemester('SBS', $program, $request);
-                })->middleware(['permission:delete-units'])->name('remove');
+                })->middleware(['auth'])->name('remove');
             });
 
             // CLASSES
@@ -799,11 +780,9 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
                 })->name('download');
             });
-        });
-    });
-});
-    
-
+        }); // 
+    }); // 
+}); 
     // STUDENTS ROUTES
     Route::prefix('student')->middleware(['role:Student'])->group(function () {
         Route::get('/', [StudentController::class, 'studentDashboard'])->name('student.dashboard');
