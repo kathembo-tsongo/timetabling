@@ -25,68 +25,81 @@ class DashboardController extends Controller
     /**
      * Main dashboard entry point - redirects based on user role
      */
-    public function index()
-    {
-        $user = auth()->user();
+    /**
+ * Main dashboard entry point - redirects based on user role
+ */
+public function index()
+{
+    $user = auth()->user();
 
-        // Enhanced debugging
-        Log::info('Dashboard index accessed', [
-            'user_id' => $user->id,
-            'user_email' => $user->email,
-            'user_roles' => $user->getRoleNames()->toArray(),
-            'has_admin_role' => $user->hasRole('Admin'),
-            'can_view_admin_dashboard' => $user->can('view admin dashboard'),
-        ]);
+    // Enhanced debugging
+    Log::info('Dashboard index accessed', [
+        'user_id' => $user->id,
+        'user_email' => $user->email,
+        'user_roles' => $user->getRoleNames()->toArray(),
+        'has_admin_role' => $user->hasRole('Admin'),
+        'can_view_admin_dashboard' => $user->can('view admin dashboard'),
+    ]);
 
-        // Check for Faculty Admin roles first (school-specific)
-        $roles = $user->getRoleNames();
-        foreach ($roles as $role) {
-            if (str_starts_with($role, 'Faculty Admin - ')) {
-                $faculty = str_replace('Faculty Admin - ', '', $role);
-                $schoolRoute = match($faculty) {
-                    'SCES' => 'schoolAdmin.dashboard',
-                    'SBS' => 'schoolAdmin.dashboard',
-                    'SET' => 'schoolAdmin.dashboard',
-                    default => null
-                };
-                
-                if ($schoolRoute) {
-                    Log::info('Redirecting to school-specific dashboard', [
-                        'user_id' => $user->id,
+    // Check for Faculty Admin roles first (school-specific)
+    $roles = $user->getRoleNames();
+    foreach ($roles as $role) {
+        if (str_starts_with($role, 'Faculty Admin - ')) {
+            $faculty = str_replace('Faculty Admin - ', '', $role);
+            
+            Log::info('Faculty Admin role detected', [
+                'user_id' => $user->id,
+                'faculty' => $faculty,
+                'role' => $role
+            ]);
+            
+            // Route to appropriate school dashboard based on faculty code
+            switch($faculty) {
+                case 'SCES':
+                    return $this->scesDashboard(request());
+                case 'SBS':
+                    return $this->sbsDashboard(request());
+                case 'SLS':
+                    return $this->slsDashboard(request()); // Will add later
+                default:
+                    Log::warning('Unknown faculty code', [
                         'faculty' => $faculty,
-                        'route' => $schoolRoute
+                        'user_id' => $user->id
                     ]);
-                    return redirect()->route($schoolRoute);
-                }
+                    break;
             }
         }
-
-        // Automatic role-based dashboard redirection
-        if ($user->hasRole('Admin')) {
-            Log::info('Redirecting to admin dashboard', ['user_id' => $user->id]);
-            return $this->adminDashboard(request());
-        } elseif ($user->hasRole('Student')) {
-            Log::info('Redirecting to student dashboard', ['user_id' => $user->id]);
-            return $this->studentDashboard(request());
-        } elseif ($user->hasRole('Lecturer')) {
-            Log::info('Redirecting to lecturer dashboard', ['user_id' => $user->id]);
-            return $this->lecturerDashboard(request());
-        } elseif ($user->hasRole('Exam Office')) {
-            Log::info('Redirecting to exam office dashboard', ['user_id' => $user->id]);
-            return $this->examOfficeDashboard(request());
-        } elseif ($user->hasRole('Faculty Admin')) {
-            Log::info('Redirecting to generic faculty admin dashboard', ['user_id' => $user->id]);
-            return $this->facultyAdminDashboard(request());
-        }
-
-        Log::info('No specific role found, showing default dashboard', [
-            'user_id' => $user->id,
-            'roles' => $user->getRoleNames()->toArray()
-        ]);
-
-        // Default dashboard for users without specific roles
-        return $this->defaultDashboard();
     }
+
+    // Automatic role-based dashboard redirection
+    if ($user->hasRole('Admin')) {
+        Log::info('Redirecting to admin dashboard', ['user_id' => $user->id]);
+        return $this->adminDashboard(request());
+    } elseif ($user->hasRole('Student')) {
+        Log::info('Redirecting to student dashboard', ['user_id' => $user->id]);
+        return $this->studentDashboard(request());
+    } elseif ($user->hasRole('Lecturer')) {
+        Log::info('Redirecting to lecturer dashboard', ['user_id' => $user->id]);
+        return $this->lecturerDashboard(request());
+    } elseif ($user->hasRole('Exam Office')) {
+        Log::info('Redirecting to exam office dashboard', ['user_id' => $user->id]);
+        return $this->examOfficeDashboard(request());
+    } elseif ($user->hasRole('Class Timetable office')) {
+        Log::info('Redirecting to class timetable office dashboard', ['user_id' => $user->id]);
+        return $this->classtimetablesDashboard(request());
+    } elseif ($user->hasRole('Faculty Admin')) {
+        Log::info('Redirecting to generic faculty admin dashboard', ['user_id' => $user->id]);
+        return $this->facultyAdminDashboard(request());
+    }
+
+    Log::info('No specific role found, showing default dashboard', [
+        'user_id' => $user->id,
+        'roles' => $user->getRoleNames()->toArray()
+    ]);
+
+    // Default dashboard for users without specific roles
+    return $this->defaultDashboard();
+}
 
 
     /**
@@ -955,6 +968,248 @@ public function scesDashboard()
         ]);
     }
 }
+
+// sbs dashboard
+/**
+ * SBS Faculty Dashboard - School of Business Studies
+ */
+public function sbsDashboard()
+{
+    $user = auth()->user();
+    
+    // Check if user has permission for SBS
+    if (!$user->can('view-faculty-dashboard-sbs') && !$user->hasRole('Faculty Admin - SBS')) {
+        Log::warning('Unauthorized access to SBS dashboard', [
+            'user_id' => $user->id,
+            'user_roles' => $user->getRoleNames()->toArray()
+        ]);
+        abort(403, 'Unauthorized access to SBS faculty dashboard.');
+    }
+
+    // Get SBS school
+    $sbsSchool = School::where('code', 'SBS')->first();
+    
+    if (!$sbsSchool) {
+        Log::error('SBS school not found in database');
+        abort(404, 'SBS school not found');
+    }
+
+    // Get current semester
+    $currentSemester = Semester::where('is_active', true)->first();
+    
+    if (!$currentSemester) {
+        $currentSemester = Semester::latest()->first();
+    }
+
+    try {
+        // Get all SBS programs
+        $sbsPrograms = Program::where('school_id', $sbsSchool->id)->get();
+        $sbsProgramIds = $sbsPrograms->pluck('id')->toArray();
+
+        // Get statistics for SBS
+        $sbsStats = [
+            'total_students' => 0,
+            'total_lecturers' => 0,
+            'total_units' => 0,
+            'active_enrollments' => 0,
+        ];
+
+        // Get units count for SBS programs
+        $sbsStats['total_units'] = Unit::whereIn('program_id', $sbsProgramIds)
+            ->where('is_active', 1)
+            ->count();
+
+        // Get active enrollments for current semester
+        if ($currentSemester) {
+            $sbsStats['active_enrollments'] = Enrollment::where('semester_id', $currentSemester->id)
+                ->whereHas('unit', function($query) use ($sbsProgramIds) {
+                    $query->whereIn('program_id', $sbsProgramIds);
+                })
+                ->where('status', 'enrolled')
+                ->count();
+        }
+
+        // Get total students enrolled in SBS programs
+        $sbsStats['total_students'] = Enrollment::whereHas('unit', function($query) use ($sbsProgramIds) {
+                $query->whereIn('program_id', $sbsProgramIds);
+            })
+            ->distinct('student_code')
+            ->count('student_code');
+
+        // Get total lecturers assigned to SBS units
+        $sbsStats['total_lecturers'] = DB::table('lecturer_assignments')
+            ->join('units', 'lecturer_assignments.unit_id', '=', 'units.id')
+            ->whereIn('units.program_id', $sbsProgramIds)
+            ->distinct('lecturer_assignments.lecturer_code')
+            ->count();
+
+        // Calculate growth rates
+        $previousSemester = Semester::where('id', '<', $currentSemester->id ?? 0)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        $studentsGrowthRate = 0;
+        $lecturersGrowthRate = 0;
+        $unitsGrowthRate = 0;
+        $enrollmentsGrowthRate = 0;
+
+        if ($previousSemester) {
+            // Students growth rate
+            $previousStudents = Enrollment::where('semester_id', $previousSemester->id)
+                ->whereHas('unit', function($query) use ($sbsProgramIds) {
+                    $query->whereIn('program_id', $sbsProgramIds);
+                })
+                ->distinct('student_code')
+                ->count('student_code');
+            
+            $studentsGrowthRate = $this->calculateGrowthRate($sbsStats['total_students'], $previousStudents);
+
+            // Enrollments growth rate
+            $previousEnrollments = Enrollment::where('semester_id', $previousSemester->id)
+                ->whereHas('unit', function($query) use ($sbsProgramIds) {
+                    $query->whereIn('program_id', $sbsProgramIds);
+                })
+                ->where('status', 'enrolled')
+                ->count();
+            
+            $enrollmentsGrowthRate = $this->calculateGrowthRate($sbsStats['active_enrollments'], $previousEnrollments);
+
+            // Units growth rate
+            $previousUnits = Unit::whereIn('program_id', $sbsProgramIds)
+                ->where('created_at', '<', $currentSemester->created_at)
+                ->count();
+            
+            $unitsGrowthRate = $this->calculateGrowthRate($sbsStats['total_units'], $previousUnits);
+        }
+
+        // Get recent activities
+        $recentActivities = Enrollment::whereHas('unit', function($query) use ($sbsProgramIds) {
+                $query->whereIn('program_id', $sbsProgramIds);
+            })
+            ->with(['unit', 'student'])
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function($enrollment) {
+                return [
+                    'id' => $enrollment->id,
+                    'type' => 'enrollment',
+                    'description' => ($enrollment->student ? $enrollment->student->first_name . ' ' . $enrollment->student->last_name : 'Student') . 
+                                   ' enrolled in ' . ($enrollment->unit ? $enrollment->unit->name : 'Unit'),
+                    'created_at' => $enrollment->created_at->toISOString(),
+                ];
+            });
+
+        // Calculate pending approvals
+        $pendingApprovals = [
+            'enrollments' => Enrollment::where('semester_id', $currentSemester->id ?? 0)
+                ->whereHas('unit', function($query) use ($sbsProgramIds) {
+                    $query->whereIn('program_id', $sbsProgramIds);
+                })
+                ->where('status', 'pending')
+                ->count(),
+            'lecturerRequests' => 0,
+            'unitChanges' => Unit::whereIn('program_id', $sbsProgramIds)
+                ->where('is_active', 0)
+                ->count(),
+        ];
+
+        // Get program-specific unit counts
+        $programsWithUnits = $sbsPrograms->map(function($program) {
+            return [
+                'name' => $program->name,
+                'code' => $program->code,
+                'units' => Unit::where('program_id', $program->id)
+                    ->where('is_active', 1)
+                    ->count(),
+            ];
+        });
+
+        Log::info('SBS dashboard data generated', [
+            'user_id' => $user->id,
+            'stats' => $sbsStats,
+            'current_semester' => $currentSemester ? $currentSemester->name : 'None',
+        ]);
+        
+        return Inertia::render('SchoolAdmin/Dashboard', [
+            'schoolCode' => 'SBS',
+            'schoolName' => 'School of Business Studies',
+            'currentSemester' => $currentSemester,
+            'statistics' => [
+                'totalStudents' => [
+                    'count' => $sbsStats['total_students'],
+                    'growthRate' => $studentsGrowthRate,
+                    'period' => 'vs last semester'
+                ],
+                'totalLecturers' => [
+                    'count' => $sbsStats['total_lecturers'],
+                    'growthRate' => $lecturersGrowthRate,
+                    'period' => 'vs last semester'
+                ],
+                'totalUnits' => [
+                    'count' => $sbsStats['total_units'],
+                    'growthRate' => $unitsGrowthRate,
+                    'period' => 'vs last semester'
+                ],
+                'activeEnrollments' => [
+                    'count' => $sbsStats['active_enrollments'],
+                    'growthRate' => $enrollmentsGrowthRate,
+                    'period' => 'vs last semester'
+                ],
+            ],
+            'programs' => $programsWithUnits,
+            'facultyInfo' => [
+                'name' => 'School of Business Studies',
+                'code' => 'SBS',
+                'totalPrograms' => $sbsPrograms->count(),
+                'totalClasses' => ClassModel::whereIn('program_id', $sbsProgramIds)
+                    ->where('is_active', true)
+                    ->count(),
+            ],
+            'pendingApprovals' => $pendingApprovals,
+            'recentActivities' => $recentActivities,
+            'userPermissions' => $user->getAllPermissions()->pluck('name'),
+            'userRoles' => $user->getRoleNames()
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Error in SBS dashboard', [
+            'user_id' => $user->id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        // Return safe defaults in case of error
+        return Inertia::render('SchoolAdmin/Dashboard', [
+            'schoolCode' => 'SBS',
+            'schoolName' => 'School of Business Studies',
+            'currentSemester' => $currentSemester,
+            'statistics' => [
+                'totalStudents' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
+                'totalLecturers' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
+                'totalUnits' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
+                'activeEnrollments' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
+            ],
+            'programs' => [],
+            'facultyInfo' => [
+                'name' => 'School of Business Studies',
+                'code' => 'SBS',
+                'totalPrograms' => 0,
+                'totalClasses' => 0,
+            ],
+            'pendingApprovals' => [
+                'enrollments' => 0,
+                'lecturerRequests' => 0,
+                'unitChanges' => 0,
+            ],
+            'recentActivities' => [],
+            'userPermissions' => $user->getAllPermissions()->pluck('name'),
+            'userRoles' => $user->getRoleNames(),
+            'error' => 'Unable to load dashboard data: ' . $e->getMessage()
+        ]);
+    }
+}
+
     
     /**
      * Generic faculty dashboard method for all schools (except SCES which has its own method)

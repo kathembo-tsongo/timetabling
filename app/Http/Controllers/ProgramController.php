@@ -19,189 +19,202 @@ class ProgramController extends Controller
     /**
      * Display a listing of programs for a specific school.
      */
-    public function index(Request $request, $schoolCode)
-    {
-        Log::info('=== CONTROLLER INDEX CALLED ===', [
-            'method' => 'ProgramController@index',
-            'school_code_param' => $schoolCode,
-            'url' => $request->fullUrl(),
-            'user_id' => auth()->id(),
-            'user_email' => auth()->user()->email,
-            'timestamp' => now()->toDateTimeString()
+    /**
+ * Display a listing of programs for a specific school.
+ */
+public function index(Request $request, $schoolCode)
+{
+    Log::info('=== CONTROLLER INDEX CALLED ===', [
+        'method' => 'ProgramController@index',
+        'school_code_param' => $schoolCode,
+        'url' => $request->fullUrl(),
+        'user_id' => auth()->id(),
+        'user_email' => auth()->user()->email,
+        'timestamp' => now()->toDateTimeString()
+    ]);
+
+    $user = auth()->user();
+    $schoolCode = strtoupper($schoolCode);
+    
+    Log::info('School code after uppercase conversion', ['school_code' => $schoolCode]);
+    
+    // Check permissions based on school
+    $hasPermission = $this->hasSchoolPermission($user, $schoolCode, 'view');
+    Log::info('Permission check result', [
+        'has_permission' => $hasPermission,
+        'user_roles' => $user->getRoleNames()->toArray()
+    ]);
+    
+    if (!$hasPermission) {
+        Log::warning("Permission denied for user", [
+            'user_id' => $user->id,
+            'school_code' => $schoolCode,
+            'action' => 'view'
         ]);
+        abort(403, "Unauthorized access to {$schoolCode} programs.");
+    }
 
-        $user = auth()->user();
-        $schoolCode = strtoupper($schoolCode);
+    try {
+        // Get school
+        $school = School::where('code', $schoolCode)->first();
         
-        Log::info('School code after uppercase conversion', ['school_code' => $schoolCode]);
-        
-        // Check permissions based on school
-        $hasPermission = $this->hasSchoolPermission($user, $schoolCode, 'view');
-        Log::info('Permission check result', [
-            'has_permission' => $hasPermission,
-            'user_roles' => $user->getRoleNames()->toArray()
+        Log::info('School lookup result', [
+            'looking_for' => $schoolCode,
+            'school_found' => $school ? true : false,
+            'school_data' => $school ? $school->toArray() : null,
+            'all_schools' => School::select('id', 'code', 'name')->get()->toArray()
         ]);
         
-        if (!$hasPermission) {
-            Log::warning("Permission denied for user", [
-                'user_id' => $user->id,
-                'school_code' => $schoolCode,
-                'action' => 'view'
-            ]);
-            abort(403, "Unauthorized access to {$schoolCode} programs.");
-        }
-
-        try {
-            // Get school
-            $school = School::where('code', $schoolCode)->first();
-            
-            Log::info('School lookup result', [
-                'looking_for' => $schoolCode,
-                'school_found' => $school ? true : false,
-                'school_data' => $school ? $school->toArray() : null,
-                'all_schools' => School::select('id', 'code', 'name')->get()->toArray()
-            ]);
-            
-            if (!$school) {
-                Log::warning("School not found", ['school_code' => $schoolCode]);
-                return Inertia::render("Schools/{$schoolCode}/Programs/Index", [
-                    'programs' => [],
-                    'schoolCode' => $schoolCode,
-                    'error' => "{$schoolCode} school not found. Please contact administrator.",
-                    'filters' => $request->only(['search', 'is_active', 'sort_field', 'sort_direction']),
-                    'school' => ['code' => $schoolCode, 'name' => $schoolCode, 'id' => null],
-                    'can' => ['create' => false, 'update' => false, 'delete' => false],
-                ]);
-            }
-
-            $query = Program::where('school_id', $school->id);
-            
-            Log::info('Initial program query setup', [
-                'school_id' => $school->id,
-                'query_sql' => $query->toSql(),
-                'total_programs_in_db' => Program::count(),
-                'programs_for_this_school' => $query->count()
-            ]);
-
-            // Apply filters
-            if ($request->has('is_active')) {
-                $query->where('is_active', $request->boolean('is_active'));
-                Log::info('Applied is_active filter', ['is_active' => $request->boolean('is_active')]);
-            }
-
-            if ($request->has('search') && $request->filled('search')) {
-                $search = $request->input('search');
-                $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('code', 'like', "%{$search}%")
-                      ->orWhere('degree_type', 'like', "%{$search}%");
-                });
-                Log::info('Applied search filter', ['search' => $search]);
-            }
-
-            // Sorting
-            $sortField = $request->input('sort_field', 'sort_order');
-            $sortDirection = $request->input('sort_direction', 'asc');
-            
-            if ($sortField === 'sort_order') {
-                $query->orderBy('sort_order')->orderBy('name');
-            } else {
-                $query->orderBy($sortField, $sortDirection);
-            }
-            
-            Log::info('Applied sorting', [
-                'sort_field' => $sortField,
-                'sort_direction' => $sortDirection
-            ]);
-
-            // Get programs with stats
-            $rawPrograms = $query->get();
-            Log::info('Raw programs retrieved', [
-                'count' => $rawPrograms->count(),
-                'programs' => $rawPrograms->map(function($p) {
-                    return [
-                        'id' => $p->id,
-                        'code' => $p->code,
-                        'name' => $p->name,
-                        'school_id' => $p->school_id
-                    ];
-                })->toArray()
-            ]);
-
-            $programs = $rawPrograms->map(function ($program) {
-                Log::info('Processing program', ['program_id' => $program->id]);
-                
-                try {
-                    return [
-                        'id' => $program->id,
-                        'code' => $program->code,
-                        'name' => $program->name,
-                        'full_name' => $program->getFullNameAttribute(),
-                        'degree_type' => $program->degree_type,
-                        'duration_years' => $program->duration_years,
-                        'is_active' => $program->is_active,
-                        'description' => $program->description,
-                        'contact_email' => $program->contact_email,
-                        'contact_phone' => $program->contact_phone,
-                        'sort_order' => $program->sort_order,
-                        'school_name' => $program->school->name,
-                        'units_count' => $this->safeCount($program, 'units'),
-                        'enrollments_count' => $this->safeCount($program, 'enrollments'),
-                        'created_at' => $program->created_at,
-                        'updated_at' => $program->updated_at,
-                    ];
-                } catch (\Exception $e) {
-                    Log::error('Error processing program', [
-                        'program_id' => $program->id,
-                        'error' => $e->getMessage()
-                    ]);
-                    throw $e;
-                }
-            });
-
-            $responseData = [
-                'programs' => $programs,
-                'school' => [
-                    'id' => $school->id,
-                    'name' => $school->name,
-                    'code' => $school->code,
-                ],
-                'schoolCode' => $schoolCode,
-                'filters' => $request->only(['search', 'is_active', 'sort_field', 'sort_direction']),
-                'can' => [
-                    'create' => $this->hasSchoolPermission($user, $schoolCode, 'create'),
-                    'update' => $this->hasSchoolPermission($user, $schoolCode, 'edit'),
-                    'delete' => $this->hasSchoolPermission($user, $schoolCode, 'delete'),
-                ],
-            ];
-            
-            Log::info('Final response data', [
-                'programs_count' => $programs->count(),
-                'view_template' => "Schools/{$schoolCode}/Programs/Index",
-                'can_permissions' => $responseData['can'],
-                'school_data' => $responseData['school']
-            ]);
-
-            return Inertia::render("Schools/{$schoolCode}/Programs/Index", $responseData);
-            
-        } catch (\Exception $e) {
-            Log::error("Error fetching {$schoolCode} programs", [
-                'user_id' => $user->id,
-                'school_code' => $schoolCode,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
+        if (!$school) {
+            Log::warning("School not found", ['school_code' => $schoolCode]);
             return Inertia::render("Schools/{$schoolCode}/Programs/Index", [
                 'programs' => [],
                 'schoolCode' => $schoolCode,
-                'error' => 'Unable to load programs. Please try again.',
+                'error' => "{$schoolCode} school not found. Please contact administrator.",
                 'filters' => $request->only(['search', 'is_active', 'sort_field', 'sort_direction']),
                 'school' => ['code' => $schoolCode, 'name' => $schoolCode, 'id' => null],
                 'can' => ['create' => false, 'update' => false, 'delete' => false],
             ]);
         }
+
+        $query = Program::where('school_id', $school->id);
+        
+        Log::info('Initial program query setup', [
+            'school_id' => $school->id,
+            'query_sql' => $query->toSql(),
+            'total_programs_in_db' => Program::count(),
+            'programs_for_this_school' => $query->count()
+        ]);
+
+        // Apply filters
+        if ($request->has('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+            Log::info('Applied is_active filter', ['is_active' => $request->boolean('is_active')]);
+        }
+
+        if ($request->has('search') && $request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('code', 'like', "%{$search}%")
+                  ->orWhere('degree_type', 'like', "%{$search}%");
+            });
+            Log::info('Applied search filter', ['search' => $search]);
+        }
+
+        // Sorting
+        $sortField = $request->input('sort_field', 'sort_order');
+        $sortDirection = $request->input('sort_direction', 'asc');
+        
+        if ($sortField === 'sort_order') {
+            $query->orderBy('sort_order')->orderBy('name');
+        } else {
+            $query->orderBy($sortField, $sortDirection);
+        }
+        
+        Log::info('Applied sorting', [
+            'sort_field' => $sortField,
+            'sort_direction' => $sortDirection
+        ]);
+
+        // Get programs with stats
+        $rawPrograms = $query->get();
+        Log::info('Raw programs retrieved', [
+            'count' => $rawPrograms->count(),
+            'programs' => $rawPrograms->map(function($p) {
+                return [
+                    'id' => $p->id,
+                    'code' => $p->code,
+                    'name' => $p->name,
+                    'school_id' => $p->school_id
+                ];
+            })->toArray()
+        ]);
+
+        $programs = $rawPrograms->map(function ($program) use ($schoolCode) {
+            Log::info('Processing program', ['program_id' => $program->id]);
+            
+            try {
+                $schoolCodeLower = strtolower($schoolCode);
+                
+                return [
+                    'id' => $program->id,
+                    'code' => $program->code,
+                    'name' => $program->name,
+                    'full_name' => $program->getFullNameAttribute(),
+                    'degree_type' => $program->degree_type,
+                    'duration_years' => $program->duration_years,
+                    'is_active' => $program->is_active,
+                    'description' => $program->description,
+                    'contact_email' => $program->contact_email,
+                    'contact_phone' => $program->contact_phone,
+                    'sort_order' => $program->sort_order,
+                    'school_name' => $program->school->name,
+                    'units_count' => $this->safeCount($program, 'units'),
+                    'enrollments_count' => $this->safeCount($program, 'enrollments'),
+                    'created_at' => $program->created_at,
+                    'updated_at' => $program->updated_at,
+                    // ADD ROUTE NAMES FOR MANAGEMENT LINKS
+                    'routes' => [
+                        'units' => route("schools.{$schoolCodeLower}.programs.units.index", $program->id),
+                        'classes' => route("schools.{$schoolCodeLower}.programs.classes.index", $program->id),
+                        'enrollments' => route("schools.{$schoolCodeLower}.programs.enrollments.index", $program->id),
+                        'class_timetables' => route("schools.{$schoolCodeLower}.programs.class-timetables.index", $program->id),
+                        'exam_timetables' => route("schools.{$schoolCodeLower}.programs.exam-timetables.index", $program->id),
+                    ]
+                ];
+            } catch (\Exception $e) {
+                Log::error('Error processing program', [
+                    'program_id' => $program->id,
+                    'error' => $e->getMessage()
+                ]);
+                throw $e;
+            }
+        });
+
+        $responseData = [
+            'programs' => $programs,
+            'school' => [
+                'id' => $school->id,
+                'name' => $school->name,
+                'code' => $school->code,
+            ],
+            'schoolCode' => $schoolCode,
+            'filters' => $request->only(['search', 'is_active', 'sort_field', 'sort_direction']),
+            'can' => [
+                'create' => $this->hasSchoolPermission($user, $schoolCode, 'create'),
+                'update' => $this->hasSchoolPermission($user, $schoolCode, 'edit'),
+                'delete' => $this->hasSchoolPermission($user, $schoolCode, 'delete'),
+            ],
+        ];
+        
+        Log::info('Final response data', [
+            'programs_count' => $programs->count(),
+            'view_template' => "Schools/{$schoolCode}/Programs/Index",
+            'can_permissions' => $responseData['can'],
+            'school_data' => $responseData['school']
+        ]);
+
+        return Inertia::render("Schools/{$schoolCode}/Programs/Index", $responseData);
+        
+    } catch (\Exception $e) {
+        Log::error("Error fetching {$schoolCode} programs", [
+            'user_id' => $user->id,
+            'school_code' => $schoolCode,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        return Inertia::render("Schools/{$schoolCode}/Programs/Index", [
+            'programs' => [],
+            'schoolCode' => $schoolCode,
+            'error' => 'Unable to load programs. Please try again.',
+            'filters' => $request->only(['search', 'is_active', 'sort_field', 'sort_direction']),
+            'school' => ['code' => $schoolCode, 'name' => $schoolCode, 'id' => null],
+            'can' => ['create' => false, 'update' => false, 'delete' => false],
+        ]);
     }
+}
 
     /**
      * Show the form for creating a new program.

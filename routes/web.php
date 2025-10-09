@@ -95,11 +95,39 @@ Route::middleware(['auth'])->group(function () {
     })->name('dashboard');
 
     // SCHOOL ADMIN DASHBOARD
-    Route::prefix('SchoolAdmin')->group(function() {
-        Route::get('/dashboard', [DashboardController::class, 'scesDashboard'])
-            ->middleware(['auth', 'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS'])
-            ->name('schoolAdmin.dashboard');
-    });
+    // SCHOOL ADMIN DASHBOARD - Updated to handle multiple schools
+Route::prefix('SchoolAdmin')->group(function() {
+    Route::get('/dashboard', function() {
+        $user = auth()->user();
+        $roles = $user->getRoleNames();
+        
+        // Check which school the user belongs to
+        foreach ($roles as $role) {
+            if (str_starts_with($role, 'Faculty Admin - ')) {
+                $schoolCode = str_replace('Faculty Admin - ', '', $role);
+                
+                // Route to appropriate school dashboard
+                switch($schoolCode) {
+                    case 'SCES':
+                        return app(DashboardController::class)->scesDashboard();
+                    case 'SBS':
+                        return app(DashboardController::class)->sbsDashboard();
+                    case 'SLS':
+                        // Will add this later
+                        return app(DashboardController::class)->slsDashboard();
+                    default:
+                        abort(403, 'Unknown school: ' . $schoolCode);
+                }
+            }
+        }
+        
+        // If no Faculty Admin role found, deny access
+        abort(403, 'Unauthorized access to school admin dashboard.');
+    })
+    ->middleware(['auth', 'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS'])
+    ->name('schoolAdmin.dashboard');
+});
+  
 
     // ADMIN ROUTES - PERMISSION-BASED
     Route::prefix('admin')->group(function () {
@@ -516,6 +544,209 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 
                 Route::get('/download/pdf', function(Program $program) {
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SCES');
+                })->name('download');
+            });
+        });
+    });
+});
+
+    // SBS SCHOOL ROUTES
+    // SBS SCHOOL ROUTES
+Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(function () {
+    
+    // ============================================
+    // PROGRAMS ROUTES
+    // ============================================
+    Route::prefix('programs')->name('programs.')->middleware(['permission:view-programs'])->group(function () {
+        // Program CRUD
+        Route::get('/', function(Request $request) {
+            return app(ProgramController::class)->index($request, 'SBS');
+        })->name('index');
+        
+        Route::get('/create', function() {
+            return app(ProgramController::class)->create('SBS');
+        })->middleware(['permission:create-programs'])->name('create');
+        
+        Route::post('/', function(Request $request) {
+            return app(ProgramController::class)->store($request, 'SBS');
+        })->middleware(['permission:create-programs'])->name('store');
+        
+        Route::get('/{program}', function(Program $program) {
+            return app(ProgramController::class)->show('SBS', $program);
+        })->name('show');
+        
+        Route::get('/{program}/edit', function(Program $program) {
+            return app(ProgramController::class)->edit('SBS', $program);
+        })->middleware(['permission:edit-programs'])->name('edit');
+        
+        Route::put('/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SBS', $program);
+        })->middleware(['permission:edit-programs'])->name('update');
+        
+        Route::patch('/{program}', function(Request $request, Program $program) {
+            return app(ProgramController::class)->update($request, 'SBS', $program);
+        })->middleware(['permission:edit-programs'])->name('patch');
+        
+        Route::delete('/{program}', function(Program $program) {
+            return app(ProgramController::class)->destroy('SBS', $program);
+        })->middleware(['permission:delete-programs'])->name('destroy');
+
+        // ============================================
+        // PROGRAM-SPECIFIC NESTED ROUTES
+        // ============================================
+        Route::prefix('{program}')->group(function () {
+            
+            // UNITS
+            Route::prefix('units')->name('units.')->middleware(['permission:view-units'])->group(function () {
+                Route::get('/', function(Program $program, Request $request) {
+                    return app(UnitController::class)->programUnits($program, $request, 'SBS');
+                })->name('index');
+                
+                Route::get('/create', function(Program $program) {
+                    return app(UnitController::class)->createProgramUnit($program, 'SBS');
+                })->middleware(['permission:create-units'])->name('create');
+                
+                Route::post('/', function(Program $program, Request $request) {
+                    return app(UnitController::class)->storeProgramUnit($program, $request, 'SBS');
+                })->middleware(['permission:create-units'])->name('store');
+                
+                Route::get('/{unit}', function(Program $program, Unit $unit) {
+                    return app(UnitController::class)->showProgramUnit($program, $unit, 'SBS');
+                })->name('show');
+                
+                Route::get('/{unit}/edit', function(Program $program, Unit $unit) {
+                    return app(UnitController::class)->editProgramUnit($program, $unit, 'SBS');
+                })->middleware(['permission:edit-units'])->name('edit');
+                
+                Route::put('/{unit}', function(Program $program, Unit $unit, Request $request) {
+                    return app(UnitController::class)->updateProgramUnit($program, $unit, $request, 'SBS');
+                })->middleware(['permission:edit-units'])->name('update');
+                
+                Route::delete('/{unit}', function(Program $program, Unit $unit) {
+                    return app(UnitController::class)->destroyProgramUnit($program, $unit, 'SBS');
+                })->middleware(['permission:delete-units'])->name('destroy');
+            });
+
+            // UNIT ASSIGNMENT TO SEMESTERS
+            Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
+                Route::get('/', function(Program $program, Request $request) {
+                    return app(UnitController::class)->programUnitAssignments($program, $request, 'SBS');
+                })->middleware(['permission:view-units'])->name('AssignSemesters');
+                
+                Route::post('/assign', function(Program $program, Request $request) {
+                    return app(UnitController::class)->assignProgramUnitsToSemester('SBS', $program, $request);
+                })->middleware(['permission:edit-units'])->name('assign');
+                
+                Route::post('/remove', function(Program $program, Request $request) {
+                    return app(UnitController::class)->removeProgramUnitsFromSemester('SBS', $program, $request);
+                })->middleware(['permission:delete-units'])->name('remove');
+            });
+
+            // CLASSES
+            Route::prefix('classes')->name('classes.')->middleware(['permission:view-classes'])->group(function () {
+                Route::get('/', function(Program $program, Request $request) {
+                    return app(ClassController::class)->programClasses($program, $request, 'SBS');
+                })->name('index');
+                
+                Route::post('/', function(Program $program, Request $request) {
+                    return app(ClassController::class)->storeProgramClass($program, $request, 'SBS');
+                })->middleware(['permission:create-classes'])->name('store');
+                
+                Route::put('/{class}', function(Program $program, ClassModel $class, Request $request) {
+                    return app(ClassController::class)->updateProgramClass($program, $class, $request, 'SBS');
+                })->middleware(['permission:edit-classes'])->name('update');
+                
+                Route::delete('/{class}', function(Program $program, ClassModel $class) {
+                    return app(ClassController::class)->destroyProgramClass($program, $class, 'SBS');
+                })->middleware(['permission:delete-classes'])->name('destroy');
+            });
+
+            // ENROLLMENTS (Program-specific)
+            Route::prefix('enrollments')->name('enrollments.')->middleware(['permission:view-enrollments'])->group(function () {
+                Route::get('/', function(Program $program, Request $request) {
+                    return app(EnrollmentController::class)->programEnrollments($program, $request, 'SBS');
+                })->name('index');
+                
+                Route::post('/', function(Program $program, Request $request) {
+                    return app(EnrollmentController::class)->storeProgramEnrollment($program, $request, 'SBS');
+                })->middleware(['permission:create-enrollments'])->name('store');
+                
+                Route::put('/{enrollment}', function(Program $program, $enrollment, Request $request) {
+                    return app(EnrollmentController::class)->updateProgramEnrollment($program, $enrollment, $request, 'SBS');
+                })->middleware(['permission:edit-enrollments'])->name('update');
+                
+                Route::delete('/{enrollment}', function(Program $program, $enrollment) {
+                    return app(EnrollmentController::class)->destroyProgramEnrollment($program, $enrollment, 'SBS');
+                })->middleware(['permission:delete-enrollments'])->name('destroy');
+            });
+
+            // CLASS TIMETABLES
+            Route::prefix('class-timetables')->name('class-timetables.')->group(function () {
+                Route::get('/', function(Program $program, Request $request) {
+                    return app(ClassTimetableController::class)->programClassTimetables($program, $request, 'SBS');
+                })->name('index');
+                
+                Route::get('/create', function(Program $program) {
+                    return app(ClassTimetableController::class)->createProgramClassTimetable($program, 'SBS');
+                })->name('create');
+                
+                Route::post('/', function(Program $program, Request $request) {
+                    return app(ClassTimetableController::class)->storeProgramClassTimetable($program, $request, 'SBS');
+                })->name('store');
+                
+                Route::get('/{timetable}', function(Program $program, $timetable) {
+                    return app(ClassTimetableController::class)->showProgramClassTimetable($program, $timetable, 'SBS');
+                })->name('show');
+                
+                Route::get('/{timetable}/edit', function(Program $program, $timetable) {
+                    return app(ClassTimetableController::class)->editProgramClassTimetable($program, $timetable, 'SBS');
+                })->name('edit');
+                
+                Route::put('/{timetable}', function(Program $program, $timetable, Request $request) {
+                    return app(ClassTimetableController::class)->updateProgramClassTimetable($program, $timetable, $request, 'SBS');
+                })->name('update');
+                
+                Route::delete('/{timetable}', function(Program $program, $timetable) {
+                    return app(ClassTimetableController::class)->destroyProgramClassTimetable($program, $timetable, 'SBS');
+                })->name('destroy');
+                
+                Route::get('/download/pdf', function(Program $program) {
+                    return app(ClassTimetableController::class)->downloadProgramClassTimetablePDF($program, 'SBS');
+                })->name('download');
+            });
+
+            // EXAM TIMETABLES
+            Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
+                Route::get('/', function(Program $program, Request $request) {
+                    return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SBS');
+                })->name('index');
+                
+                Route::get('/create', function(Program $program) {
+                    return app(ExamTimetableController::class)->createProgramExamTimetable($program, 'SBS');
+                })->name('create');
+                
+                Route::post('/', function(Program $program, Request $request) {
+                    return app(ExamTimetableController::class)->storeProgramExamTimetable($program, $request, 'SBS');
+                })->name('store');
+                
+                Route::get('/{timetable}', function(Program $program, $timetable) {
+                    return app(ExamTimetableController::class)->showProgramExamTimetable($program, $timetable, 'SBS');
+                })->name('show');
+                
+                Route::get('/{timetable}/edit', function(Program $program, $timetable) {
+                    return app(ExamTimetableController::class)->editProgramExamTimetable($program, $timetable, 'SBS');
+                })->name('edit');
+                
+                Route::put('/{timetable}', function(Program $program, $timetable, Request $request) {
+                    return app(ExamTimetableController::class)->updateProgramExamTimetable($program, $timetable, $request, 'SBS');
+                })->name('update');
+                
+                Route::delete('/{timetable}', function(Program $program, $timetable) {
+                    return app(ExamTimetableController::class)->destroyProgramExamTimetable($program, $timetable, 'SBS');
+                })->name('destroy');
+                
+                Route::get('/download/pdf', function(Program $program) {
+                    return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
                 })->name('download');
             });
         });

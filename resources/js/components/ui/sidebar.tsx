@@ -292,7 +292,7 @@ export default function Sidebar() {
                 <span>Classrooms</span>
               </Link>
             )} 
-            {(can('view-classtimeslots') || can('view-class-timetables')) && (
+            {(can('view-classtimeslots')) && (
               <Link href="/classtimeslot" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Clock className="mr-3 h-5 w-5" />
                 <span>Time Slots</span>

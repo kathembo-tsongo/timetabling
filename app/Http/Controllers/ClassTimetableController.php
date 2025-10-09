@@ -1647,7 +1647,7 @@ public function getUnitsByClass(Request $request)
      */
 public function update(Request $request, $id)
 {
-    // OPTIMIZATION 1: Streamlined validation
+    
     $request->validate([
         'unit_id' => 'required|integer',
         'semester_id' => 'required|integer', 
