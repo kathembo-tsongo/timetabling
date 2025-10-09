@@ -22,6 +22,9 @@ class ProgramController extends Controller
     /**
  * Display a listing of programs for a specific school.
  */
+/**
+ * Display a listing of programs for a specific school.
+ */
 public function index(Request $request, $schoolCode)
 {
     Log::info('=== CONTROLLER INDEX CALLED ===', [
@@ -157,6 +160,7 @@ public function index(Request $request, $schoolCode)
                     // ADD ROUTE NAMES FOR MANAGEMENT LINKS
                     'routes' => [
                         'units' => route("schools.{$schoolCodeLower}.programs.units.index", $program->id),
+                        'unit_assignment' => route("schools.{$schoolCodeLower}.programs.unitassignment.AssignSemesters", $program->id),
                         'classes' => route("schools.{$schoolCodeLower}.programs.classes.index", $program->id),
                         'enrollments' => route("schools.{$schoolCodeLower}.programs.enrollments.index", $program->id),
                         'class_timetables' => route("schools.{$schoolCodeLower}.programs.class-timetables.index", $program->id),
@@ -215,7 +219,6 @@ public function index(Request $request, $schoolCode)
         ]);
     }
 }
-
     /**
      * Show the form for creating a new program.
      */

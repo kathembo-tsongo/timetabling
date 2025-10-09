@@ -190,7 +190,7 @@ export default function UnitAssignments() {
     setSelectedClasses([]);
   };
 
-  // Assign units to multiple classes
+  // ✅ FIXED: Assign units to multiple classes
   const handleAssignToClass = () => {
     if (selectedUnits.size === 0) {
       toast.error('Please select at least one unit');
@@ -208,7 +208,9 @@ export default function UnitAssignments() {
     }
 
     setLoading(true);
-    router.post(route('schools.sces.programs.unitassignment.assign', program.id), {
+    
+    // ✅ FIXED: Dynamic schoolCode
+    router.post(route(`schools.${schoolCode.toLowerCase()}.programs.unitassignment.assign`, program.id), {
       unit_ids: Array.from(selectedUnits),
       semester_id: selectedSemester,
       class_ids: selectedClasses
@@ -225,13 +227,15 @@ export default function UnitAssignments() {
     });
   };
 
-  // Remove assignments
+  // ✅ FIXED: Remove assignments
   const handleRemoveAssignments = (assignmentIds: number[]) => {
     if (assignmentIds.length === 0) return;
 
     if (confirm(`Are you sure you want to remove ${assignmentIds.length} assignment(s)?`)) {
       setLoading(true);
-      router.post(route('schools.sces.programs.unitassignment.remove', program.id), {
+      
+      // ✅ FIXED: Dynamic schoolCode
+      router.post(route(`schools.${schoolCode.toLowerCase()}.programs.unitassignment.remove`, program.id), {
         assignment_ids: assignmentIds
       }, {
         onSuccess: () => {
@@ -245,7 +249,7 @@ export default function UnitAssignments() {
     }
   };
 
-  // Apply filters
+  // ✅ FIXED: Apply filters
   const applyFilters = () => {
     const params = new URLSearchParams();
     if (searchTerm) params.append('search', searchTerm);
@@ -254,7 +258,8 @@ export default function UnitAssignments() {
       params.append('class_id', selectedClasses[0].toString());
     }
 
-    router.get(`${route('schools.sces.programs.unitassignment.AssignSemesters', program.id)}?${params.toString()}`);
+    // ✅ FIXED: Dynamic schoolCode
+    router.get(`${route(`schools.${schoolCode.toLowerCase()}.programs.unitassignment.AssignSemesters`, program.id)}?${params.toString()}`);
   };
 
   return (
@@ -292,8 +297,9 @@ export default function UnitAssignments() {
                   </div>
                 </div>
                 
+                {/* ✅ FIXED: Dynamic schoolCode for back button */}
                 <a
-                  href={route('schools.sces.programs.index')}
+                  href={route(`schools.${schoolCode.toLowerCase()}.programs.index`)}
                   className="mt-4 sm:mt-0 px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
                 >
                   Back to Programs

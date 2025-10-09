@@ -1191,7 +1191,7 @@ const handleOpenModal = useCallback(
       if (specificErrors.length > 0) {
         specificErrors.forEach((error, index) => {
           setTimeout(() => {
-            toast.error(error, { duration: 30000 })
+            toast.error(error, { duration: 5000 })
           }, index * 1000)
         })
       }

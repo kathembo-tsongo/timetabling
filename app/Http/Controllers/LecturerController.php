@@ -63,49 +63,167 @@ class LecturerController extends Controller
             
             return $next($request);
         });
-      
+        
+        // You might need to adjust this based on your role system
+        // Commenting out strict role middleware for now
+        // $this->middleware('role:lecturer');
     }
+    
+    /**
+     * Display a listing of the resource (index method)
+     */
+    public function index()
+    {
+        $user = auth()->user();
+        
+        // Check if user has lecturer role or appropriate permissions
+        if (!$user || !$this->hasLecturerAccess($user)) {
+            abort(403, 'Access denied. You do not have lecturer privileges.');
+        }
+        
+        // Redirect to dashboard or return a default view
+        return redirect()->route('lecturer.dashboard');
+    }
+    
+    /**
+     * Check if user has lecturer access
+     */
     private function hasLecturerAccess($user)
     {
-        // Admin always has access
-        if (method_exists($user, 'hasRole') && $user->hasRole('Admin')) {
-            Log::info('Access granted: User is Admin');
+        // Log detailed access check
+        Log::info('Checking lecturer access for user', [
+            'user_id' => $user->id,
+            'user_code' => $user->code ?? 'NO CODE',
+            'user_role' => $user->role ?? 'NO ROLE',
+            'user_type' => $user->type ?? 'NO TYPE',
+            'is_faculty_admin_check' => $this->isFacultyAdmin($user)
+        ]);
+        
+        // Faculty admin should have access to all lecturer functionality
+        if ($this->isFacultyAdmin($user)) {
+            Log::info('Access granted: User is faculty admin');
             return true;
         }
         
-        // Check for Lecturer role
-        if (method_exists($user, 'hasRole') && $user->hasRole('Lecturer')) {
-            Log::info('Access granted: User has Lecturer role');
-            return true;
+        // Check if user has any lecturer-related permissions
+        if (method_exists($user, 'hasPermissionTo')) {
+            $lecturerPermissions = [
+                'view-faculty-lecturers-sces',
+                'manage-faculty-lecturers-sces',
+                'view-faculty-class-timetables-sces',
+                'view-faculty-students-sces'
+            ];
+            
+            foreach ($lecturerPermissions as $permission) {
+                if ($user->hasPermissionTo($permission)) {
+                    Log::info('Access granted: User has lecturer permission', ['permission' => $permission]);
+                    return true;
+                }
+            }
         }
         
-        // Check via roles relationship
-        if (method_exists($user, 'roles')) {
-            $userRoles = $user->roles()->pluck('name')->toArray();
-            if (in_array('Lecturer', $userRoles) || in_array('Admin', $userRoles)) {
-                Log::info('Access granted via roles relationship', ['roles' => $userRoles]);
+        // Check permissions via relationship
+        if (method_exists($user, 'permissions')) {
+            $userPermissions = $user->permissions()->pluck('name')->toArray();
+            $lecturerPermissions = [
+                'view-faculty-lecturers-sces',
+                'manage-faculty-lecturers-sces',
+                'view-faculty-class-timetables-sces',
+                'view-faculty-students-sces',
+                'edit-faculty-lecturers-sces',
+                'create-faculty-lecturers-sces'
+            ];
+            
+            $hasLecturerPermission = !empty(array_intersect($userPermissions, $lecturerPermissions));
+            Log::info('Permission check via relationship', [
+                'user_permissions' => $userPermissions,
+                'lecturer_permissions' => $lecturerPermissions,
+                'has_lecturer_permission' => $hasLecturerPermission,
+                'matching_permissions' => array_intersect($userPermissions, $lecturerPermissions)
+            ]);
+            
+            if ($hasLecturerPermission) {
                 return true;
             }
         }
         
-        // Check for Faculty Admin
-        if ($this->isFacultyAdmin($user)) {
-            Log::info('Access granted: User is Faculty Admin');
+        // Option 1: Check if user has lecturer role via role relationship
+        if (method_exists($user, 'hasRole')) {
+            $hasRole = $user->hasRole('lecturer') || $user->hasRole('admin') || $user->hasRole('faculty_admin') || $user->hasRole('teacher');
+            Log::info('Role check via hasRole method', ['has_role' => $hasRole]);
+            if ($hasRole) return true;
+        }
+        
+        // Option 2: Check user type/role column directly
+        if (isset($user->role)) {
+            $allowedRoles = ['lecturer', 'admin', 'teacher', 'faculty_admin', 'super_admin'];
+            $hasAllowedRole = in_array($user->role, $allowedRoles);
+            Log::info('Role check via role column', [
+                'user_role' => $user->role,
+                'allowed_roles' => $allowedRoles,
+                'has_allowed_role' => $hasAllowedRole
+            ]);
+            if ($hasAllowedRole) return true;
+        }
+        
+        // Option 3: Check user type column
+        if (isset($user->type)) {
+            $allowedTypes = ['lecturer', 'admin', 'teacher', 'faculty_admin', 'super_admin'];
+            $hasAllowedType = in_array($user->type, $allowedTypes);
+            Log::info('Type check via type column', [
+                'user_type' => $user->type,
+                'allowed_types' => $allowedTypes,
+                'has_allowed_type' => $hasAllowedType
+            ]);
+            if ($hasAllowedType) return true;
+        }
+        
+        // Option 4: Check if user has a code (basic lecturer identification)
+        if (isset($user->code) && !empty($user->code)) {
+            Log::info('Access granted: User has code', ['user_code' => $user->code]);
             return true;
         }
         
-        Log::warning('Access denied: No matching criteria found', [
-            'user_id' => $user->id,
-            'user_code' => $user->code ?? 'NO CODE'
-        ]);
+        // Option 5: Check via roles relationship for Faculty Admin role
+        if (method_exists($user, 'roles')) {
+            $userRoles = $user->roles()->pluck('name')->toArray();
+            $allowedRoles = ['lecturer', 'admin', 'teacher', 'faculty_admin', 'super_admin'];
+            
+            // Also check for Faculty Admin - SCES specifically
+            foreach ($userRoles as $roleName) {
+                if (str_contains($roleName, 'Faculty Admin') || in_array($roleName, $allowedRoles)) {
+                    Log::info('Access granted via roles relationship', ['matching_role' => $roleName]);
+                    return true;
+                }
+            }
+            
+            Log::info('Role check via roles relationship', [
+                'user_roles' => $userRoles,
+                'allowed_roles' => $allowedRoles
+            ]);
+        }
+        
+        Log::warning('Access denied: No matching criteria found');
         return false;
     }
     
     /**
-     * Check if user is a faculty admin - SIMPLIFIED
+     * Check if user is a faculty admin
      */
     private function isFacultyAdmin($user)
     {
+        // Log the check
+        Log::info('Checking if user is faculty admin', [
+            'user_id' => $user->id,
+            'user_code' => $user->code ?? 'NO CODE'
+        ]);
+        
+        // Check by user code pattern (faculty admins typically have ADM prefix)
+        if (isset($user->code) && str_starts_with($user->code, 'ADM')) {
+            Log::info('User identified as faculty admin by code pattern');
+            return true;
+        }
+        
         // Check by role name containing "Faculty Admin"
         if (method_exists($user, 'roles')) {
             $userRoles = $user->roles()->get();
@@ -117,72 +235,113 @@ class LecturerController extends Controller
             }
         }
         
-        return false;
-    }
-    
-    /**
-     * Display a listing of the resource
-     */
-    public function index()
-    {
-        $user = auth()->user();
-        
-        if (!$user || !$this->hasLecturerAccess($user)) {
-            abort(403, 'Access denied. You do not have lecturer privileges.');
+        // Check by specific permissions - if user has faculty management permissions, they're an admin
+        if (method_exists($user, 'permissions')) {
+            $permissions = $user->permissions()->pluck('name')->toArray();
+            $facultyAdminPermissions = [
+                'manage-faculty-lecturers-sces',
+                'view-faculty-lecturers-sces',
+                'create-faculty-lecturers-sces',
+                'edit-faculty-lecturers-sces',
+                'manage-faculty-students-sces'
+            ];
+            
+            // If user has any faculty management permissions, they're likely a faculty admin
+            $hasAdminPermissions = !empty(array_intersect($permissions, $facultyAdminPermissions));
+            if ($hasAdminPermissions) {
+                Log::info('User identified as faculty admin by permissions', [
+                    'matching_permissions' => array_intersect($permissions, $facultyAdminPermissions)
+                ]);
+                return true;
+            }
         }
         
-        return redirect()->route('lecturer.dashboard');
+        // Check by role column if it exists
+        if (isset($user->role) && str_contains(strtolower($user->role), 'admin')) {
+            Log::info('User identified as faculty admin by role column', ['role' => $user->role]);
+            return true;
+        }
+        
+        // Check using Laravel's built-in permission checking
+        if (method_exists($user, 'hasPermissionTo')) {
+            $adminPermissions = [
+                'manage-faculty-lecturers-sces',
+                'view-faculty-dashboard-sces',
+                'manage-faculty-students-sces'
+            ];
+            
+            foreach ($adminPermissions as $permission) {
+                if ($user->hasPermissionTo($permission)) {
+                    Log::info('User identified as faculty admin by hasPermissionTo', ['permission' => $permission]);
+                    return true;
+                }
+            }
+        }
+        
+        Log::info('User is not identified as faculty admin');
+        return false;
     }
     
     /**
      * Display the lecturer's dashboard
      */
+    /**
+     * Display the lecturer's dashboard - WORKING VERSION BASED ON CLASS TIMETABLE LOGIC
+     */
     public function dashboard()
     {
         $lecturer = auth()->user();
         
+        // Check lecturer access
         if (!$lecturer || !$this->hasLecturerAccess($lecturer)) {
             abort(403, 'Access denied. You do not have lecturer privileges.');
         }
         
+        // Debug: Check if lecturer exists and has units
+        \Log::info('Lecturer ID: ' . $lecturer->id);
+        
+        // Get current semester
         $currentSemester = Semester::where('is_current', true)->first();
-        $lecturerSemesters = Semester::whereHas('unitAssignments', function($query) use ($lecturer) {
-            $query->where('lecturer_code', $lecturer->code);
+        
+        // Get all semesters where lecturer has units
+        $lecturerSemesters = Semester::whereHas('units.lecturers', function($query) use ($lecturer) {
+            $query->where('lecturer_id', $lecturer->id);
         })->get();
         
+        // Debug: Log the semesters found
+        \Log::info('Lecturer Semesters: ' . $lecturerSemesters->count());
+        
+        // Get units by semester
         $unitsBySemester = [];
         $studentCounts = [];
         
         foreach ($lecturerSemesters as $semester) {
-            $unitIds = UnitAssignment::where('lecturer_code', $lecturer->code)
-                ->where('semester_id', $semester->id)
-                ->pluck('unit_id')
-                ->unique();
+            $units = $lecturer->units()
+                ->wherePivot('semester_id', $semester->id)
+                ->with('faculty')
+                ->get();
             
-            if ($unitIds->isNotEmpty()) {
-                $units = Unit::whereIn('id', $unitIds)
-                    ->with('school')
-                    ->get();
+            // Debug: Log units for each semester
+            \Log::info("Semester {$semester->id} units: " . $units->count());
+            
+            if ($units->count() > 0) {
+                $unitsBySemester[$semester->id] = [
+                    'semester' => $semester,
+                    'units' => $units
+                ];
                 
-                if ($units->count() > 0) {
-                    $unitsBySemester[$semester->id] = [
-                        'semester' => $semester,
-                        'units' => $units
-                    ];
-                    
-                    $studentCounts[$semester->id] = [];
-                    foreach ($units as $unit) {
-                        $studentCounts[$semester->id][$unit->id] = DB::table('enrollments')
-                            ->where('unit_id', $unit->id)
-                            ->where('semester_id', $semester->id)
-                            ->whereNotNull('student_code')
-                            ->where('status', 'enrolled')
-                            ->distinct('student_code')
-                            ->count();
-                    }
+                // Get student counts for each unit
+                $studentCounts[$semester->id] = [];
+                foreach ($units as $unit) {
+                    $studentCounts[$semester->id][$unit->id] = $unit->students()
+                        ->wherePivot('semester_id', $semester->id)
+                        ->count();
                 }
             }
         }
+        
+        // Debug: Log final data structure
+        \Log::info('Units by semester: ' . json_encode(array_keys($unitsBySemester)));
         
         return Inertia::render('Lecturer/Dashboard', [
             'currentSemester' => $currentSemester,
@@ -191,7 +350,6 @@ class LecturerController extends Controller
             'studentCounts' => $studentCounts,
         ]);
     }
-   
     
     public function myClasses(Request $request)
 {

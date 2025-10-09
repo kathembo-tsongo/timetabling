@@ -25,81 +25,68 @@ class DashboardController extends Controller
     /**
      * Main dashboard entry point - redirects based on user role
      */
-    /**
- * Main dashboard entry point - redirects based on user role
- */
-public function index()
-{
-    $user = auth()->user();
+    public function index()
+    {
+        $user = auth()->user();
 
-    // Enhanced debugging
-    Log::info('Dashboard index accessed', [
-        'user_id' => $user->id,
-        'user_email' => $user->email,
-        'user_roles' => $user->getRoleNames()->toArray(),
-        'has_admin_role' => $user->hasRole('Admin'),
-        'can_view_admin_dashboard' => $user->can('view admin dashboard'),
-    ]);
+        // Enhanced debugging
+        Log::info('Dashboard index accessed', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'user_roles' => $user->getRoleNames()->toArray(),
+            'has_admin_role' => $user->hasRole('Admin'),
+            'can_view_admin_dashboard' => $user->can('view admin dashboard'),
+        ]);
 
-    // Check for Faculty Admin roles first (school-specific)
-    $roles = $user->getRoleNames();
-    foreach ($roles as $role) {
-        if (str_starts_with($role, 'Faculty Admin - ')) {
-            $faculty = str_replace('Faculty Admin - ', '', $role);
-            
-            Log::info('Faculty Admin role detected', [
-                'user_id' => $user->id,
-                'faculty' => $faculty,
-                'role' => $role
-            ]);
-            
-            // Route to appropriate school dashboard based on faculty code
-            switch($faculty) {
-                case 'SCES':
-                    return $this->scesDashboard(request());
-                case 'SBS':
-                    return $this->sbsDashboard(request());
-                case 'SLS':
-                    return $this->slsDashboard(request()); // Will add later
-                default:
-                    Log::warning('Unknown faculty code', [
+        // Check for Faculty Admin roles first (school-specific)
+        $roles = $user->getRoleNames();
+        foreach ($roles as $role) {
+            if (str_starts_with($role, 'Faculty Admin - ')) {
+                $faculty = str_replace('Faculty Admin - ', '', $role);
+                $schoolRoute = match($faculty) {
+                    'SCES' => 'schoolAdmin.dashboard',
+                    'SBS' => 'schoolAdmin.dashboard',
+                    'SET' => 'schoolAdmin.dashboard',
+                    default => null
+                };
+                
+                if ($schoolRoute) {
+                    Log::info('Redirecting to school-specific dashboard', [
+                        'user_id' => $user->id,
                         'faculty' => $faculty,
-                        'user_id' => $user->id
+                        'route' => $schoolRoute
                     ]);
-                    break;
+                    return redirect()->route($schoolRoute);
+                }
             }
         }
+
+        // Automatic role-based dashboard redirection
+        if ($user->hasRole('Admin')) {
+            Log::info('Redirecting to admin dashboard', ['user_id' => $user->id]);
+            return $this->adminDashboard(request());
+        } elseif ($user->hasRole('Student')) {
+            Log::info('Redirecting to student dashboard', ['user_id' => $user->id]);
+            return $this->studentDashboard(request());
+        } elseif ($user->hasRole('Lecturer')) {
+            Log::info('Redirecting to lecturer dashboard', ['user_id' => $user->id]);
+            return $this->lecturerDashboard(request());
+        } elseif ($user->hasRole('Exam Office')) {
+            Log::info('Redirecting to exam office dashboard', ['user_id' => $user->id]);
+            return $this->examOfficeDashboard(request());
+        } elseif ($user->hasRole('Faculty Admin')) {
+            Log::info('Redirecting to generic faculty admin dashboard', ['user_id' => $user->id]);
+            return $this->facultyAdminDashboard(request());
+        }
+
+        Log::info('No specific role found, showing default dashboard', [
+            'user_id' => $user->id,
+            'roles' => $user->getRoleNames()->toArray()
+        ]);
+
+        // Default dashboard for users without specific roles
+        return $this->defaultDashboard();
     }
-
-    // Automatic role-based dashboard redirection
-    if ($user->hasRole('Admin')) {
-        Log::info('Redirecting to admin dashboard', ['user_id' => $user->id]);
-        return $this->adminDashboard(request());
-    } elseif ($user->hasRole('Student')) {
-        Log::info('Redirecting to student dashboard', ['user_id' => $user->id]);
-        return $this->studentDashboard(request());
-    } elseif ($user->hasRole('Lecturer')) {
-        Log::info('Redirecting to lecturer dashboard', ['user_id' => $user->id]);
-        return $this->lecturerDashboard(request());
-    } elseif ($user->hasRole('Exam Office')) {
-        Log::info('Redirecting to exam office dashboard', ['user_id' => $user->id]);
-        return $this->examOfficeDashboard(request());
-    } elseif ($user->hasRole('Class Timetable office')) {
-        Log::info('Redirecting to class timetable office dashboard', ['user_id' => $user->id]);
-        return $this->classtimetablesDashboard(request());
-    } elseif ($user->hasRole('Faculty Admin')) {
-        Log::info('Redirecting to generic faculty admin dashboard', ['user_id' => $user->id]);
-        return $this->facultyAdminDashboard(request());
-    }
-
-    Log::info('No specific role found, showing default dashboard', [
-        'user_id' => $user->id,
-        'roles' => $user->getRoleNames()->toArray()
-    ]);
-
-    // Default dashboard for users without specific roles
-    return $this->defaultDashboard();
-}
 
 
     /**
@@ -968,9 +955,8 @@ public function scesDashboard()
         ]);
     }
 }
-
-// sbs dashboard
-/**
+    // sbsdashboard
+    /**
  * SBS Faculty Dashboard - School of Business Studies
  */
 public function sbsDashboard()
@@ -1209,8 +1195,6 @@ public function sbsDashboard()
         ]);
     }
 }
-
-    
     /**
      * Generic faculty dashboard method for all schools (except SCES which has its own method)
      */
