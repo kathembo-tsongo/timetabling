@@ -40,7 +40,7 @@ class AuthenticatedSessionController extends Controller
     }
     
     if ($roles->contains('Exam office')) {
-        return redirect()->route('exam-office.dashboard');
+        return redirect()->route('examoffice.dashboard');
     }
     
     // NEW: Class Office check
@@ -53,8 +53,8 @@ class AuthenticatedSessionController extends Controller
     if ($facultyRole) {
         $faculty = str_replace('Faculty Admin - ', '', $facultyRole);
         $redirectRoute = match($faculty) {
-            'SCES' => 'school.admin.dashboard',
-            'SBS' => 'school.admin.dashboard',
+            'SCES' => 'schoolAdmin.dashboard',
+            'SBS' => 'schoolAdmin.dashboard',
             default => null
         };
         if ($redirectRoute) {
