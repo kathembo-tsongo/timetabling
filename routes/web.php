@@ -94,6 +94,16 @@ Route::middleware(['auth'])->group(function () {
         return Inertia::render('Dashboard');
     })->name('dashboard');
 
+    Route::prefix('api')->group(function () {
+        // Exam Timetable cascading dropdowns
+        Route::get('/exam-timetables/classes-by-semester/{semesterId}', [ExamTimetableController::class, 'getClassesBySemester']);
+        Route::get('/exam-timetables/units-by-class', [ExamTimetableController::class, 'getUnitsByClassAndSemesterForExam']);
+        // Unit cascading dropdowns
+        Route::get('/units/classes-by-semester/{semesterId}', [UnitController::class, 'getClassesBySemester']);
+        Route::get('/units/available-units', [UnitController::class, 'getAvailableUnits']);
+        
+    });
+
     // SCHOOL ADMIN DASHBOARD
  // SCHOOL ADMIN DASHBOARD - Updated to handle multiple schools
 Route::prefix('SchoolAdmin')->group(function() {
@@ -747,7 +757,7 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
             });
 
             // EXAM TIMETABLES
-            Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
+            Route::prefix('examtimetables')->name('exam-timetables.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SBS');
                 })->name('index');

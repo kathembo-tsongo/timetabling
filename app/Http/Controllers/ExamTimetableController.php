@@ -10,9 +10,11 @@ use App\Models\SemesterUnit;
 use App\Models\Enrollment;
 use App\Models\TimeSlot;
 use App\Models\Examroom;
+use App\Models\Program;
 use App\Models\ClassModel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -129,13 +131,13 @@ class ExamTimetableController extends Controller
             'classesBySemester' => $classesBySemester,
             'unitsByClass' => $unitsByClass,
             'can' => [
-                'create' => $user->can('create-examtimetables'),
-                'edit' => $user->can('update-examtimetables'),
-                'delete' => $user->can('delete-examtimetables'),
-                'process' => $user->can('process-examtimetables'),
-                'solve_conflicts' => $user->can('solve-exam-conflicts'),
-                'download' => $user->can('download-examtimetables'),
-            ],
+    'create' => $user->can('create-exam-timetables'),
+    'edit' => $user->can('edit-exam-timetables'),
+    'delete' => $user->can('delete-exam-timetables'),
+    'process' => $user->can('process-exam-timetables'),
+    'solve_conflicts' => $user->can('solve-exam-conflicts'),
+    'download' => $user->can('download-exam-timetables'),
+],
         ]);
     }
 
@@ -1133,83 +1135,87 @@ public function studentExamTimetable(Request $request)
     /**
      * Display exam timetables for a specific program
      */
-    public function programExamTimetables(Program $program, Request $request, $schoolCode)
-    {
-        // Verify program belongs to the correct school
-        if ($program->school->code !== $schoolCode) {
-            abort(404, 'Program not found in this school.');
-        }
-
-        $perPage = $request->per_page ?? 15;
-        $search = $request->search ?? '';
-        $semesterId = $request->semester_id;
-        
-        // Build the query for program-specific exam timetables using your existing schema
-        $query = ExamTimetable::query()
-            ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
-            ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
-            ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
-            ->where('units.program_id', $program->id) // Filter by program through units
-            ->select(
-                'exam_timetables.id',
-                'exam_timetables.date',
-                'exam_timetables.day',
-                'exam_timetables.start_time',
-                'exam_timetables.end_time',
-                'exam_timetables.venue',
-                'exam_timetables.location',
-                'exam_timetables.no',
-                'exam_timetables.chief_invigilator',
-                'exam_timetables.unit_id',
-                'exam_timetables.semester_id',
-                'exam_timetables.class_id',
-                'units.name as unit_name',
-                'units.code as unit_code',
-                'classes.name as class_name',
-                \Schema::hasColumn('classes', 'code') 
-                    ? 'classes.code as class_code'
-                    : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
-                'semesters.name as semester_name'
-            )
-            ->when($search, function($q) use ($search) {
-                $q->where('exam_timetables.day', 'like', "%{$search}%")
-                  ->orWhere('exam_timetables.date', 'like', "%{$search}%")
-                  ->orWhere('units.code', 'like', "%{$search}%")
-                  ->orWhere('units.name', 'like', "%{$search}%");
-            })
-            ->when($semesterId, function($q) use ($semesterId) {
-                $q->where('exam_timetables.semester_id', $semesterId);
-            })
-            ->orderBy('exam_timetables.date')
-            ->orderBy('exam_timetables.start_time');
-        
-        // Get paginated results
-        $examTimetables = $query->paginate($perPage)->withQueryString();
-        
-        // Get semesters for dropdowns
-        $semesters = Semester::all();
-        
-        return Inertia::render('Schools/Programs/ExamTimetables/Index', [
-            'examTimetables' => $examTimetables,
-            'program' => $program->load('school'),
-            'semesters' => $semesters,
-            'schoolCode' => $schoolCode,
-            'filters' => [
-                'search' => $search,
-                'semester_id' => $semesterId ? (int) $semesterId : null,
-                'per_page' => (int) $perPage,
-            ],
-            'can' => [
-                'create' => auth()->user()->can('create-examtimetables'),
-                'edit' => auth()->user()->can('update-examtimetables'),
-                'delete' => auth()->user()->can('delete-examtimetables'),
-            ],
-            'flash' => [
-                'success' => session('success'),
-                'error' => session('error'),
-            ],
-        ]);
+    /**
+ * Display exam timetables for a specific program
+ */
+public function programExamTimetables(Program $program, Request $request, $schoolCode)
+{
+    // Verify program belongs to the correct school
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
     }
+
+    $perPage = $request->per_page ?? 15;
+    $search = $request->search ?? '';
+    $semesterId = $request->semester_id;
+    
+    // Build the query for program-specific exam timetables using your existing schema
+    $query = ExamTimetable::query()
+        ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+        ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+        ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+        ->where('units.program_id', $program->id)
+        ->select(
+            'exam_timetables.id',
+            'exam_timetables.date',
+            'exam_timetables.day',
+            'exam_timetables.start_time',
+            'exam_timetables.end_time',
+            'exam_timetables.venue',
+            'exam_timetables.location',
+            'exam_timetables.no',
+            'exam_timetables.chief_invigilator',
+            'exam_timetables.unit_id',
+            'exam_timetables.semester_id',
+            'exam_timetables.class_id',
+            'units.name as unit_name',
+            'units.code as unit_code',
+            'classes.name as class_name',
+            \Schema::hasColumn('classes', 'code') 
+                ? 'classes.code as class_code'
+                : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+            'semesters.name as semester_name'
+        )
+        ->when($search, function($q) use ($search) {
+            $q->where('exam_timetables.day', 'like', "%{$search}%")
+              ->orWhere('exam_timetables.date', 'like', "%{$search}%")
+              ->orWhere('units.code', 'like', "%{$search}%")
+              ->orWhere('units.name', 'like', "%{$search}%");
+        })
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('exam_timetables.semester_id', $semesterId);
+        })
+        ->orderBy('exam_timetables.date')
+        ->orderBy('exam_timetables.start_time');
+    
+    // Get paginated results
+    $examTimetables = $query->paginate($perPage)->withQueryString();
+    
+    // Get semesters for dropdowns
+    $semesters = Semester::all();
+    
+    // ✅ FIX: Use school-specific path
+    return Inertia::render('Schools/' . strtoupper($schoolCode) . '/Programs/ExamTimetables/Index', [
+        'examTimetables' => $examTimetables,
+        'program' => $program->load('school'),
+        'semesters' => $semesters,
+        'schoolCode' => strtoupper($schoolCode),
+        'filters' => [
+            'search' => $search,
+            'semester_id' => $semesterId ? (int) $semesterId : null,
+            'per_page' => (int) $perPage,
+        ],
+        'can' => [
+            'create' => auth()->user()->can('create-exam-timetables'),
+            'edit' => auth()->user()->can('edit-exam-timetables'),
+            'delete' => auth()->user()->can('delete-exam-timetables'),
+        ],
+        'flash' => [
+            'success' => session('success'),
+            'error' => session('error'),
+        ],
+    ]);
+}
 
     /**
      * Store a new exam timetable for a specific program
