@@ -683,40 +683,53 @@ class DashboardController extends Controller
     /**
      * Display the exam office dashboard.
      */
-    public function examOfficeDashboard(Request $request)
-    {
-        // Check if user has permission to view exam office dashboard
-        if (!$request->user()->can('view exam office dashboard') && !$request->user()->hasRole('Exam Office')) {
-            abort(403, 'Unauthorized access to exam office dashboard.');
-        }
-
-        $user = $request->user();
-        $currentSemester = Semester::where('is_active', true)->first();
-
-        $examStats = [];
-        if ($currentSemester) {
-            $examStats = [
-                'total_exams' => ExamTimetable::where('semester_id', $currentSemester->id)->count(),
-                'upcoming_exams' => ExamTimetable::where('semester_id', $currentSemester->id)
-                        ->where('date', '>=', now()->format('Y-m-d'))
-                        ->count(),
-                'completed_exams' => ExamTimetable::where('semester_id', $currentSemester->id)
-                        ->where('date', '<', now()->format('Y-m-d'))
-                        ->count(),
-            ];
-        }
-
-        return Inertia::render('ExamOffice/Dashboard', [
-            'currentSemester' => $currentSemester,
-            'examStats' => $examStats,
-            'userPermissions' => $user->getAllPermissions()->pluck('name'),
-            'userRoles' => $user->getRoleNames()
-        ]);
-    }
-
-   
-
     /**
+ * Exam Office Dashboard
+ */
+public function examofficeDashboard()
+{
+    $user = auth()->user();
+
+    // Verify user has Exam Office role
+    if (!$user->hasRole('Exam Office')) {
+        abort(403, 'Unauthorized access to exam office dashboard.');
+    }
+    
+    // Get statistics
+    $totalExams = \App\Models\ExamTimetable::count();
+    $upcomingExams = \App\Models\ExamTimetable::where('date', '>=', now())->count();
+    $todayExams = \App\Models\ExamTimetable::whereDate('date', today())->count();
+    $examRooms = \App\Models\Examroom::where('is_active', true)->count();
+    
+    // Get recent exam timetables
+    $recentExams = \App\Models\ExamTimetable::with(['unit', 'semester', 'class'])
+        ->orderBy('date', 'desc')
+        ->orderBy('start_time', 'desc')
+        ->limit(10)
+        ->get();
+    
+    // Get active semesters
+    $activeSemesters = \App\Models\Semester::where('is_active', true)->get();
+    
+    return Inertia::render('ExamOffice/Dashboard', [
+        'stats' => [
+            'totalExams' => $totalExams,
+            'upcomingExams' => $upcomingExams,
+            'todayExams' => $todayExams,
+            'examRooms' => $examRooms,
+        ],
+        'recentExams' => $recentExams,
+        'activeSemesters' => $activeSemesters,
+        'can' => [
+            'create' => $user->can('create-examtimetables'),
+            'edit' => $user->can('update-examtimetables'),
+            'delete' => $user->can('delete-examtimetables'),
+            'manage' => $user->can('manage-examtimetables'),
+        ],
+    ]);
+}
+
+   /**
  * SCES Faculty Dashboard - FIXED to use unified units table
  */
 public function scesDashboard()

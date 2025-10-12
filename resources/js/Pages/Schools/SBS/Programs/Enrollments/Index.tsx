@@ -9,24 +9,20 @@ import {
   Filter,
   Edit,
   Trash2,
-  Eye,
   ChevronDown,
   ChevronUp,
-  Building2,
-  GraduationCap,
   Calendar,
   Check,
   X,
-  Clock,
   BookOpen,
   UserCheck,
-  UserX,
   School,
   AlertTriangle,
   Info,
   ChevronLeft,
   ChevronRight,
-  MoreHorizontal
+  MoreHorizontal,
+  Download
 } from 'lucide-react';
 
 // Type definitions
@@ -59,6 +55,8 @@ type Unit = {
   is_active: boolean;
   lecturer_code?: string;
   lecturer_name?: string;
+  school?: School;
+  program?: Program;
 };
 
 type Lecturer = {
@@ -133,6 +131,7 @@ type Class = {
   capacity: number;
   program_id: number;
   semester_id: number;
+  program?: Program;
 };
 
 type EnrollmentFormData = {
@@ -152,14 +151,14 @@ type CapacityInfo = {
   is_full: boolean;
 };
 
-type PaginationData = {
+type PaginationData<T> = {
   current_page: number;
   last_page: number;
   per_page: number;
   total: number;
   from: number;
   to: number;
-  data: Enrollment[];
+  data: T[];
   links: Array<{
     url: string | null;
     label: string;
@@ -168,11 +167,11 @@ type PaginationData = {
 };
 
 type PageProps = {
-  enrollments: PaginationData;
+  enrollments: PaginationData<Enrollment>;
   students: Student[];
   units: Unit[];
   lecturers?: Lecturer[];
-  lecturerAssignments?: LecturerAssignment[]; 
+  lecturerAssignments?: PaginationData<LecturerAssignment>; 
   schools: School[];
   programs: Program[];
   classes: Class[];
@@ -186,11 +185,12 @@ type PageProps = {
     active_enrollments?: number;
   };
   can: {
-  create: boolean;
-  update: boolean;
-  delete: boolean;
-  assign_lecturer: boolean; 
-};
+    create: boolean;
+    update: boolean;
+    delete: boolean;
+    assign_lecturer: boolean;
+    download_lecturer_assignments?: boolean;
+  };
   filters: {
     search?: string;
     student_code?: string;
@@ -200,6 +200,11 @@ type PageProps = {
     program_id?: string | number;
     class_id?: string | number;
     status?: string;
+    lecturer_search?: string;
+    lecturer_semester_id?: string | number;
+    lecturer_program_id?: string | number;
+    lecturer_class_id?: string | number;
+    lecturer_code_filter?: string;
   };
   flash?: {
     success?: string;
@@ -230,7 +235,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 };
 
 // Capacity Warning Component
-const CapacityWarning: React.FC<{ capacityInfo: CapacityInfo; loadingCapacity: boolean }> = ({ 
+const CapacityWarning: React.FC<{ capacityInfo: CapacityInfo | null; loadingCapacity: boolean }> = ({ 
   capacityInfo, 
   loadingCapacity 
 }) => {
@@ -289,10 +294,10 @@ const CapacityWarning: React.FC<{ capacityInfo: CapacityInfo; loadingCapacity: b
 };
 
 // Pagination Component
-const Pagination: React.FC<{ paginationData: PaginationData; onPageClick: (url: string | null) => void }> = ({ 
-  paginationData, 
-  onPageClick 
-}) => {
+const Pagination: React.FC<{ 
+  paginationData: PaginationData<any>; 
+  onPageClick: (url: string | null) => void 
+}> = ({ paginationData, onPageClick }) => {
   const { current_page, last_page, from, to, total, links } = paginationData;
 
   if (last_page <= 1) return null;
@@ -367,13 +372,13 @@ export default function EnrollmentsIndex() {
     students = [], 
     units = [],
     lecturers = [],
-    lecturerAssignments = [],
+    lecturerAssignments,
     schools = [], 
     programs = [], 
     classes = [],
     semesters = [], 
     stats, 
-    can = { create: false, update: false, delete: false, assign_lecturer: false },
+    can = { create: false, update: false, delete: false, assign_lecturer: false, download_lecturer_assignments: false },
     filters = {}, 
     flash,
     auth
@@ -386,6 +391,7 @@ export default function EnrollmentsIndex() {
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [showLecturerFilters, setShowLecturerFilters] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<EnrollmentFormData>({
@@ -408,32 +414,6 @@ export default function EnrollmentsIndex() {
     lecturer_code: ''
   });
 
-  const handleEditLecturerAssignment = (assignment: LecturerAssignment) => {
-  // Set the form with existing assignment data
-  setLecturerAssignmentForm({
-    semester_id: assignment.semester_id.toString(),
-    school_id: assignment.unit.school_id.toString(),
-    program_id: assignment.unit.program_id.toString(),
-    class_id: assignment.class_id.toString(),
-    unit_id: assignment.unit_id.toString(),
-    lecturer_code: assignment.lecturer_code
-  });
-  setIsLecturerAssignModalOpen(true);
-};
-
-const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
-  if (confirm('Are you sure you want to remove this lecturer assignment?')) {
-    router.delete(`/admin/lecturerassignment/${unitId}/${semesterId}`, {
-      onSuccess: () => {
-        toast.success('Lecturer assignment removed successfully!');
-      },
-      onError: () => {
-        toast.error('Failed to remove lecturer assignment');
-      }
-    });
-  }
-};
-
   // Available data for enrollment
   const [availableClasses, setAvailableClasses] = useState<Class[]>([]);
   const [availableUnits, setAvailableUnits] = useState<Unit[]>([]);
@@ -446,7 +426,7 @@ const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
   const [loadingClassesForAssignment, setLoadingClassesForAssignment] = useState(false);
   const [loadingUnitsForAssignment, setLoadingUnitsForAssignment] = useState(false);
 
-  // Filter state
+  // Filter state for enrollments
   const [searchTerm, setSearchTerm] = useState(filters?.search || '');
   const [selectedSemester, setSelectedSemester] = useState<string | number>(filters?.semester_id || '');
   const [selectedSchool, setSelectedSchool] = useState<string | number>(filters?.school_id || '');
@@ -455,6 +435,13 @@ const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
   const [selectedStudent, setSelectedStudent] = useState<string>(filters?.student_code || '');
   const [selectedUnit, setSelectedUnit] = useState<string | number>(filters?.unit_id || '');
   const [statusFilter, setStatusFilter] = useState<string>(filters?.status || 'all');
+
+  // ✅ NEW: Filter state for lecturer assignments
+  const [lecturerSearch, setLecturerSearch] = useState(filters?.lecturer_search || '');
+  const [lecturerSemesterFilter, setLecturerSemesterFilter] = useState(filters?.lecturer_semester_id || '');
+  const [lecturerProgramFilter, setLecturerProgramFilter] = useState(filters?.lecturer_program_id || '');
+  const [lecturerClassFilter, setLecturerClassFilter] = useState(filters?.lecturer_class_id || '');
+  const [lecturerCodeFilter, setLecturerCodeFilter] = useState(filters?.lecturer_code_filter || '');
 
   // Flash messages
   useEffect(() => {
@@ -593,49 +580,39 @@ const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
     !selectedSchool || program.school_id === selectedSchool
   );
 
-const availableLecturers = lecturers.filter(lecturer => {
-  if (!lecturerAssignmentForm.school_id) return true;
-  
-  const selectedSchool = schools.find(school => school.id === Number(lecturerAssignmentForm.school_id));
-  if (!selectedSchool) return false;
-  
-  return lecturer.schools === selectedSchool.code;
-});
-
-// Alternative approach if lecturers don't have school_id property:
-// You might need to check the actual structure of your lecturer object
-const availableLecturersAlternative = lecturers.filter(lecturer => {
-  // If no school is selected, show all lecturers
-  if (!lecturerAssignmentForm.school_id) return true;
-  
-  // If lecturer doesn't have school_id, include them (or exclude based on your logic)
-  if (!lecturer.school_id) {
-    console.log('Lecturer without school_id:', lecturer);
-    return false; // or return true if you want to include lecturers without school assignment
-  }
-  
-  const selectedSchoolId = Number(lecturerAssignmentForm.school_id);
-  const lecturerSchoolId = Number(lecturer.school_id);
-  
-  return lecturerSchoolId === selectedSchoolId;
-});
+  const availableLecturers = lecturers.filter(lecturer => {
+    if (!lecturerAssignmentForm.school_id) return true;
+    
+    const selectedSchoolObj = schools.find(school => school.id === Number(lecturerAssignmentForm.school_id));
+    if (!selectedSchoolObj) return false;
+    
+    return lecturer.schools === selectedSchoolObj.code;
+  });
 
   const lecturerAssignmentPrograms = programs.filter(program => 
     !lecturerAssignmentForm.school_id || program.school_id === parseInt(lecturerAssignmentForm.school_id)
   );
 
-  // Event handlers
+  // Event handlers - Enrollment Filters
   const handleSearch = () => {
-    router.get('/admin/enrollments', {
-      search: searchTerm,
-      semester_id: selectedSemester,
-      school_id: selectedSchool,
-      program_id: selectedProgram,
-      class_id: selectedClass,
-      student_code: selectedStudent,
-      unit_id: selectedUnit,
-      status: statusFilter !== 'all' ? statusFilter : undefined
-    }, {
+    const params = new URLSearchParams();
+    if (searchTerm) params.append('search', searchTerm);
+    if (selectedSemester) params.append('semester_id', selectedSemester.toString());
+    if (selectedSchool) params.append('school_id', selectedSchool.toString());
+    if (selectedProgram) params.append('program_id', selectedProgram.toString());
+    if (selectedClass) params.append('class_id', selectedClass.toString());
+    if (selectedStudent) params.append('student_code', selectedStudent);
+    if (selectedUnit) params.append('unit_id', selectedUnit.toString());
+    if (statusFilter !== 'all') params.append('status', statusFilter);
+
+    // Preserve lecturer filters
+    if (lecturerSearch) params.append('lecturer_search', lecturerSearch);
+    if (lecturerSemesterFilter) params.append('lecturer_semester_id', lecturerSemesterFilter.toString());
+    if (lecturerProgramFilter) params.append('lecturer_program_id', lecturerProgramFilter.toString());
+    if (lecturerClassFilter) params.append('lecturer_class_id', lecturerClassFilter.toString());
+    if (lecturerCodeFilter) params.append('lecturer_code_filter', lecturerCodeFilter);
+
+    router.get(`/admin/enrollments?${params.toString()}`, {}, {
       preserveState: true,
       replace: true
     });
@@ -650,12 +627,73 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
     setSelectedStudent('');
     setSelectedUnit('');
     setStatusFilter('all');
-    router.get('/admin/enrollments', {}, {
+    
+    // Preserve lecturer filters
+    const params = new URLSearchParams();
+    if (lecturerSearch) params.append('lecturer_search', lecturerSearch);
+    if (lecturerSemesterFilter) params.append('lecturer_semester_id', lecturerSemesterFilter.toString());
+    if (lecturerProgramFilter) params.append('lecturer_program_id', lecturerProgramFilter.toString());
+    if (lecturerClassFilter) params.append('lecturer_class_id', lecturerClassFilter.toString());
+    if (lecturerCodeFilter) params.append('lecturer_code_filter', lecturerCodeFilter);
+
+    router.get(`/admin/enrollments${params.toString() ? '?' + params.toString() : ''}`, {}, {
       preserveState: true,
       replace: true
     });
   };
 
+  // ✅ NEW: Event handlers - Lecturer Assignment Filters
+  const handleLecturerSearch = () => {
+    const params = new URLSearchParams();
+    
+    // Keep existing enrollment filters
+    if (searchTerm) params.append('search', searchTerm);
+    if (selectedSemester) params.append('semester_id', selectedSemester.toString());
+    if (selectedSchool) params.append('school_id', selectedSchool.toString());
+    if (selectedProgram) params.append('program_id', selectedProgram.toString());
+    if (selectedClass) params.append('class_id', selectedClass.toString());
+    if (selectedStudent) params.append('student_code', selectedStudent);
+    if (selectedUnit) params.append('unit_id', selectedUnit.toString());
+    if (statusFilter !== 'all') params.append('status', statusFilter);
+    
+    // Add lecturer assignment filters
+    if (lecturerSearch) params.append('lecturer_search', lecturerSearch);
+    if (lecturerSemesterFilter) params.append('lecturer_semester_id', lecturerSemesterFilter.toString());
+    if (lecturerProgramFilter) params.append('lecturer_program_id', lecturerProgramFilter.toString());
+    if (lecturerClassFilter) params.append('lecturer_class_id', lecturerClassFilter.toString());
+    if (lecturerCodeFilter) params.append('lecturer_code_filter', lecturerCodeFilter);
+
+    router.get(`/admin/enrollments?${params.toString()}`, {}, {
+      preserveState: true,
+      preserveScroll: true
+    });
+  };
+
+  const clearLecturerFilters = () => {
+    setLecturerSearch('');
+    setLecturerSemesterFilter('');
+    setLecturerProgramFilter('');
+    setLecturerClassFilter('');
+    setLecturerCodeFilter('');
+    
+    // Keep enrollment filters but remove lecturer filters
+    const params = new URLSearchParams();
+    if (searchTerm) params.append('search', searchTerm);
+    if (selectedSemester) params.append('semester_id', selectedSemester.toString());
+    if (selectedSchool) params.append('school_id', selectedSchool.toString());
+    if (selectedProgram) params.append('program_id', selectedProgram.toString());
+    if (selectedClass) params.append('class_id', selectedClass.toString());
+    if (selectedStudent) params.append('student_code', selectedStudent);
+    if (selectedUnit) params.append('unit_id', selectedUnit.toString());
+    if (statusFilter !== 'all') params.append('status', statusFilter);
+
+    router.get(`/admin/enrollments?${params.toString()}`, {}, {
+      preserveState: true,
+      preserveScroll: true
+    });
+  };
+
+  // Pagination handlers
   const handlePaginationClick = (url: string | null) => {
     if (url) {
       router.get(url, {}, {
@@ -663,6 +701,27 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
         replace: true
       });
     }
+  };
+
+  const handleLecturerPaginationClick = (url: string | null) => {
+    if (url) {
+      router.get(url, {}, {
+        preserveState: true,
+        preserveScroll: true
+      });
+    }
+  };
+
+  // ✅ NEW: Download handler
+  const handleDownloadLecturerAssignments = () => {
+    const params = new URLSearchParams();
+    if (lecturerSearch) params.append('lecturer_search', lecturerSearch);
+    if (lecturerSemesterFilter) params.append('lecturer_semester_id', lecturerSemesterFilter.toString());
+    if (lecturerProgramFilter) params.append('lecturer_program_id', lecturerProgramFilter.toString());
+    if (lecturerClassFilter) params.append('lecturer_class_id', lecturerClassFilter.toString());
+    if (lecturerCodeFilter) params.append('lecturer_code_filter', lecturerCodeFilter);
+
+    window.location.href = `/admin/enrollments/lecturer-assignments/download?${params.toString()}`;
   };
 
   const handleCreateEnrollment = () => {
@@ -720,6 +779,19 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
     setIsLecturerAssignModalOpen(true);
   };
 
+  const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
+    if (confirm('Are you sure you want to remove this lecturer assignment?')) {
+      router.delete(`/admin/lecturerassignment/${unitId}/${semesterId}`, {
+        onSuccess: () => {
+          toast.success('Lecturer assignment removed successfully!');
+        },
+        onError: () => {
+          toast.error('Failed to remove lecturer assignment');
+        }
+      });
+    }
+  };
+
   const handleUpdateEnrollment = () => {
     if (!selectedEnrollment) return;
     
@@ -733,7 +805,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
         setIsEditModalOpen(false);
         setSelectedEnrollment(null);
       },
-      onError: (errors) => {
+      onError: (errors: any) => {
         toast.error(errors.error || 'Failed to update enrollment');
       },
       onFinish: () => {
@@ -783,7 +855,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
     setLoading(true);
 
     router.post('/admin/enrollments', formData, {
-      onSuccess: (response) => {
+      onSuccess: () => {
         toast.success('Enrollment created successfully!');
         setIsCreateModalOpen(false);
         setFormData({
@@ -797,7 +869,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
         });
         setCapacityInfo(null);
       },
-      onError: (errors) => {
+      onError: (errors: any) => {
         toast.error(errors.error || 'Failed to create enrollment');
       },
       onFinish: () => {
@@ -818,7 +890,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
         unit_id: lecturerAssignmentForm.unit_id,
         lecturer_code: lecturerAssignmentForm.lecturer_code,
         semester_id: lecturerAssignmentForm.semester_id,
-        class_id: lecturerAssignmentForm.class_id  // Make sure this is included
+        class_id: lecturerAssignmentForm.class_id
     }, {
         onSuccess: () => {
             toast.success('Lecturer assigned successfully!');
@@ -834,14 +906,15 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
             setAvailableClassesForAssignment([]);
             setAvailableUnitsForAssignment([]);
         },
-        onError: (errors) => {
+        onError: (errors: any) => {
             toast.error(errors.error || 'Failed to assign lecturer');
         },
         onFinish: () => {
             setLoading(false);
         }
     });
-};
+  };
+
   return (
     <AuthenticatedLayout user={auth.user}>
       <Head title="Enrollments Management" />
@@ -883,7 +956,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                   )}
                 </div>
                 
-                <div className="flex items-center gap-3">               
+                <div className="flex items-center gap-3 mt-4 sm:mt-0">
                   {can.create && (
                     <button
                       onClick={handleCreateEnrollment}
@@ -895,20 +968,20 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                   )}
                   
                   {can.assign_lecturer && (
-  <button
-    onClick={handleLecturerAssignment}
-    className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg..."
-  >
-    <UserCheck className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
-    Lecturer Assignments
-  </button>
-)}
+                    <button
+                      onClick={handleLecturerAssignment}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-blue-600 hover:via-blue-700 hover:to-indigo-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <UserCheck className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
+                      Lecturer Assignments
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
- {/* Search and Filters */}
+          {/* Search and Filters */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 mb-8 overflow-hidden">
             <div className="p-6">
               <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
@@ -1073,7 +1146,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
           </div>
 
           {/* Enrollments Table */}
-          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden">
+          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden mb-8">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -1176,7 +1249,8 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                     </tr>
                   ))}
                 </tbody>
-              </table>         </div>
+              </table>
+            </div>
 
             {enrollments.data.length === 0 && (
               <div className="text-center py-12">
@@ -1198,117 +1272,239 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                 )}
               </div>
             )}
+
             <Pagination paginationData={enrollments} onPageClick={handlePaginationClick} />
           </div>
 
-          {/* Lecturer Assignments Table */}
-          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden mt-8">
+          {/* ✅ UPDATED: Lecturer Assignments Table with Pagination */}
+          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden">
+            {/* Header with Download Button */}
             <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-      <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
-      Current Lecturer Assignments
-    </h3>
-  </div>
-  
-  <div className="overflow-x-auto">
-    <table className="min-w-full divide-y divide-gray-200">
-      <thead className="bg-gray-50">
-        <tr>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Unit
-          </th>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Lecturer
-          </th>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Class
-          </th>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Semester
-          </th>          
-          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Actions
-          </th>
-        </tr>
-      </thead>
-      <tbody className="bg-white divide-y divide-gray-200">
-        {/* Note: You'll need to fetch lecturer assignments data from your backend */}
-        {/* This is a placeholder - you need to add lecturer assignments to your props */}
-        {lecturerAssignments?.length > 0 ? (
-          lecturerAssignments.map((assignment) => (
-            <tr key={`${assignment.unit_id}-${assignment.semester_id}`} className="hover:bg-gray-50">
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="text-sm font-medium text-gray-900">
-                  {assignment.unit?.code}
-                </div>
-                <div className="text-sm text-gray-500">
-                  {assignment.unit?.name}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {assignment.unit?.credit_hours} credits
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 h-10 w-10">
-                    <div className="h-10 w-10 rounded-full bg-gradient-to-r from-green-500 to-blue-600 flex items-center justify-center">
-                      <span className="text-sm font-medium text-white">
-                        {assignment.lecturer_code?.slice(0, 2) || 'UN'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="ml-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      {assignment.lecturer?.first_name} {assignment.lecturer?.last_name}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {assignment.lecturer_code}
-                    </div>
-                  </div>
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="text-sm font-medium text-gray-900">
-                  {assignment.class?.name} Sec {assignment.class?.section}
-                </div>
-                <div className="text-sm text-gray-500">
-                  Year {assignment.class?.year_level}
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {assignment.semester?.name}
-              </td>              
-              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                <div className="flex items-center justify-end space-x-2">
-                  {/* <button
-                    onClick={() => handleEditLecturerAssignment(assignment)}
-                    className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
-                    title="Edit Assignment"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button> */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
+                  Current Lecturer Assignments ({lecturerAssignments?.total || 0})
+                </h3>
+                
+                {can.download_lecturer_assignments && (
                   <button
-                    onClick={() => handleRemoveLecturerAssignment(assignment.unit_id, assignment.semester_id)}
-                    className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
-                    title="Remove Assignment"
+                    onClick={handleDownloadLecturerAssignments}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Download className="w-4 h-4" />
+                    Download CSV
                   </button>
+                )}
+              </div>
+            </div>
+
+            {/* Lecturer Assignment Filters */}
+            <div className="p-4 bg-gray-50 border-b border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <button
+                  onClick={() => setShowLecturerFilters(!showLecturerFilters)}
+                  className="inline-flex items-center px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                >
+                  <Filter className="w-4 h-4 mr-2" />
+                  Filters
+                  {showLecturerFilters ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <div className="relative md:col-span-2">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search lecturer/unit..."
+                    value={lecturerSearch}
+                    onChange={(e) => setLecturerSearch(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleLecturerSearch()}
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
                 </div>
-              </td>
-            </tr>
-          ))
-        ) : (
-          <tr>
-            <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
-              No lecturer assignments found
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-</div>
+
+                {showLecturerFilters && (
+                  <>
+                    <select
+                      value={lecturerSemesterFilter}
+                      onChange={(e) => setLecturerSemesterFilter(e.target.value)}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">All Semesters</option>
+                      {semesters.map(semester => (
+                        <option key={semester.id} value={semester.id}>
+                          {semester.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={lecturerProgramFilter}
+                      onChange={(e) => setLecturerProgramFilter(e.target.value)}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">All Programs</option>
+                      {programs.map(program => (
+                        <option key={program.id} value={program.id}>
+                          {program.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={lecturerCodeFilter}
+                      onChange={(e) => setLecturerCodeFilter(e.target.value)}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">All Lecturers</option>
+                      {lecturers.map(lecturer => (
+                        <option key={lecturer.code} value={lecturer.code}>
+                          {lecturer.first_name} {lecturer.last_name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleLecturerSearch}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm"
+                  >
+                    Apply
+                  </button>
+                  {showLecturerFilters && (
+                    <button
+                      onClick={clearLecturerFilters}
+                      className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium border border-gray-300 rounded-lg text-sm"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Lecturer
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unit
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Class
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Semester
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Program
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {lecturerAssignments?.data?.length > 0 ? (
+                    lecturerAssignments.data.map((assignment, index) => (
+                      <tr key={index} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              <div className="h-10 w-10 rounded-full bg-gradient-to-r from-green-500 to-blue-600 flex items-center justify-center">
+                                <span className="text-sm font-medium text-white">
+                                  {assignment.lecturer_code?.slice(0, 2) || 'UN'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">
+                                {assignment.lecturer?.first_name} {assignment.lecturer?.last_name}
+                              </div>
+                              <div className="text-xs text-blue-600 font-semibold">
+                                {assignment.lecturer_code}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center">
+                            <BookOpen className="w-4 h-4 text-green-500 mr-2 flex-shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {assignment.unit?.name}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {assignment.unit?.code} • {assignment.unit?.credit_hours}h
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center">
+                            <School className="w-4 h-4 text-purple-500 mr-2 flex-shrink-0" />
+                            <div className="text-sm text-gray-900">
+                              {assignment.class?.name} Section {assignment.class?.section}
+                              <div className="text-xs text-gray-500">
+                                Year {assignment.class?.year_level}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center">
+                            <Calendar className="w-4 h-4 text-orange-500 mr-2 flex-shrink-0" />
+                            <span className="text-sm text-gray-900">
+                              {assignment.semester?.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-900">
+                            {assignment.unit?.program?.name}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {assignment.unit?.school?.name}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button
+                            onClick={() => handleRemoveLecturerAssignment(assignment.unit_id, assignment.semester_id)}
+                            className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
+                            title="Remove Assignment"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="px-6 py-8 text-center">
+                        <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-gray-500">No lecturer assignments found</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ✅ NEW: Pagination for Lecturer Assignments */}
+            {lecturerAssignments && lecturerAssignments.last_page > 1 && (
+              <Pagination 
+                paginationData={lecturerAssignments} 
+                onPageClick={handleLecturerPaginationClick}
+              />
+            )}
+          </div>
 
           {/* Create Enrollment Modal */}
           {isCreateModalOpen && (

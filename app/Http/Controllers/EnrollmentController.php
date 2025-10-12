@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\LecturerAssignmentsExport;
 
 class EnrollmentController extends Controller
 {
@@ -91,23 +93,8 @@ class EnrollmentController extends Controller
             ->orderByRaw("CONCAT(first_name, ' ', last_name)")
             ->get();
 
-        // Fetch lecturer assignments
-        $lecturerAssignments = UnitAssignment::with([
-            'unit.school',
-            'unit.program', 
-            'class.program.school',
-            'semester'
-        ])
-        ->whereNotNull('lecturer_code')
-        ->whereNotNull('class_id')
-        ->orderBy('created_at', 'desc')
-        ->take(20)
-        ->get()
-        ->map(function ($assignment) {
-            $lecturer = User::where('code', $assignment->lecturer_code)->first();
-            $assignment->lecturer = $lecturer;
-            return $assignment;
-        });
+        // ✅ NEW: Fetch lecturer assignments with PAGINATION
+        $lecturerAssignments = $this->getLecturerAssignments($request);
 
         // Get units that are assigned to classes
         $units = Unit::with(['school', 'program'])
@@ -148,14 +135,185 @@ class EnrollmentController extends Controller
             'stats' => $stats,
             'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
             'can' => [
-    'create' => auth()->user()->can('create-enrollments'),
-    'update' => auth()->user()->can('edit-enrollments'),
-    'delete' => auth()->user()->can('delete-enrollments'),
-    'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
-                        auth()->user()->can('create-lecturer-assignments'),
-]
+                'create' => auth()->user()->can('create-enrollments'),
+                'update' => auth()->user()->can('edit-enrollments'),
+                'delete' => auth()->user()->can('delete-enrollments'),
+                'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
+                                    auth()->user()->can('create-lecturer-assignments'),
+                'download_lecturer_assignments' => auth()->user()->can('view-lecturer-assignments'),
+            ]
         ]);
     }
+
+    /**
+     * ✅ NEW METHOD: Get lecturer assignments with independent pagination
+     */
+    private function getLecturerAssignments(Request $request)
+    {
+        $query = UnitAssignment::with([
+            'unit.school',
+            'unit.program', 
+            'class.program.school',
+            'semester'
+        ])
+        ->whereNotNull('lecturer_code')
+        ->whereNotNull('class_id');
+
+        // Apply filters for lecturer assignments
+        if ($request->filled('lecturer_search')) {
+            $search = $request->lecturer_search;
+            $query->where(function($q) use ($search) {
+                $q->whereHas('unit', function($unitQuery) use ($search) {
+                    $unitQuery->where('code', 'like', '%' . $search . '%')
+                             ->orWhere('name', 'like', '%' . $search . '%');
+                })
+                ->orWhere('lecturer_code', 'like', '%' . $search . '%');
+            });
+        }
+
+        if ($request->filled('lecturer_semester_id')) {
+            $query->where('semester_id', $request->lecturer_semester_id);
+        }
+
+        if ($request->filled('lecturer_program_id')) {
+            $query->whereHas('unit', function($q) use ($request) {
+                $q->where('program_id', $request->lecturer_program_id);
+            });
+        }
+
+        if ($request->filled('lecturer_class_id')) {
+            $query->where('class_id', $request->lecturer_class_id);
+        }
+
+        if ($request->filled('lecturer_code_filter')) {
+            $query->where('lecturer_code', $request->lecturer_code_filter);
+        }
+
+        $query->orderBy('created_at', 'desc');
+
+        // Use lecturer_page parameter for independent pagination
+        $page = $request->input('lecturer_page', 1);
+        $perPage = $request->input('lecturer_per_page', 10);
+        
+        // Paginate with custom page parameter
+        $lecturerAssignments = $query->paginate($perPage, ['*'], 'lecturer_page', $page);
+        
+        // Add lecturer information to each assignment
+        $lecturerAssignments->getCollection()->transform(function ($assignment) {
+            $lecturer = User::where('code', $assignment->lecturer_code)->first();
+            $assignment->lecturer = $lecturer;
+            return $assignment;
+        });
+
+        // Set path and append query parameters
+        $lecturerAssignments->withPath($request->url());
+        $lecturerAssignments->appends($request->except('lecturer_page'));
+
+        return $lecturerAssignments;
+    }
+
+    /**
+     * ✅ NEW METHOD: Download lecturer assignments as CSV/Excel
+     */
+    public function downloadLecturerAssignments(Request $request)
+    {
+        try {
+            $query = UnitAssignment::with([
+                'unit.school',
+                'unit.program', 
+                'class.program.school',
+                'semester'
+            ])
+            ->whereNotNull('lecturer_code')
+            ->whereNotNull('class_id');
+
+            // Apply same filters as the view
+            if ($request->filled('lecturer_search')) {
+                $search = $request->lecturer_search;
+                $query->where(function($q) use ($search) {
+                    $q->whereHas('unit', function($unitQuery) use ($search) {
+                        $unitQuery->where('code', 'like', '%' . $search . '%')
+                                 ->orWhere('name', 'like', '%' . $search . '%');
+                    })
+                    ->orWhere('lecturer_code', 'like', '%' . $search . '%');
+                });
+            }
+
+            if ($request->filled('lecturer_semester_id')) {
+                $query->where('semester_id', $request->lecturer_semester_id);
+            }
+
+            if ($request->filled('lecturer_program_id')) {
+                $query->whereHas('unit', function($q) use ($request) {
+                    $q->where('program_id', $request->lecturer_program_id);
+                });
+            }
+
+            if ($request->filled('lecturer_class_id')) {
+                $query->where('class_id', $request->lecturer_class_id);
+            }
+
+            if ($request->filled('lecturer_code_filter')) {
+                $query->where('lecturer_code', $request->lecturer_code_filter);
+            }
+
+            $query->orderBy('created_at', 'desc');
+
+            $assignments = $query->get()->map(function ($assignment) {
+                $lecturer = User::where('code', $assignment->lecturer_code)->first();
+                
+                return [
+                    'Lecturer Code' => $assignment->lecturer_code,
+                    'Lecturer Name' => $lecturer ? "{$lecturer->first_name} {$lecturer->last_name}" : 'N/A',
+                    'Unit Code' => $assignment->unit->code ?? 'N/A',
+                    'Unit Name' => $assignment->unit->name ?? 'N/A',
+                    'Credit Hours' => $assignment->unit->credit_hours ?? 'N/A',
+                    'Class' => $assignment->class ? "{$assignment->class->name} Section {$assignment->class->section}" : 'N/A',
+                    'Year Level' => $assignment->class->year_level ?? 'N/A',
+                    'Semester' => $assignment->semester->name ?? 'N/A',
+                    'Program' => $assignment->unit->program->name ?? 'N/A',
+                    'School' => $assignment->unit->school->name ?? 'N/A',
+                    'Assigned Date' => $assignment->created_at->format('Y-m-d H:i:s'),
+                ];
+            });
+
+            $filename = 'lecturer_assignments_' . now()->format('Y-m-d_His') . '.csv';
+
+            // Create CSV
+            $headers = [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            ];
+
+            $callback = function() use ($assignments) {
+                $file = fopen('php://output', 'w');
+                
+                // Add BOM for Excel UTF-8 support
+                fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
+                
+                // Add headers
+                if ($assignments->count() > 0) {
+                    fputcsv($file, array_keys($assignments->first()));
+                }
+                
+                // Add data
+                foreach ($assignments as $assignment) {
+                    fputcsv($file, $assignment);
+                }
+                
+                fclose($file);
+            };
+
+            return response()->stream($callback, 200, $headers);
+
+        } catch (\Exception $e) {
+            Log::error('Error downloading lecturer assignments: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to download lecturer assignments.');
+        }
+    }
+
+    
+
 
     public function store(Request $request)
     {
@@ -528,7 +686,7 @@ class EnrollmentController extends Controller
         ->whereNotNull('lecturer_code')
         ->whereNotNull('class_id')
         ->orderBy('created_at', 'desc')
-        ->take(20)
+        ->take(10)
         ->get()
         ->map(function ($assignment) {
             $lecturer = User::where('code', $assignment->lecturer_code)->first();

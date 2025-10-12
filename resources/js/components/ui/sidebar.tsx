@@ -19,6 +19,7 @@ export default function Sidebar() {
   const isAdmin = isRole('Admin');
   const isFacultyAdmin = roles.some((r: string) => r.startsWith('Faculty Admin'));
   const isClassTimetableOffice = isRole('Class Timetable office');
+  const isExamTimetableOffice = isRole('Exam office');
 
   // Extract school code from Faculty Admin role
   const getSchoolCode = (): string | null => {
@@ -183,6 +184,105 @@ export default function Sidebar() {
               <Link href="/admin/classrooms" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Layers className="mr-3 h-5 w-5" />
                 <span>Classrooms</span>
+              </Link>
+            )}
+          </div>
+        )}
+
+        {/* EXAM TIMETABLE OFFICE - Exam Management for All Schools */}
+        {isExamTimetableOffice && can('view-exam-timetables') && (
+          <div className="mt-4">
+            <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Exam Management</div>
+            
+            {/* Schools Exam Timetables Dropdown - requires view-exam-timetables */}
+            {can('view-exam-timetables') && (
+              <div>
+                <button
+                  onClick={() => toggleSection('exam-timetable-schools')}
+                  className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md"
+                >
+                  <Building className="mr-3 h-5 w-5" />
+                  <span className="flex-1 text-left">School Exam Timetables</span>
+                  {openSections['exam-timetable-schools'] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+                
+                {openSections['exam-timetable-schools'] && (
+                  <div className="ml-4 mt-1 space-y-1">
+                    {/* SCES Exam Timetables - requires view-exam-timetables AND view-programs */}
+                    {can('view-programs') && (
+                      <div>
+                        <button
+                          onClick={() => toggleSection('exam-timetable-sces')}
+                          className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                        >
+                          <Building className="mr-3 h-4 w-4" />
+                          <span className="flex-1 text-left">SCES</span>
+                          {openSections['exam-timetable-sces'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </button>
+                        {openSections['exam-timetable-sces'] && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            <Link href="/schools/sces/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                              <BookOpen className="mr-3 h-3 w-3" />
+                              <span>SCES Programs</span>
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* SBS Exam Timetables - requires view-exam-timetables AND view-programs */}
+                    {can('view-programs') && (
+                      <div>
+                        <button
+                          onClick={() => toggleSection('exam-timetable-sbs')}
+                          className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                        >
+                          <Building className="mr-3 h-4 w-4" />
+                          <span className="flex-1 text-left">SBS</span>
+                          {openSections['exam-timetable-sbs'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </button>
+                        {openSections['exam-timetable-sbs'] && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            <Link href="/schools/sbs/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                              <BookOpen className="mr-3 h-3 w-3" />
+                              <span>SBS Programs</span>
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* SLS Exam Timetables - requires view-exam-timetables AND view-programs */}
+                    {can('view-programs') && (
+                      <div>
+                        <button
+                          onClick={() => toggleSection('exam-timetable-sls')}
+                          className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
+                        >
+                          <Building className="mr-3 h-4 w-4" />
+                          <span className="flex-1 text-left">SLS</span>
+                          {openSections['exam-timetable-sls'] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </button>
+                        {openSections['exam-timetable-sls'] && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            <Link href="/schools/sls/programs" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md text-xs">
+                              <BookOpen className="mr-3 h-3 w-3" />
+                              <span>SLS Programs</span>
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Exam Rooms - requires view-examrooms permission */}
+            {can('view-examrooms') && (
+              <Link href="/admin/examrooms" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Layers className="mr-3 h-5 w-5" />
+                <span>Exam Rooms</span>
               </Link>
             )}
           </div>

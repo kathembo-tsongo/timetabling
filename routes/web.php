@@ -72,8 +72,8 @@ Route::middleware(['auth'])->group(function () {
             return redirect()->route('classtimetables.dashboard');
         }
         
-        if ($user->hasRole('Exam office')) {
-            return redirect()->route('exam-office.dashboard');
+        if ($user->hasRole('Exam Office')) {
+            return redirect()->route('examoffice.dashboard');
         }
         
         $roles = $user->getRoleNames();
@@ -528,7 +528,7 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
             });
 
             // EXAM TIMETABLES
-            Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
+            Route::prefix('examoffice')->name('exam-timetables.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SCES');
                 })->name('index');
@@ -891,6 +891,41 @@ Route::prefix('classtimetables')->middleware(['role:Class Timetable office'])->g
     Route::get('/conflicts', [ClassTimetableController::class, 'showConflicts'])
         ->name('classtimetables.conflicts');
 });
+
+// EXAM TIMETABLE OFFICE ROUTES - FULL MANAGEMENT INTERFACE
+Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function () {
+    // Dashboard
+    Route::get('/', [DashboardController::class, 'examofficeDashboard'])
+        ->name('examoffice.dashboard');
+
+    // Timetable Management (All schools)
+    Route::get('/manage', [ExamTimetableController::class, 'index'])
+        ->name('exam-timetables.index');
+    
+    Route::get('/manage/create', [ExamTimetableController::class, 'create'])
+        ->name('exam-timetables.create');
+    
+    Route::post('/manage', [ExamTimetableController::class, 'store'])
+        ->name('exam-timetables.store');
+    
+    Route::get('/manage/{timetable}', [ExamTimetableController::class, 'show'])
+        ->name('exam-timetables.show');
+    
+    Route::get('/manage/{timetable}/edit', [ExamTimetableController::class, 'edit'])
+        ->name('exam-timetables.edit');
+    
+    Route::put('/manage/{timetable}', [ExamTimetableController::class, 'update'])
+        ->name('exam-timetables.update');
+    
+    Route::delete('/manage/{timetable}', [ExamTimetableController::class, 'destroy'])
+        ->name('exam-timetables.destroy');
+    
+    Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
+        ->name('exam-timetables.download-pdf');
+    
+    Route::get('/conflicts', [ExamTimetableController::class, 'showConflicts'])
+        ->name('exam-timetables.conflicts');
+}); 
 
 Route::prefix('classtimeslot')
     ->middleware(['auth', 'permission:view-classtimeslots'])
