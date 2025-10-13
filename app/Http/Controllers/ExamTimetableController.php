@@ -522,20 +522,22 @@ class ExamTimetableController extends Controller
                 ])->withInput();
             }
 
-            $examTimetable = ExamTimetable::create([
-                'day' => $request->day,
-                'date' => $request->date,
-                'unit_id' => $request->unit_id,
-                'semester_id' => $request->semester_id,
-                'class_id' => $request->class_id,
-                'venue' => $venueAssignment['venue'],
-                'location' => $venueAssignment['location'],
-                'no' => $request->no,
-                'chief_invigilator' => $request->chief_invigilator,
-                'start_time' => $request->start_time,
-                'end_time' => $request->end_time,
-            ]);
-
+           // ✅ Create exam timetable with all required fields INCLUDING program_id and school_id
+$examTimetable = ExamTimetable::create([
+    'unit_id' => $validatedData['unit_id'],
+    'semester_id' => $validatedData['semester_id'],
+    'class_id' => $validatedData['class_id'],
+    'program_id' => $program->id,  // ✅ ADD THIS
+    'school_id' => $program->school_id,  // ✅ ADD THIS
+    'date' => $validatedData['date'],
+    'day' => $validatedData['day'],
+    'start_time' => $validatedData['start_time'],
+    'end_time' => $validatedData['end_time'],
+    'venue' => $validatedData['venue'],
+    'location' => $validatedData['location'],
+    'no' => $validatedData['no'],
+    'chief_invigilator' => $validatedData['chief_invigilator'],
+]);
             $successMessage = 'Exam timetable created successfully. ' . $venueAssignment['message'];
             
             return redirect()->back()->with('success', $successMessage);
@@ -580,18 +582,20 @@ class ExamTimetableController extends Controller
             }
 
             $examTimetable->update([
-                'day' => $request->day,
-                'date' => $request->date,
-                'unit_id' => $request->unit_id,
-                'semester_id' => $request->semester_id,
-                'class_id' => $request->class_id,
-                'venue' => $venueAssignment['venue'],
-                'location' => $venueAssignment['location'],
-                'no' => $request->no,
-                'chief_invigilator' => $request->chief_invigilator,
-                'start_time' => $request->start_time,
-                'end_time' => $request->end_time,
-            ]);
+    'unit_id' => $validatedData['unit_id'],
+    'semester_id' => $validatedData['semester_id'],
+    'class_id' => $validatedData['class_id'],
+    'program_id' => $program->id,  // ✅ ADD THIS
+    'school_id' => $program->school_id,  // ✅ ADD THIS
+    'date' => $validatedData['date'],
+    'day' => $validatedData['day'],
+    'start_time' => $validatedData['start_time'],
+    'end_time' => $validatedData['end_time'],
+    'venue' => $validatedData['venue'],
+    'location' => $validatedData['location'],
+    'no' => $validatedData['no'],
+    'chief_invigilator' => $validatedData['chief_invigilator'],
+]);
 
             $successMessage = 'Exam timetable updated successfully. ' . $venueAssignment['message'];
 
@@ -1129,104 +1133,113 @@ class ExamTimetableController extends Controller
     /**
      * ✅ FIXED: Store a new exam timetable for a specific program
      */
-    public function storeProgramExamTimetable(Program $program, Request $request, $schoolCode)
-    {
-        // ✅ Enhanced logging
-        \Log::info('Exam Timetable Store Request', [
-            'program_id' => $program->id,
-            'school_code' => $schoolCode,
-            'request_all' => $request->all(),
-        ]);
+    /**
+ * ✅ FIXED: Store a new exam timetable for a specific program
+ */
+public function storeProgramExamTimetable(Program $program, Request $request, $schoolCode)
+{
+    \Log::info('=== EXAM TIMETABLE STORE REQUEST ===', [
+        'program_id' => $program->id,
+        'program_name' => $program->name,
+        'school_id' => $program->school_id,
+        'school_code' => $schoolCode,
+        'request_data' => $request->all(),
+    ]);
 
-        // ✅ Enhanced validation with better error messages
-        $validatedData = $request->validate([
-            'semester_id' => 'required|integer|exists:semesters,id',
-            'class_id' => 'required|integer|exists:classes,id',
-            'unit_id' => 'required|integer|exists:units,id',
-            'date' => 'required|date|date_format:Y-m-d',
-            'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
-            'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i|after:start_time',
-            'chief_invigilator' => 'required|string|max:255',
-            'no' => 'required|integer|min:1',
-            'venue' => 'nullable|string|max:255',
-            'location' => 'nullable|string|max:255',
-        ], [
-            'semester_id.required' => 'Please select a semester',
-            'class_id.required' => 'Please select a class',
-            'unit_id.required' => 'Please select a unit',
-            'no.required' => 'Number of students is required',
-            'no.min' => 'Number of students must be at least 1',
-        ]);
+    $validatedData = $request->validate([
+        'semester_id' => 'required|integer|exists:semesters,id',
+        'class_id' => 'required|integer|exists:classes,id',
+        'unit_id' => 'required|integer|exists:units,id',
+        'date' => 'required|date|date_format:Y-m-d',
+        'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+        'start_time' => 'required|date_format:H:i',
+        'end_time' => 'required|date_format:H:i|after:start_time',
+        'chief_invigilator' => 'required|string|max:255',
+        'no' => 'required|integer|min:1',
+        'venue' => 'nullable|string|max:255',
+        'location' => 'nullable|string|max:255',
+    ], [
+        'semester_id.required' => 'Please select a semester',
+        'class_id.required' => 'Please select a class',
+        'unit_id.required' => 'Please select a unit',
+        'no.required' => 'Number of students is required',
+        'no.min' => 'Number of students must be at least 1',
+    ]);
 
-        try {
-            // ✅ Smart venue assignment
-            if (empty($validatedData['venue'])) {
-                $venueResult = $this->assignSmartVenue(
-                    $validatedData['no'],
-                    $validatedData['date'],
-                    $validatedData['start_time'],
-                    $validatedData['end_time']
-                );
+    try {
+        // ✅ Smart venue assignment
+        if (empty($validatedData['venue'])) {
+            $venueResult = $this->assignSmartVenue(
+                $validatedData['no'],
+                $validatedData['date'],
+                $validatedData['start_time'],
+                $validatedData['end_time']
+            );
 
-                if ($venueResult['success']) {
-                    $validatedData['venue'] = $venueResult['venue'];
-                    $validatedData['location'] = $venueResult['location'] ?? 'Main Campus';
-                } else {
-                    $validatedData['venue'] = 'TBD';
-                    $validatedData['location'] = 'TBD';
-                }
+            if ($venueResult['success']) {
+                $validatedData['venue'] = $venueResult['venue'];
+                $validatedData['location'] = $venueResult['location'] ?? 'Main Campus';
+            } else {
+                $validatedData['venue'] = 'TBD';
+                $validatedData['location'] = 'TBD';
             }
-
-            // ✅ Ensure location has a value
-            if (empty($validatedData['location'])) {
-                $validatedData['location'] = $validatedData['venue'] === 'Remote' ? 'Online' : 'Main Campus';
-            }
-
-            // ✅ Create exam timetable with all required fields
-            $examTimetable = ExamTimetable::create([
-                'unit_id' => $validatedData['unit_id'],
-                'semester_id' => $validatedData['semester_id'],
-                'class_id' => $validatedData['class_id'],
-                'date' => $validatedData['date'],
-                'day' => $validatedData['day'],
-                'start_time' => $validatedData['start_time'],
-                'end_time' => $validatedData['end_time'],
-                'venue' => $validatedData['venue'],
-                'location' => $validatedData['location'],
-                'no' => $validatedData['no'],
-                'chief_invigilator' => $validatedData['chief_invigilator'],
-            ]);
-
-            \Log::info('Exam timetable created successfully', [
-                'exam_timetable_id' => $examTimetable->id,
-                'program_id' => $program->id,
-            ]);
-
-            return redirect()
-                ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
-                ->with('success', 'Exam timetable created successfully.');
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            \Log::error('Validation error in exam timetable creation', [
-                'errors' => $e->errors(),
-            ]);
-            
-            return redirect()->back()
-                ->withErrors($e->errors())
-                ->withInput();
-                
-        } catch (\Exception $e) {
-            \Log::error('Error creating exam timetable', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return redirect()->back()
-                ->withErrors(['error' => 'Failed to create exam timetable: ' . $e->getMessage()])
-                ->withInput();
         }
+
+        if (empty($validatedData['location'])) {
+            $validatedData['location'] = $validatedData['venue'] === 'Remote' ? 'Online' : 'Main Campus';
+        }
+
+        // ✅✅✅ CRITICAL FIX: Add program_id and school_id
+        $examData = [
+            'unit_id' => $validatedData['unit_id'],
+            'semester_id' => $validatedData['semester_id'],
+            'class_id' => $validatedData['class_id'],
+            'program_id' => $program->id,  // ✅ THIS IS THE FIX
+            'school_id' => $program->school_id,  // ✅ THIS IS THE FIX
+            'date' => $validatedData['date'],
+            'day' => $validatedData['day'],
+            'start_time' => $validatedData['start_time'],
+            'end_time' => $validatedData['end_time'],
+            'venue' => $validatedData['venue'],
+            'location' => $validatedData['location'],
+            'no' => $validatedData['no'],
+            'chief_invigilator' => $validatedData['chief_invigilator'],
+        ];
+
+        \Log::info('Creating exam timetable with data:', $examData);
+
+        $examTimetable = ExamTimetable::create($examData);
+
+        \Log::info('Exam timetable created successfully', [
+            'exam_timetable_id' => $examTimetable->id,
+            'program_id' => $examTimetable->program_id,
+            'school_id' => $examTimetable->school_id,
+        ]);
+
+        return redirect()
+            ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
+            ->with('success', 'Exam timetable created successfully for ' . $program->name . '!');
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        \Log::error('Validation error in exam timetable creation', [
+            'errors' => $e->errors(),
+        ]);
+        
+        return redirect()->back()
+            ->withErrors($e->errors())
+            ->withInput();
+            
+    } catch (\Exception $e) {
+        \Log::error('Error creating exam timetable', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return redirect()->back()
+            ->withErrors(['error' => 'Failed to create exam timetable: ' . $e->getMessage()])
+            ->withInput();
     }
+}
 
     /**
      * Show create form for program exam timetable
@@ -1314,85 +1327,98 @@ class ExamTimetableController extends Controller
     /**
      * ✅ FIXED: Update exam timetable for a specific program
      */
-    public function updateProgramExamTimetable(Program $program, $timetable, Request $request, $schoolCode)
-    {
-        $examTimetable = ExamTimetable::findOrFail($timetable);
-        
-        $validatedData = $request->validate([
-            'semester_id' => 'required|integer|exists:semesters,id',
-            'class_id' => 'required|integer|exists:classes,id',
-            'unit_id' => 'required|integer|exists:units,id',
-            'date' => 'required|date|date_format:Y-m-d',
-            'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
-            'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i|after:start_time',
-            'chief_invigilator' => 'required|string|max:255',
-            'no' => 'required|integer|min:1',
-            'venue' => 'nullable|string|max:255',
-            'location' => 'nullable|string|max:255',
+    /**
+ * ✅ FIXED: Update exam timetable for a specific program
+ */
+public function updateProgramExamTimetable(Program $program, $timetable, Request $request, $schoolCode)
+{
+    $examTimetable = ExamTimetable::findOrFail($timetable);
+    
+    \Log::info('=== EXAM TIMETABLE UPDATE REQUEST ===', [
+        'exam_id' => $examTimetable->id,
+        'program_id' => $program->id,
+        'school_id' => $program->school_id,
+    ]);
+    
+    $validatedData = $request->validate([
+        'semester_id' => 'required|integer|exists:semesters,id',
+        'class_id' => 'required|integer|exists:classes,id',
+        'unit_id' => 'required|integer|exists:units,id',
+        'date' => 'required|date|date_format:Y-m-d',
+        'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+        'start_time' => 'required|date_format:H:i',
+        'end_time' => 'required|date_format:H:i|after:start_time',
+        'chief_invigilator' => 'required|string|max:255',
+        'no' => 'required|integer|min:1',
+        'venue' => 'nullable|string|max:255',
+        'location' => 'nullable|string|max:255',
+    ]);
+
+    try {
+        if (empty($validatedData['venue'])) {
+            $venueResult = $this->assignSmartVenue(
+                $validatedData['no'],
+                $validatedData['date'],
+                $validatedData['start_time'],
+                $validatedData['end_time'],
+                $examTimetable->id
+            );
+
+            if ($venueResult['success']) {
+                $validatedData['venue'] = $venueResult['venue'];
+                $validatedData['location'] = $venueResult['location'];
+            } else {
+                $validatedData['venue'] = 'TBD';
+                $validatedData['location'] = 'TBD';
+            }
+        }
+
+        if (empty($validatedData['location'])) {
+            $validatedData['location'] = $validatedData['venue'] === 'Remote' ? 'Online' : 'Main Campus';
+        }
+
+        // ✅✅✅ CRITICAL FIX: Add program_id and school_id to update
+        $updateData = [
+            'unit_id' => $validatedData['unit_id'],
+            'semester_id' => $validatedData['semester_id'],
+            'class_id' => $validatedData['class_id'],
+            'program_id' => $program->id,  // ✅ THIS IS THE FIX
+            'school_id' => $program->school_id,  // ✅ THIS IS THE FIX
+            'date' => $validatedData['date'],
+            'day' => $validatedData['day'],
+            'start_time' => $validatedData['start_time'],
+            'end_time' => $validatedData['end_time'],
+            'venue' => $validatedData['venue'],
+            'location' => $validatedData['location'],
+            'no' => $validatedData['no'],
+            'chief_invigilator' => $validatedData['chief_invigilator'],
+        ];
+
+        \Log::info('Updating exam timetable with data:', $updateData);
+
+        $examTimetable->update($updateData);
+
+        \Log::info('Program exam timetable updated successfully', [
+            'exam_timetable_id' => $examTimetable->id,
+            'program_id' => $examTimetable->program_id,
+            'school_id' => $examTimetable->school_id,
         ]);
 
-        try {
-            \Log::info('Updating program exam timetable', [
-                'exam_timetable_id' => $examTimetable->id,
-                'program_id' => $program->id,
-            ]);
+        return redirect()
+            ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
+            ->with('success', 'Exam timetable updated successfully for ' . $program->name . '!');
 
-            if (empty($validatedData['venue'])) {
-                $venueResult = $this->assignSmartVenue(
-                    $validatedData['no'],
-                    $validatedData['date'],
-                    $validatedData['start_time'],
-                    $validatedData['end_time'],
-                    $examTimetable->id
-                );
+    } catch (\Exception $e) {
+        \Log::error('Error updating program exam timetable: ' . $e->getMessage(), [
+            'exam_timetable_id' => $examTimetable->id,
+            'exception' => $e->getTraceAsString()
+        ]);
 
-                if ($venueResult['success']) {
-                    $validatedData['venue'] = $venueResult['venue'];
-                    $validatedData['location'] = $venueResult['location'];
-                } else {
-                    $validatedData['venue'] = 'TBD';
-                    $validatedData['location'] = 'TBD';
-                }
-            }
-
-            if (empty($validatedData['location'])) {
-                $validatedData['location'] = $validatedData['venue'] === 'Remote' ? 'Online' : 'Main Campus';
-            }
-
-            $examTimetable->update([
-                'unit_id' => $validatedData['unit_id'],
-                'semester_id' => $validatedData['semester_id'],
-                'class_id' => $validatedData['class_id'],
-                'date' => $validatedData['date'],
-                'day' => $validatedData['day'],
-                'start_time' => $validatedData['start_time'],
-                'end_time' => $validatedData['end_time'],
-                'venue' => $validatedData['venue'],
-                'location' => $validatedData['location'],
-                'no' => $validatedData['no'],
-                'chief_invigilator' => $validatedData['chief_invigilator'],
-            ]);
-
-            \Log::info('Program exam timetable updated successfully', [
-                'exam_timetable_id' => $examTimetable->id
-            ]);
-
-            return redirect()
-                ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
-                ->with('success', 'Exam timetable updated successfully.');
-
-        } catch (\Exception $e) {
-            \Log::error('Error updating program exam timetable: ' . $e->getMessage(), [
-                'exam_timetable_id' => $examTimetable->id,
-                'exception' => $e->getTraceAsString()
-            ]);
-
-            return redirect()->back()
-                ->withErrors(['error' => 'Failed to update exam timetable: ' . $e->getMessage()])
-                ->withInput();
-        }
+        return redirect()->back()
+            ->withErrors(['error' => 'Failed to update exam timetable: ' . $e->getMessage()])
+            ->withInput();
     }
+}
 
     /**
      * Delete program exam timetable

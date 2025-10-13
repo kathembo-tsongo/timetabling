@@ -1,40 +1,40 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react"
-import { Head, usePage, router, useForm } from "@inertiajs/react" // ✅ Add useForm
+import { useState, useEffect } from "react"
+import { Head, usePage, router, useForm } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
-import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Link } from "@inertiajs/react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   AlertCircle,
   CheckCircle,
-  XCircle,
   Clock,
   Users,
   MapPin,
   Calendar,
-  Zap,
   Eye,
   Edit,
   Trash2,
   Plus,
-  Download,
   Search,
   FileText,
-  ChevronLeft,    // ✅ Add this
-  X,              // ✅ Add this
-  Loader2,        // ✅ Add this
-  Filter,         // ✅ Add this
-  User,           // ✅ Add this
+  ChevronLeft,
+  X,
+  Loader2,
+  Filter,
+  User,
+  Building2,
+  GraduationCap,
+  BookOpen,
+  School,
+  CalendarDays,
+  LayoutGrid,
+  List,
+  Layers,
+  MapPinIcon,
 } from "lucide-react"
 import { toast } from "react-hot-toast"
-import axios from "axios"
-// Interfaces
+
 interface ExamTimetable {
   id: number
   date: string
@@ -48,6 +48,8 @@ interface ExamTimetable {
   unit_id: number
   semester_id: number
   class_id: number
+  program_id?: number
+  school_id?: number
   unit_name: string
   unit_code: string
   class_name: string
@@ -65,6 +67,7 @@ interface Program {
     code: string
     name: string
   }
+  school_id: number
 }
 
 interface Semester {
@@ -118,7 +121,6 @@ interface PageProps {
   }
 }
 
-// 🎨 School-specific theming configuration
 const schoolThemes = {
   SCES: {
     primary: 'blue',
@@ -130,7 +132,9 @@ const schoolThemes = {
     filterFocus: 'focus:ring-blue-500 focus:border-blue-500',
     filterButton: 'bg-blue-600 hover:bg-blue-700',
     tableBorder: 'border-blue-200',
-    paginationActive: 'bg-blue-50 border-blue-500 text-blue-600'
+    paginationActive: 'bg-blue-50 border-blue-500 text-blue-600',
+    cardBg: 'bg-blue-50',
+    cardBorder: 'border-blue-200',
   },
   SBS: {
     primary: 'red',
@@ -142,7 +146,9 @@ const schoolThemes = {
     filterFocus: 'focus:ring-red-500 focus:border-red-500',
     filterButton: 'bg-red-600 hover:bg-red-700',
     tableBorder: 'border-red-200',
-    paginationActive: 'bg-red-50 border-red-500 text-red-600'
+    paginationActive: 'bg-red-50 border-red-500 text-red-600',
+    cardBg: 'bg-red-50',
+    cardBorder: 'border-red-200',
   },
   SLS: {
     primary: 'green',
@@ -154,11 +160,343 @@ const schoolThemes = {
     filterFocus: 'focus:ring-green-500 focus:border-green-500',
     filterButton: 'bg-green-600 hover:bg-green-700',
     tableBorder: 'border-green-200',
-    paginationActive: 'bg-green-50 border-green-500 text-green-600'
+    paginationActive: 'bg-green-50 border-green-500 text-green-600',
+    cardBg: 'bg-green-50',
+    cardBorder: 'border-green-200',
   }
 }
 
-// 🎯 Create/Edit Modal Component with Cascading Dropdowns
+interface ExamCardProps {
+  exam: ExamTimetable
+  theme: any
+  onView: () => void
+  onEdit: () => void
+  onDelete: () => void
+  canEdit: boolean
+  canDelete: boolean
+}
+
+const ExamCard: React.FC<ExamCardProps> = ({
+  exam,
+  theme,
+  onView,
+  onEdit,
+  onDelete,
+  canEdit,
+  canDelete
+}) => {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    })
+  }
+
+  const formatTime = (time: string) => {
+    const parts = time.split(':')
+    const hours = parseInt(parts[0])
+    const minutes = parts[1]
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    const displayHours = hours % 12 || 12
+    return `${displayHours}:${minutes} ${ampm}`
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-md hover:shadow-2xl border-2 border-slate-200 transition-all duration-300 overflow-hidden group">
+      <div className={`p-5 bg-gradient-to-r ${theme.buttonGradient}`}>
+        <div className="flex items-center justify-between text-white">
+          <div className="flex items-center space-x-3">
+            <div className="bg-white/20 backdrop-blur-sm p-2 rounded-lg">
+              <CalendarDays className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="font-bold text-lg">{formatDate(exam.date)}</div>
+              <div className="text-sm opacity-90 font-medium">{exam.day}</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="flex items-center justify-end mb-1">
+              <Clock className="w-4 h-4 mr-2" />
+              <span className="text-sm font-bold">Time</span>
+            </div>
+            <div className="text-base font-semibold">
+              {formatTime(exam.start_time)} - {formatTime(exam.end_time)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-4">
+        <div className={`inline-flex items-center px-3 py-1.5 ${theme.cardBg} border ${theme.cardBorder} rounded-full`}>
+          <Layers className={`w-4 h-4 ${theme.iconColor} mr-2`} />
+          <span className={`text-sm font-bold ${theme.iconColor}`}>{exam.semester_name}</span>
+        </div>
+
+        <div className={`p-4 ${theme.cardBg} border-2 ${theme.cardBorder} rounded-xl`}>
+          <div className="flex items-start space-x-3">
+            <div className={`p-2 bg-white rounded-lg`}>
+              <BookOpen className={`w-6 h-6 ${theme.iconColor}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-lg font-bold text-gray-900 mb-1">{exam.unit_name}</h3>
+              <p className={`text-sm font-bold ${theme.iconColor} mb-2`}>{exam.unit_code}</p>
+              {exam.class_name && (
+                <div className="flex items-center mt-2 text-sm">
+                  <School className="w-4 h-4 text-gray-500 mr-2" />
+                  <span className="font-semibold text-gray-700">{exam.class_name}</span>
+                  <span className="mx-2 text-gray-400">•</span>
+                  <span className="text-gray-600 font-medium">{exam.class_code}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start space-x-3">
+              <MapPinIcon className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-green-600 uppercase mb-1">Venue & Location</div>
+                <div className="font-bold text-gray-900 text-base">{exam.venue}</div>
+                {exam.location && (
+                  <div className="text-sm text-gray-600 mt-1 flex items-center">
+                    <MapPin className="w-3 h-3 mr-1" />
+                    {exam.location}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <Users className="w-4 h-4 text-purple-600" />
+              <span className="text-xs font-semibold text-purple-600 uppercase">Students</span>
+            </div>
+            <div className="font-bold text-3xl text-purple-900">{exam.no}</div>
+          </div>
+
+          <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <User className="w-4 h-4 text-orange-600" />
+              <span className="text-xs font-semibold text-orange-600 uppercase">Invigilator</span>
+            </div>
+            <div className="font-semibold text-sm text-gray-900 line-clamp-2">{exam.chief_invigilator}</div>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t border-gray-200">
+          <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+            <span className="px-2 py-1 bg-gray-100 rounded">ID: {exam.id}</span>
+            {exam.program_id && <span className="px-2 py-1 bg-gray-100 rounded">Program: {exam.program_id}</span>}
+            {exam.school_id && <span className="px-2 py-1 bg-gray-100 rounded">School: {exam.school_id}</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 py-4 bg-gray-50 border-t-2 border-gray-200 flex items-center justify-between">
+        <div className="text-xs text-gray-500">
+          <span className="font-medium">Last updated:</span>{' '}
+          {new Date().toLocaleDateString()}
+        </div>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={onView}
+            className="inline-flex items-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+          >
+            <Eye className="w-4 h-4 mr-1.5" />
+            View
+          </button>
+          {canEdit && (
+            <button
+              onClick={onEdit}
+              className="inline-flex items-center px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
+            >
+              <Edit className="w-4 h-4 mr-1.5" />
+              Edit
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={onDelete}
+              className="inline-flex items-center px-4 py-2 text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+            >
+              <Trash2 className="w-4 h-4 mr-1.5" />
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const ExamTableView: React.FC<{
+  exams: ExamTimetable[]
+  theme: any
+  onView: (exam: ExamTimetable) => void
+  onEdit: (exam: ExamTimetable) => void
+  onDelete: (exam: ExamTimetable) => void
+  canEdit: boolean
+  canDelete: boolean
+}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete }) => {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    })
+  }
+
+  const formatTime = (time: string) => {
+    return time.substring(0, 5)
+  }
+
+  return (
+    <div className={`bg-white rounded-2xl shadow-xl border-2 ${theme.tableBorder} overflow-hidden`}>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className={`bg-gradient-to-r ${theme.buttonGradient} text-white`}>
+            <tr>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Date & Day</th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Time</th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Semester</th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Unit</th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Class</th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Venue</th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Location</th>
+              <th className="px-4 py-4 text-center text-xs font-bold uppercase">Students</th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Invigilator</th>
+              <th className="px-4 py-4 text-center text-xs font-bold uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {exams.map((exam, index) => (
+              <tr
+                key={exam.id}
+                className={`hover:bg-slate-50 transition-colors ${
+                  index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
+                }`}
+              >
+                <td className="px-4 py-4">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className={`w-5 h-5 ${theme.iconColor} flex-shrink-0`} />
+                    <div>
+                      <div className="text-sm font-bold text-gray-900">{formatDate(exam.date)}</div>
+                      <div className="text-xs text-gray-600 font-medium">{exam.day}</div>
+                    </div>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex items-center space-x-1 text-sm">
+                    <Clock className="w-4 h-4 text-gray-500" />
+                    <span className="font-semibold text-gray-900">
+                      {formatTime(exam.start_time)}
+                    </span>
+                    <span className="text-gray-500">-</span>
+                    <span className="font-semibold text-gray-900">
+                      {formatTime(exam.end_time)}
+                    </span>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className={`inline-flex items-center px-2 py-1 ${theme.cardBg} border ${theme.cardBorder} rounded-md`}>
+                    <Layers className={`w-3 h-3 ${theme.iconColor} mr-1`} />
+                    <span className={`text-xs font-bold ${theme.iconColor}`}>{exam.semester_name}</span>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex items-center space-x-2">
+                    <BookOpen className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                    <div>
+                      <div className="text-sm font-bold text-gray-900 max-w-xs truncate">{exam.unit_name}</div>
+                      <div className={`text-xs font-semibold ${theme.iconColor}`}>{exam.unit_code}</div>
+                    </div>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex items-center space-x-2">
+                    <School className="w-4 h-4 text-indigo-500" />
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">{exam.class_name}</div>
+                      <div className="text-xs text-gray-600">{exam.class_code}</div>
+                    </div>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex items-center space-x-2">
+                    <MapPinIcon className="w-4 h-4 text-green-600" />
+                    <span className="text-sm font-semibold text-gray-900">{exam.venue}</span>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex items-center space-x-2">
+                    <MapPin className="w-4 h-4 text-green-500" />
+                    <span className="text-sm text-gray-700">{exam.location || 'N/A'}</span>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4 text-center">
+                  <div className="inline-flex items-center px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg">
+                    <Users className="w-4 h-4 text-purple-600 mr-2" />
+                    <span className="text-base font-bold text-purple-900">{exam.no}</span>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex items-center space-x-2">
+                    <User className="w-4 h-4 text-orange-600" />
+                    <span className="text-sm font-medium text-gray-900 max-w-xs truncate">{exam.chief_invigilator}</span>
+                  </div>
+                </td>
+
+                <td className="px-4 py-4">
+                  <div className="flex items-center justify-center space-x-2">
+                    <button
+                      onClick={() => onView(exam)}
+                      className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="View details"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => onEdit(exam)}
+                        className="p-2 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded-lg transition-colors"
+                        title="Edit exam"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={() => onDelete(exam)}
+                        className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete exam"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 interface ExamModalProps {
   isOpen: boolean
   onClose: () => void
@@ -195,7 +533,6 @@ const ExamModal: React.FC<ExamModalProps> = ({
     no: exam?.no || ''
   })
 
-  // Reset form when modal closes
   useEffect(() => {
     if (!isOpen) {
       reset()
@@ -204,7 +541,6 @@ const ExamModal: React.FC<ExamModalProps> = ({
     }
   }, [isOpen])
 
-  // Load initial data if editing
   useEffect(() => {
     if (exam && isOpen) {
       if (exam.semester_id) {
@@ -216,7 +552,6 @@ const ExamModal: React.FC<ExamModalProps> = ({
     }
   }, [exam, isOpen])
 
-  // Fetch classes when semester changes
   const fetchClasses = async (semesterId: string | number) => {
     if (!semesterId) {
       setClasses([])
@@ -233,14 +568,16 @@ const ExamModal: React.FC<ExamModalProps> = ({
     setData('unit_id', '')
 
     try {
-      const response = await fetch(`/api/exam-timetables/classes-by-semester/${semesterId}`)
+      const response = await fetch(
+        `/api/exam-timetables/classes-by-semester/${semesterId}?program_id=${program.id}`
+      )
       const result = await response.json()
       
       if (result.success && result.classes) {
         setClasses(result.classes)
-        console.log('Loaded classes:', result.classes)
+        console.log('Loaded classes for program:', program.name, result.classes)
       } else {
-        toast.error('No classes found for this semester')
+        toast.error('No classes found for this semester in this program')
         setClasses([])
       }
     } catch (error) {
@@ -252,94 +589,86 @@ const ExamModal: React.FC<ExamModalProps> = ({
     }
   }
 
-  // Fetch units when class changes
-  // Fetch units when class changes
-const fetchUnits = async (semesterId: string | number, classId: string | number) => {
-  if (!semesterId || !classId) {
+  const fetchUnits = async (semesterId: string | number, classId: string | number) => {
+    if (!semesterId || !classId) {
+      setUnits([])
+      setData('unit_id', '')
+      return
+    }
+
+    setLoadingUnits(true)
     setUnits([])
     setData('unit_id', '')
-    return
-  }
 
-  setLoadingUnits(true)
-  setUnits([])
-  setData('unit_id', '')
-
-  try {
-    const response = await fetch(
-      `/api/exam-timetables/units-by-class?semester_id=${semesterId}&class_id=${classId}`
-    )
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch units')
-    }
-    
-    const result = await response.json()
-    
-    console.log('Units API response:', result) // ✅ Debug log
-    
-    // ✅ FIXED: Backend returns array directly, not wrapped in {success, units}
-    if (Array.isArray(result) && result.length > 0) {
-      setUnits(result)
-      console.log('Loaded units:', result)
-      toast.success(`${result.length} units loaded successfully`)
-    } else {
-      toast.error('No units found for this class')
+    try {
+      const response = await fetch(
+        `/api/exam-timetables/units-by-class?semester_id=${semesterId}&class_id=${classId}&program_id=${program.id}`
+      )
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch units')
+      }
+      
+      const result = await response.json()
+      
+      console.log('Units API response for program:', program.name, result)
+      
+      if (Array.isArray(result) && result.length > 0) {
+        setUnits(result)
+        console.log('Loaded units:', result)
+        toast.success(`${result.length} units loaded successfully`)
+      } else {
+        toast.error('No units found for this class in this program')
+        setUnits([])
+      }
+    } catch (error) {
+      console.error('Error fetching units:', error)
+      toast.error('Failed to load units')
       setUnits([])
+    } finally {
+      setLoadingUnits(false)
     }
-  } catch (error) {
-    console.error('Error fetching units:', error)
-    toast.error('Failed to load units')
-    setUnits([])
-  } finally {
-    setLoadingUnits(false)
   }
-}
-  // Handle semester change
+
   const handleSemesterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const semesterId = e.target.value
     setData('semester_id', semesterId)
     fetchClasses(semesterId)
   }
 
-  // Handle class change
-const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-  const classId = e.target.value
-  setData('class_id', classId)
-  
-  if (classId && data.semester_id) {
-    fetchUnits(data.semester_id, classId)
-  } else {
-    setUnits([])
-    setData('unit_id', '')
-  }
-}
-
-  
-  // Auto-fill student count and lecturer when unit is selected
-useEffect(() => {
-  if (data.unit_id && units.length > 0) {
-    const selectedUnit = units.find(u => u.id === parseInt(data.unit_id as string))
-    if (selectedUnit) {
-      // ✅ Ensure we're setting a valid number, with fallback to 0
-      const studentCount = selectedUnit.student_count ?? 0
-      setData('no', studentCount)
-      
-      // ✅ Only set lecturer if there's a valid name
-      const lecturerName = selectedUnit.lecturer_name || 'No lecturer assigned'
-      setData('chief_invigilator', lecturerName)
-      
-      console.log('Auto-filled data:', {
-        unit_id: selectedUnit.id,
-        unit_code: selectedUnit.code,
-        student_count: studentCount,
-        lecturer_name: lecturerName
-      })
+  const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const classId = e.target.value
+    setData('class_id', classId)
+    
+    if (classId && data.semester_id) {
+      fetchUnits(data.semester_id, classId)
+    } else {
+      setUnits([])
+      setData('unit_id', '')
     }
   }
-}, [data.unit_id, units])
 
-  // Auto-fill day when date is selected
+  useEffect(() => {
+    if (data.unit_id && units.length > 0) {
+      const selectedUnit = units.find(u => u.id === parseInt(data.unit_id as string))
+      if (selectedUnit) {
+        const studentCount = selectedUnit.student_count ?? 0
+        setData('no', studentCount)
+        
+        const lecturerName = selectedUnit.lecturer_name || 'No lecturer assigned'
+        setData('chief_invigilator', lecturerName)
+        
+        console.log('Auto-filled data:', {
+          unit_id: selectedUnit.id,
+          unit_code: selectedUnit.code,
+          student_count: studentCount,
+          lecturer_name: lecturerName,
+          program: program.name
+        })
+      }
+    }
+  }, [data.unit_id, units])
+
   useEffect(() => {
     if (data.date) {
       const date = new Date(data.date)
@@ -348,11 +677,9 @@ useEffect(() => {
     }
   }, [data.date])
 
-  // ✅ FIXED: Simplified handleSubmit
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    // Validate required fields
     if (!data.semester_id || !data.class_id || !data.unit_id || !data.date || 
         !data.start_time || !data.end_time || !data.chief_invigilator || !data.day) {
       toast.error('Please fill in all required fields')
@@ -364,6 +691,14 @@ useEffect(() => {
       return
     }
 
+    console.log('Submitting exam timetable for:', {
+      program: program.name,
+      program_id: program.id,
+      school: program.school.name,
+      school_id: program.school_id,
+      data: data
+    })
+
     const routeName = exam
       ? `schools.${schoolCode.toLowerCase()}.programs.exam-timetables.update`
       : `schools.${schoolCode.toLowerCase()}.programs.exam-timetables.store`
@@ -372,18 +707,16 @@ useEffect(() => {
 
     const method = exam ? put : post
 
-    // ✅ Inertia will automatically use data from useForm
     method(route(routeName, routeParams), {
       preserveScroll: true,
       onSuccess: () => {
-        toast.success(`Exam timetable ${exam ? 'updated' : 'created'} successfully!`)
+        toast.success(`Exam timetable ${exam ? 'updated' : 'created'} successfully for ${program.name}!`)
         reset()
         onClose()
       },
       onError: (errors) => {
         console.error('Form errors:', errors)
         
-        // Display error messages
         Object.entries(errors).forEach(([field, message]) => {
           if (typeof message === 'string') {
             toast.error(`${field}: ${message}`)
@@ -394,26 +727,40 @@ useEffect(() => {
       }
     })
   }
+
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4">
-        {/* Backdrop */}
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
           onClick={onClose}
         />
 
-        {/* Modal */}
         <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl transform transition-all">
-          {/* Header */}
           <div className={`flex items-center justify-between p-6 border-b bg-gradient-to-r ${theme.buttonGradient}`}>
-            <div className="flex items-center">
-              <Calendar className="w-6 h-6 text-white mr-3" />
-              <h2 className="text-2xl font-bold text-white">
-                {exam ? 'Edit' : 'Schedule'} Exam Timetable
-              </h2>
+            <div className="flex-1">
+              <div className="flex items-center">
+                <Calendar className="w-6 h-6 text-white mr-3" />
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {exam ? 'Edit' : 'Schedule'} Exam Timetable
+                  </h2>
+                  <div className="flex items-center gap-3 mt-1.5">
+                    <div className="flex items-center text-white/90 text-sm">
+                      <GraduationCap className="w-4 h-4 mr-1.5" />
+                      <span className="font-medium">{program.name}</span>
+                      <span className="mx-1.5">•</span>
+                      <span>{program.code}</span>
+                    </div>
+                    <div className="flex items-center text-white/80 text-sm">
+                      <Building2 className="w-4 h-4 mr-1.5" />
+                      <span>{program.school.name}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
             <button
               onClick={onClose}
@@ -423,10 +770,21 @@ useEffect(() => {
             </button>
           </div>
 
-          {/* Body */}
           <form onSubmit={handleSubmit} className="p-6">
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start">
+                <AlertCircle className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-900">
+                  <p className="font-semibold">Context</p>
+                  <p className="mt-1">
+                    This exam will be scheduled for <span className="font-semibold">{program.name}</span> program 
+                    within <span className="font-semibold">{program.school.name}</span>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Semester */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Semester <span className="text-red-500">*</span>
@@ -451,7 +809,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* Class */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Class <span className="text-red-500">*</span>
@@ -466,7 +823,11 @@ useEffect(() => {
                   required
                 >
                   <option value="">
-                    {loadingClasses ? 'Loading classes...' : !data.semester_id ? 'Select semester first' : 'Select Class'}
+                    {loadingClasses 
+                      ? 'Loading classes...' 
+                      : !data.semester_id 
+                      ? 'Select semester first' 
+                      : 'Select Class'}
                   </option>
                   {classes.map((cls) => (
                     <option key={cls.id} value={cls.id}>
@@ -479,7 +840,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* Unit */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Unit <span className="text-red-500">*</span>
@@ -494,7 +854,11 @@ useEffect(() => {
                   required
                 >
                   <option value="">
-                    {loadingUnits ? 'Loading units...' : !data.class_id ? 'Select class first' : 'Select Unit'}
+                    {loadingUnits 
+                      ? 'Loading units...' 
+                      : !data.class_id 
+                      ? 'Select class first' 
+                      : 'Select Unit'}
                   </option>
                   {units.map((unit) => (
                     <option key={unit.id} value={unit.id}>
@@ -507,7 +871,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* Date */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Date <span className="text-red-500">*</span>
@@ -526,7 +889,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* Day (Auto-filled) */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Day <span className="text-red-500">*</span>
@@ -540,7 +902,6 @@ useEffect(() => {
                 />
               </div>
 
-              {/* Start Time */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Start Time <span className="text-red-500">*</span>
@@ -559,7 +920,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* End Time */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   End Time <span className="text-red-500">*</span>
@@ -578,7 +938,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* Number of Students */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Number of Students <span className="text-red-500">*</span>
@@ -591,6 +950,7 @@ useEffect(() => {
                     errors.no ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="Auto-filled from enrollment"
+                  min="1"
                   required
                 />
                 {errors.no && (
@@ -598,7 +958,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* Chief Invigilator */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Chief Invigilator <span className="text-red-500">*</span>
@@ -619,11 +978,10 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* Smart Venue Assignment Info */}
-            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
               <div className="flex items-start">
-                <AlertCircle className="w-5 h-5 text-blue-600 mr-3 mt-0.5" />
-                <div className="text-sm text-blue-800">
+                <CheckCircle className="w-5 h-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-green-800">
                   <p className="font-semibold">Automatic Venue Assignment</p>
                   <p className="mt-1">
                     The system will automatically assign the most suitable exam room based on
@@ -633,7 +991,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* Footer */}
             <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
               <button
                 type="button"
@@ -668,7 +1025,6 @@ useEffect(() => {
   )
 }
 
-// 🗑️ Delete Confirmation Modal
 interface DeleteModalProps {
   isOpen: boolean
   onClose: () => void
@@ -748,7 +1104,6 @@ const DeleteModal: React.FC<DeleteModalProps> = ({
   )
 }
 
-// 👁️ View Details Modal
 interface ViewModalProps {
   isOpen: boolean
   onClose: () => void
@@ -781,7 +1136,6 @@ const ViewModal: React.FC<ViewModalProps> = ({ isOpen, onClose, exam, theme }) =
         />
 
         <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl transform transition-all">
-          {/* Header */}
           <div className={`flex items-center justify-between p-6 border-b bg-gradient-to-r ${theme.buttonGradient}`}>
             <div className="flex items-center">
               <Eye className="w-6 h-6 text-white mr-3" />
@@ -795,7 +1149,6 @@ const ViewModal: React.FC<ViewModalProps> = ({ isOpen, onClose, exam, theme }) =
             </button>
           </div>
 
-          {/* Body */}
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -850,7 +1203,6 @@ const ViewModal: React.FC<ViewModalProps> = ({ isOpen, onClose, exam, theme }) =
             </div>
           </div>
 
-          {/* Footer */}
           <div className="flex justify-end p-6 border-t">
             <button
               onClick={onClose}
@@ -865,53 +1217,41 @@ const ViewModal: React.FC<ViewModalProps> = ({ isOpen, onClose, exam, theme }) =
   )
 }
 
-// 📋 Main Index Component
 const ExamTimetablesIndex: React.FC = () => {
   const { examTimetables, program, semesters, schoolCode, filters, can, flash } =
     usePage<PageProps>().props
 
   const theme = schoolThemes[schoolCode as keyof typeof schoolThemes] || schoolThemes.SBS
 
-  // Modal states
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [selectedExam, setSelectedExam] = useState<ExamTimetable | null>(null)
-
-  // Filter states
   const [searchTerm, setSearchTerm] = useState(filters.search || '')
   const [selectedSemester, setSelectedSemester] = useState<number | null>(
     filters.semester_id || null
   )
   const [perPage, setPerPage] = useState(filters.per_page || 15)
   const [loading, setLoading] = useState(false)
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
 
-  // Flash messages
   useEffect(() => {
-    if (flash?.success) {
-      toast.success(flash.success)
-    }
-    if (flash?.error) {
-      toast.error(flash.error)
-    }
+    if (flash?.success) toast.success(flash.success)
+    if (flash?.error) toast.error(flash.error)
   }, [flash])
 
-  // Handle filter changes
   const handleFilter = () => {
     const params = new URLSearchParams()
-
     if (searchTerm) params.set('search', searchTerm)
     if (selectedSemester) params.set('semester_id', selectedSemester.toString())
     params.set('per_page', perPage.toString())
-
     router.get(`${window.location.pathname}?${params.toString()}`, {}, {
       preserveState: true,
       preserveScroll: true
     })
   }
 
-  // Handle pagination
   const handlePageChange = (page: number) => {
     const params = new URLSearchParams(window.location.search)
     params.set('page', page.toString())
@@ -921,13 +1261,11 @@ const ExamTimetablesIndex: React.FC = () => {
     })
   }
 
-  // Handle edit
   const handleEdit = (exam: ExamTimetable) => {
     setSelectedExam(exam)
     setIsEditModalOpen(true)
   }
 
-  // Handle delete
   const handleDeleteClick = (exam: ExamTimetable) => {
     setSelectedExam(exam)
     setIsDeleteModalOpen(true)
@@ -935,7 +1273,6 @@ const ExamTimetablesIndex: React.FC = () => {
 
   const confirmDelete = () => {
     if (!selectedExam) return
-
     setLoading(true)
     router.delete(
       route(`schools.${schoolCode.toLowerCase()}.programs.exam-timetables.destroy`, [
@@ -948,33 +1285,15 @@ const ExamTimetablesIndex: React.FC = () => {
           setIsDeleteModalOpen(false)
           setSelectedExam(null)
         },
-        onError: () => {
-          toast.error('Failed to delete exam timetable')
-        },
+        onError: () => toast.error('Failed to delete exam timetable'),
         onFinish: () => setLoading(false)
       }
     )
   }
 
-  // Handle view
   const handleView = (exam: ExamTimetable) => {
     setSelectedExam(exam)
     setIsViewModalOpen(true)
-  }
-
-  // Format date
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    })
-  }
-
-  // Format time
-  const formatTime = (time: string) => {
-    return time.substring(0, 5)
   }
 
   return (
@@ -983,7 +1302,6 @@ const ExamTimetablesIndex: React.FC = () => {
 
       <div className={`min-h-screen bg-gradient-to-br ${theme.gradient} py-8`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header with Back Button */}
           <div className="mb-8">
             <Link
               href={route(`schools.${schoolCode.toLowerCase()}.programs.index`)}
@@ -1010,7 +1328,7 @@ const ExamTimetablesIndex: React.FC = () => {
                   </p>
                   <div className="flex items-center gap-4 mt-4">
                     <div className="text-sm text-slate-600">
-                      Total: <span className="font-semibold">{examTimetables.total}</span>
+                      Total Exams: <span className="font-semibold text-xl">{examTimetables.total}</span>
                     </div>
                   </div>
                 </div>
@@ -1027,28 +1345,53 @@ const ExamTimetablesIndex: React.FC = () => {
             </div>
           </div>
 
-          {/* Filters */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 p-6 mb-6">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col lg:flex-row gap-4">
               <div className="flex-1">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
                     type="text"
-                    placeholder="Search by unit code, name, or venue..."
+                    placeholder="Search by unit, venue, invigilator, or semester..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg ${theme.filterFocus}`}
+                    onKeyPress={(e) => e.key === 'Enter' && handleFilter()}
+                    className={`w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg ${theme.filterFocus}`}
                   />
                 </div>
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-3">
+                <div className="flex bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setViewMode('cards')}
+                    className={`px-4 py-2 rounded-md flex items-center font-medium transition-all ${
+                      viewMode === 'cards'
+                        ? `${theme.filterButton} text-white shadow-md`
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <LayoutGrid className="w-4 h-4 mr-2" />
+                    Cards
+                  </button>
+                  <button
+                    onClick={() => setViewMode('table')}
+                    className={`px-4 py-2 rounded-md flex items-center font-medium transition-all ${
+                      viewMode === 'table'
+                        ? `${theme.filterButton} text-white shadow-md`
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <List className="w-4 h-4 mr-2" />
+                    Table
+                  </button>
+                </div>
+
                 <select
                   value={selectedSemester || ''}
                   onChange={(e) =>
                     setSelectedSemester(e.target.value ? parseInt(e.target.value) : null)
                   }
-                  className={`px-4 py-2 border border-gray-300 rounded-lg ${theme.filterFocus}`}
+                  className={`px-4 py-2 border border-gray-300 rounded-lg ${theme.filterFocus} font-medium`}
                 >
                   <option value="">All Semesters</option>
                   {semesters.map((semester) => (
@@ -1060,7 +1403,7 @@ const ExamTimetablesIndex: React.FC = () => {
                 <select
                   value={perPage}
                   onChange={(e) => setPerPage(parseInt(e.target.value))}
-                  className={`px-4 py-2 border border-gray-300 rounded-lg ${theme.filterFocus}`}
+                  className={`px-4 py-2 border border-gray-300 rounded-lg ${theme.filterFocus} font-medium`}
                 >
                   <option value={10}>10 per page</option>
                   <option value={15}>15 per page</option>
@@ -1069,229 +1412,121 @@ const ExamTimetablesIndex: React.FC = () => {
                 </select>
                 <button
                   onClick={handleFilter}
-                  className={`px-4 py-2 ${theme.filterButton} text-white rounded-lg transition-colors`}
+                  className={`px-5 py-2 ${theme.filterButton} text-white rounded-lg transition-colors font-semibold flex items-center`}
                 >
-                  <Filter className="w-5 h-5" />
+                  <Filter className="w-5 h-5 mr-2" />
+                  Apply
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Exam Timetables Table */}
-          <div
-            className={`bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border ${theme.tableBorder} overflow-hidden`}
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Date & Time
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Unit
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Venue
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Students
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Invigilator
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {examTimetables.data.map((exam, index) => (
-                    <tr
+          {examTimetables.data.length > 0 ? (
+            <>
+              {viewMode === 'cards' ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
+                  {examTimetables.data.map((exam) => (
+                    <ExamCard
                       key={exam.id}
-                      className={`hover:bg-slate-50 transition-colors duration-150 ${
-                        index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
-                      }`}
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-start">
-                          <Calendar className={`w-5 h-5 ${theme.iconColor} mr-3 mt-0.5`} />
-                          <div>
-                            <div className="text-sm font-medium text-slate-900">
-                              {formatDate(exam.date)}
-                            </div>
-                            <div className="text-sm text-slate-600 flex items-center mt-1">
-                              <Clock className="w-4 h-4 mr-1" />
-                              {formatTime(exam.start_time)} - {formatTime(exam.end_time)}
-                            </div>
-                            <div className="text-xs text-slate-500 mt-1">{exam.day}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <FileText className="w-5 h-5 text-blue-500 mr-3" />
-                          <div>
-                            <div className="text-sm font-medium text-slate-900">
-                              {exam.unit_name}
-                            </div>
-                            <div className={`text-xs font-semibold ${theme.iconColor}`}>
-                              {exam.unit_code}
-                            </div>
-                            {exam.class_name && (
-                              <div className="text-xs text-slate-500 mt-1">{exam.class_name}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-start">
-                          <MapPin className="w-5 h-5 text-green-500 mr-2 mt-0.5" />
-                          <div>
-                            <div className="text-sm font-medium text-slate-900">{exam.venue}</div>
-                            {exam.location && (
-                              <div className="text-xs text-slate-500">{exam.location}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <Users className="w-5 h-5 text-purple-500 mr-2" />
-                          <span className="text-sm font-semibold text-slate-900">{exam.no}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <User className="w-5 h-5 text-orange-500 mr-2" />
-                          <span className="text-sm text-slate-700">{exam.chief_invigilator}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-medium">
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleView(exam)}
-                            className="text-blue-600 hover:text-blue-900 transition-colors p-1 rounded hover:bg-blue-50"
-                            title="View details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {can.edit && (
-                            <button
-                              onClick={() => handleEdit(exam)}
-                              className="text-orange-600 hover:text-orange-900 transition-colors p-1 rounded hover:bg-orange-50"
-                              title="Edit exam"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                          )}
-                          {can.delete && (
-                            <button
-                              onClick={() => handleDeleteClick(exam)}
-                              className="text-red-600 hover:text-red-900 transition-colors p-1 rounded hover:bg-red-50"
-                              title="Delete exam"
-                              disabled={loading}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                      exam={exam}
+                      theme={theme}
+                      onView={() => handleView(exam)}
+                      onEdit={() => handleEdit(exam)}
+                      onDelete={() => handleDeleteClick(exam)}
+                      canEdit={can.edit}
+                      canDelete={can.delete}
+                    />
                   ))}
-                </tbody>
-              </table>
-
-              {examTimetables.data.length === 0 && (
-                <div className="text-center py-12">
-                  <Calendar className="mx-auto h-12 w-12 text-gray-400" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">
-                    No exam timetables found
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {searchTerm || selectedSemester
-                      ? 'Try adjusting your filters'
-                      : 'Get started by scheduling an exam'}
-                  </p>
-                  {can.create && !searchTerm && !selectedSemester && (
-                    <button
-                      onClick={() => setIsCreateModalOpen(true)}
-                      className={`mt-4 inline-flex items-center px-4 py-2 ${theme.filterButton} text-white rounded-lg transition-colors`}
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Schedule Exam
-                    </button>
-                  )}
+                </div>
+              ) : (
+                <div className="mb-8">
+                  <ExamTableView
+                    exams={examTimetables.data}
+                    theme={theme}
+                    onView={handleView}
+                    onEdit={handleEdit}
+                    onDelete={handleDeleteClick}
+                    canEdit={can.edit}
+                    canDelete={can.delete}
+                  />
                 </div>
               )}
+            </>
+          ) : (
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-16 text-center mb-8">
+              <Calendar className="mx-auto h-20 w-20 text-gray-300 mb-6" />
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                No Exam Timetables Found
+              </h3>
+              <p className="text-gray-600 mb-8">
+                {searchTerm || selectedSemester
+                  ? 'Try adjusting your search filters'
+                  : 'Get started by scheduling your first exam'}
+              </p>
+              {can.create && !searchTerm && !selectedSemester && (
+                <button
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className={`inline-flex items-center px-6 py-3 ${theme.filterButton} text-white font-semibold rounded-xl transition-all hover:shadow-lg`}
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  Schedule First Exam
+                </button>
+              )}
             </div>
+          )}
 
-            {/* Pagination */}
-            {examTimetables.last_page > 1 && (
-              <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-                <div className="flex-1 flex justify-between sm:hidden">
+          {examTimetables.last_page > 1 && (
+            <div className="bg-white/95 rounded-2xl shadow-lg border border-slate-200 px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-700">
+                  Showing{' '}
+                  <span className="font-bold text-gray-900">
+                    {(examTimetables.current_page - 1) * examTimetables.per_page + 1}
+                  </span>{' '}
+                  to{' '}
+                  <span className="font-bold text-gray-900">
+                    {Math.min(
+                      examTimetables.current_page * examTimetables.per_page,
+                      examTimetables.total
+                    )}
+                  </span>{' '}
+                  of <span className="font-bold text-gray-900">{examTimetables.total}</span> exams
+                </div>
+                <div className="flex gap-2">
                   <button
                     onClick={() => handlePageChange(examTimetables.current_page - 1)}
                     disabled={examTimetables.current_page === 1}
-                    className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                   >
                     Previous
                   </button>
+                  {Array.from({ length: examTimetables.last_page }, (_, i) => i + 1).map((page) => (
+                    <button
+                      key={page}
+                      onClick={() => handlePageChange(page)}
+                      className={`px-4 py-2 border rounded-lg font-medium transition-colors ${
+                        page === examTimetables.current_page
+                          ? `${theme.paginationActive} border-2`
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
                   <button
                     onClick={() => handlePageChange(examTimetables.current_page + 1)}
                     disabled={examTimetables.current_page === examTimetables.last_page}
-                    className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                   >
                     Next
                   </button>
                 </div>
-                <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm text-gray-700">
-                      Showing{' '}
-                      <span className="font-medium">
-                        {(examTimetables.current_page - 1) * examTimetables.per_page + 1}
-                      </span>{' '}
-                      to{' '}
-                      <span className="font-medium">
-                        {Math.min(
-                          examTimetables.current_page * examTimetables.per_page,
-                          examTimetables.total
-                        )}
-                      </span>{' '}
-                      of <span className="font-medium">{examTimetables.total}</span> results
-                    </p>
-                  </div>
-                  <div>
-                    <nav
-                      className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
-                      aria-label="Pagination"
-                    >
-                      {Array.from({ length: examTimetables.last_page }, (_, i) => i + 1).map(
-                        (page) => (
-                          <button
-                            key={page}
-                            onClick={() => handlePageChange(page)}
-                            className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                              page === examTimetables.current_page
-                                ? `z-10 ${theme.paginationActive}`
-                                : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                            }`}
-                          >
-                            {page}
-                          </button>
-                        )
-                      )}
-                    </nav>
-                  </div>
-                </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Modals */}
       <ExamModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
