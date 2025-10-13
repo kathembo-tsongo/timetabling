@@ -1,28 +1,39 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
-import { Head, usePage, router, Link, useForm } from "@inertiajs/react"
+import type React from "react"
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react"
+import { Head, usePage, router, useForm } from "@inertiajs/react" // ✅ Add useForm
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
-import { toast } from "react-hot-toast"
+import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Link } from "@inertiajs/react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Calendar,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
   Clock,
-  MapPin,
   Users,
-  FileText,
-  Plus,
-  Search,
-  Filter,
+  MapPin,
+  Calendar,
+  Zap,
+  Eye,
   Edit,
   Trash2,
-  Eye,
-  X,
-  ChevronLeft,
-  User,
-  Loader2,
-  AlertCircle
+  Plus,
+  Download,
+  Search,
+  FileText,
+  ChevronLeft,    // ✅ Add this
+  X,              // ✅ Add this
+  Loader2,        // ✅ Add this
+  Filter,         // ✅ Add this
+  User,           // ✅ Add this
 } from "lucide-react"
-
+import { toast } from "react-hot-toast"
+import axios from "axios"
 // Interfaces
 interface ExamTimetable {
   id: number
@@ -242,39 +253,48 @@ const ExamModal: React.FC<ExamModalProps> = ({
   }
 
   // Fetch units when class changes
-  const fetchUnits = async (semesterId: string | number, classId: string | number) => {
-    if (!semesterId || !classId) {
-      setUnits([])
-      setData('unit_id', '')
-      return
-    }
-
-    setLoadingUnits(true)
+  // Fetch units when class changes
+const fetchUnits = async (semesterId: string | number, classId: string | number) => {
+  if (!semesterId || !classId) {
     setUnits([])
     setData('unit_id', '')
-
-    try {
-      const response = await fetch(
-        `/api/exam-timetables/units-by-class?semester_id=${semesterId}&class_id=${classId}`
-      )
-      const result = await response.json()
-      
-      if (result.success && result.units) {
-        setUnits(result.units)
-        console.log('Loaded units:', result.units)
-      } else {
-        toast.error('No units found for this class')
-        setUnits([])
-      }
-    } catch (error) {
-      console.error('Error fetching units:', error)
-      toast.error('Failed to load units')
-      setUnits([])
-    } finally {
-      setLoadingUnits(false)
-    }
+    return
   }
 
+  setLoadingUnits(true)
+  setUnits([])
+  setData('unit_id', '')
+
+  try {
+    const response = await fetch(
+      `/api/exam-timetables/units-by-class?semester_id=${semesterId}&class_id=${classId}`
+    )
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch units')
+    }
+    
+    const result = await response.json()
+    
+    console.log('Units API response:', result) // ✅ Debug log
+    
+    // ✅ FIXED: Backend returns array directly, not wrapped in {success, units}
+    if (Array.isArray(result) && result.length > 0) {
+      setUnits(result)
+      console.log('Loaded units:', result)
+      toast.success(`${result.length} units loaded successfully`)
+    } else {
+      toast.error('No units found for this class')
+      setUnits([])
+    }
+  } catch (error) {
+    console.error('Error fetching units:', error)
+    toast.error('Failed to load units')
+    setUnits([])
+  } finally {
+    setLoadingUnits(false)
+  }
+}
   // Handle semester change
   const handleSemesterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const semesterId = e.target.value
@@ -283,26 +303,41 @@ const ExamModal: React.FC<ExamModalProps> = ({
   }
 
   // Handle class change
-  const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const classId = e.target.value
-    setData('class_id', classId)
-    if (data.semester_id && classId) {
-      fetchUnits(data.semester_id, classId)
+const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const classId = e.target.value
+  setData('class_id', classId)
+  
+  if (classId && data.semester_id) {
+    fetchUnits(data.semester_id, classId)
+  } else {
+    setUnits([])
+    setData('unit_id', '')
+  }
+}
+
+  
+  // Auto-fill student count and lecturer when unit is selected
+useEffect(() => {
+  if (data.unit_id && units.length > 0) {
+    const selectedUnit = units.find(u => u.id === parseInt(data.unit_id as string))
+    if (selectedUnit) {
+      // ✅ Ensure we're setting a valid number, with fallback to 0
+      const studentCount = selectedUnit.student_count ?? 0
+      setData('no', studentCount)
+      
+      // ✅ Only set lecturer if there's a valid name
+      const lecturerName = selectedUnit.lecturer_name || 'No lecturer assigned'
+      setData('chief_invigilator', lecturerName)
+      
+      console.log('Auto-filled data:', {
+        unit_id: selectedUnit.id,
+        unit_code: selectedUnit.code,
+        student_count: studentCount,
+        lecturer_name: lecturerName
+      })
     }
   }
-
-  // Auto-fill student count and lecturer when unit is selected
-  useEffect(() => {
-    if (data.unit_id && units.length > 0) {
-      const selectedUnit = units.find(u => u.id === parseInt(data.unit_id as string))
-      if (selectedUnit) {
-        setData('no', selectedUnit.student_count)
-        if (selectedUnit.lecturer_name) {
-          setData('chief_invigilator', selectedUnit.lecturer_name)
-        }
-      }
-    }
-  }, [data.unit_id, units])
+}, [data.unit_id, units])
 
   // Auto-fill day when date is selected
   useEffect(() => {
@@ -313,8 +348,21 @@ const ExamModal: React.FC<ExamModalProps> = ({
     }
   }, [data.date])
 
+  // ✅ FIXED: Simplified handleSubmit
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Validate required fields
+    if (!data.semester_id || !data.class_id || !data.unit_id || !data.date || 
+        !data.start_time || !data.end_time || !data.chief_invigilator || !data.day) {
+      toast.error('Please fill in all required fields')
+      return
+    }
+
+    if (!data.no || parseInt(data.no) <= 0) {
+      toast.error('Number of students must be greater than 0')
+      return
+    }
 
     const routeName = exam
       ? `schools.${schoolCode.toLowerCase()}.programs.exam-timetables.update`
@@ -324,7 +372,9 @@ const ExamModal: React.FC<ExamModalProps> = ({
 
     const method = exam ? put : post
 
+    // ✅ Inertia will automatically use data from useForm
     method(route(routeName, routeParams), {
+      preserveScroll: true,
       onSuccess: () => {
         toast.success(`Exam timetable ${exam ? 'updated' : 'created'} successfully!`)
         reset()
@@ -332,11 +382,18 @@ const ExamModal: React.FC<ExamModalProps> = ({
       },
       onError: (errors) => {
         console.error('Form errors:', errors)
-        toast.error('Please check the form for errors')
+        
+        // Display error messages
+        Object.entries(errors).forEach(([field, message]) => {
+          if (typeof message === 'string') {
+            toast.error(`${field}: ${message}`)
+          } else if (message && typeof message === 'object' && 'message' in message) {
+            toast.error(String(message.message))
+          }
+        })
       }
     })
   }
-
   if (!isOpen) return null
 
   return (

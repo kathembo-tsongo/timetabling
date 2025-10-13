@@ -10,20 +10,20 @@ class ExamTimetable extends Model
     use HasFactory;
 
     protected $fillable = [
-        'unit_id',
-        'semester_id',
-        'class_id',
-        'examroom_id',
-        'time_slot_id',
-        'exam_date',
-        'start_time',
-        'end_time',
-        'duration',
-        'lecturer_id',
-        'invigilator_id',
-        'special_requirements',
-        'status'
-    ];
+    'semester_id',
+    'class_id',
+    'unit_id',
+    'day',
+    'date',
+    'start_time',
+    'end_time',
+    'venue',
+    'location',
+    'no',
+    'chief_invigilator',
+    'program_id',
+    'school_id',
+];
 
     protected $casts = [
         'exam_date' => 'date',

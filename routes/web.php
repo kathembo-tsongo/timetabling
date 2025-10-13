@@ -94,49 +94,44 @@ Route::middleware(['auth'])->group(function () {
         return Inertia::render('Dashboard');
     })->name('dashboard');
 
+    // ✅ FIXED: GLOBAL API ROUTES (No duplicates)
     Route::prefix('api')->group(function () {
-        // Exam Timetable cascading dropdowns
-        Route::get('/exam-timetables/classes-by-semester/{semesterId}', [ExamTimetableController::class, 'getClassesBySemester']);
-        Route::get('/exam-timetables/units-by-class', [ExamTimetableController::class, 'getUnitsByClassAndSemesterForExam']);
-        // Unit cascading dropdowns
-        Route::get('/units/classes-by-semester/{semesterId}', [UnitController::class, 'getClassesBySemester']);
-        Route::get('/units/available-units', [UnitController::class, 'getAvailableUnits']);
-        
+       Route::get('/exam-timetables/classes-by-semester/{semesterId}', 
+        [ExamTimetableController::class, 'getClassesBySemester']);
+    
+    // ✅ This should match the method above
+    Route::get('/exam-timetables/units-by-class', 
+        [ExamTimetableController::class, 'getUnitsByClassAndSemesterForExam']);
     });
 
     // SCHOOL ADMIN DASHBOARD
- // SCHOOL ADMIN DASHBOARD - Updated to handle multiple schools
-Route::prefix('SchoolAdmin')->group(function() {
-    Route::get('/dashboard', function() {
-        $user = auth()->user();
-        $roles = $user->getRoleNames();
-        
-        // Check which school the user belongs to
-        foreach ($roles as $role) {
-            if (str_starts_with($role, 'Faculty Admin - ')) {
-                $schoolCode = str_replace('Faculty Admin - ', '', $role);
-                
-                // Route to appropriate school dashboard
-                switch($schoolCode) {
-                    case 'SCES':
-                        return app(DashboardController::class)->scesDashboard();
-                    case 'SBS':
-                        return app(DashboardController::class)->sbsDashboard();
-                    case 'SLS':
-                        // Will add this later
-                        return app(DashboardController::class)->slsDashboard();
-                    default:
-                        abort(403, 'Unknown school: ' . $schoolCode);
+    Route::prefix('SchoolAdmin')->group(function() {
+        Route::get('/dashboard', function() {
+            $user = auth()->user();
+            $roles = $user->getRoleNames();
+            
+            foreach ($roles as $role) {
+                if (str_starts_with($role, 'Faculty Admin - ')) {
+                    $schoolCode = str_replace('Faculty Admin - ', '', $role);
+                    
+                    switch($schoolCode) {
+                        case 'SCES':
+                            return app(DashboardController::class)->scesDashboard();
+                        case 'SBS':
+                            return app(DashboardController::class)->sbsDashboard();
+                        case 'SLS':
+                            return app(DashboardController::class)->slsDashboard();
+                        default:
+                            abort(403, 'Unknown school: ' . $schoolCode);
+                    }
                 }
             }
-        }
-        
-        // If no Faculty Admin role found, deny access
-        abort(403, 'Unauthorized access to school admin dashboard.');
-    })
-    ->middleware(['auth', 'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS'])
-    ->name('schoolAdmin.dashboard');
-});
+            
+            abort(403, 'Unauthorized access to school admin dashboard.');
+        })
+        ->middleware(['auth', 'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS'])
+        ->name('schoolAdmin.dashboard');
+    });
 
     // ADMIN ROUTES - PERMISSION-BASED
     Route::prefix('admin')->group(function () {
@@ -357,15 +352,11 @@ Route::prefix('SchoolAdmin')->group(function() {
     // SCHOOL-SPECIFIC ROUTES (SCES, SBS, SLS)
 
    // ============================================
-// SCES SCHOOL ROUTES - FIXED VERSION
+// SCES SCHOOL ROUTES
 // ============================================
 Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->group(function () {
     
-    // ============================================
-    // PROGRAMS ROUTES
-    // ============================================
     Route::prefix('programs')->name('programs.')->middleware(['permission:view-programs'])->group(function () {
-        // Program CRUD
         Route::get('/', function(Request $request) {
             return app(ProgramController::class)->index($request, 'SCES');
         })->name('index');
@@ -398,9 +389,6 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
             return app(ProgramController::class)->destroy('SCES', $program);
         })->middleware(['permission:delete-programs'])->name('destroy');
 
-        // ============================================
-        // PROGRAM-SPECIFIC NESTED ROUTES
-        // ============================================
         Route::prefix('{program}')->group(function () {
             
             // UNITS
@@ -434,7 +422,6 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 })->middleware(['permission:delete-units'])->name('destroy');
             });
 
-            // ✅ FIXED: UNIT ASSIGNMENT TO SEMESTERS - NOW INSIDE {program} PREFIX
             Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(UnitController::class)->programUnitAssignments($program, $request, 'SCES');
@@ -483,7 +470,7 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 })->middleware(['permission:delete-classes'])->name('destroy');
             });
 
-            // ENROLLMENTS (Program-specific)
+            // ENROLLMENTS
             Route::prefix('enrollments')->name('enrollments.')->middleware(['permission:view-enrollments'])->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(EnrollmentController::class)->programEnrollments($program, $request, 'SCES');
@@ -537,8 +524,8 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 })->name('download');
             });
 
-            // EXAM TIMETABLES
-            Route::prefix('examoffice')->name('exam-timetables.')->group(function () {
+            // ✅ EXAM TIMETABLES - FIXED PREFIX
+            Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SCES');
                 })->name('index');
@@ -571,20 +558,16 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SCES');
                 })->name('download');
             });
-        }); // END OF {program} PREFIX
-    }); // END OF programs PREFIX
-}); // END OF schools/sces PREFIX
+        });
+    });
+});
 
 // ============================================
-// SBS SCHOOL ROUTES - FIXED VERSION
+// SBS SCHOOL ROUTES
 // ============================================
 Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(function () {
     
-    // ============================================
-    // PROGRAMS ROUTES
-    // ============================================
     Route::prefix('programs')->name('programs.')->middleware(['permission:view-programs'])->group(function () {
-        // Program CRUD
         Route::get('/', function(Request $request) {
             return app(ProgramController::class)->index($request, 'SBS');
         })->name('index');
@@ -617,9 +600,6 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
             return app(ProgramController::class)->destroy('SBS', $program);
         })->middleware(['permission:delete-programs'])->name('destroy');
 
-        // ============================================
-        // PROGRAM-SPECIFIC NESTED ROUTES
-        // ============================================
         Route::prefix('{program}')->group(function () {
             
             // UNITS
@@ -653,7 +633,6 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                 })->middleware(['permission:delete-units'])->name('destroy');
             });
 
-            // ✅ FIXED: UNIT ASSIGNMENT TO SEMESTERS - NOW INSIDE {program} PREFIX
             Route::prefix('unitassignment')->name('unitassignment.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(UnitController::class)->programUnitAssignments($program, $request, 'SBS');
@@ -702,7 +681,7 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                 })->middleware(['permission:delete-classes'])->name('destroy');
             });
 
-            // ENROLLMENTS (Program-specific)
+            // ENROLLMENTS
             Route::prefix('enrollments')->name('enrollments.')->middleware(['permission:view-enrollments'])->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(EnrollmentController::class)->programEnrollments($program, $request, 'SBS');
@@ -756,8 +735,8 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                 })->name('download');
             });
 
-            // EXAM TIMETABLES
-            Route::prefix('examtimetables')->name('exam-timetables.')->group(function () {
+            // ✅ EXAM TIMETABLES - FIXED PREFIX (was examtimetables, now exam-timetables)
+            Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
                 Route::get('/', function(Program $program, Request $request) {
                     return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SBS');
                 })->name('index');
@@ -790,9 +769,10 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
                 })->name('download');
             });
-        }); // 
-    }); // 
-}); 
+        });
+    });
+});
+
     // STUDENTS ROUTES
     Route::prefix('student')->middleware(['role:Student'])->group(function () {
         Route::get('/', [StudentController::class, 'studentDashboard'])->name('student.dashboard');
@@ -866,96 +846,92 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
         Route::get('/profile', [LecturerController::class, 'profile'])->name('lecturer.profile');
     });
 
-    // CLASS TIMETABLE OFFICE ROUTES (after admin routes, before students)
-// CLASS TIMETABLE OFFICE ROUTES - FULL MANAGEMENT INTERFACE
-Route::prefix('classtimetables')->middleware(['role:Class Timetable office'])->group(function () {
-    // Dashboard
-    Route::get('/', [DashboardController::class, 'classtimetablesDashboard'])
-        ->name('classtimetables.dashboard');
-    
-    // Timetable Management (All schools)
-    Route::get('/manage', [ClassTimetableController::class, 'index'])
-        ->name('classtimetables.index');
-    
-    Route::get('/manage/create', [ClassTimetableController::class, 'create'])
-        ->name('classtimetables.create');
-    
-    Route::post('/manage', [ClassTimetableController::class, 'store'])
-        ->name('classtimetables.store');
-    
-    Route::get('/manage/{timetable}', [ClassTimetableController::class, 'show'])
-        ->name('classtimetables.show');
-    
-    Route::get('/manage/{timetable}/edit', [ClassTimetableController::class, 'edit'])
-        ->name('classtimetables.edit');
-    
-    Route::put('/manage/{timetable}', [ClassTimetableController::class, 'update'])
-        ->name('classtimetables.update');
-    
-    Route::delete('/manage/{timetable}', [ClassTimetableController::class, 'destroy'])
-        ->name('classtimetables.destroy');
-    
-    Route::get('/download/pdf', [ClassTimetableController::class, 'downloadAllPDF'])
-        ->name('classtimetables.download-pdf');
-    
-    Route::get('/conflicts', [ClassTimetableController::class, 'showConflicts'])
-        ->name('classtimetables.conflicts');
-});
-
-// EXAM TIMETABLE OFFICE ROUTES - FULL MANAGEMENT INTERFACE
-Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function () {
-    // Dashboard
-    Route::get('/', [DashboardController::class, 'examofficeDashboard'])
-        ->name('examoffice.dashboard');
-
-    // Timetable Management (All schools)
-    Route::get('/manage', [ExamTimetableController::class, 'index'])
-        ->name('exam-timetables.index');
-    
-    Route::get('/manage/create', [ExamTimetableController::class, 'create'])
-        ->name('exam-timetables.create');
-    
-    Route::post('/manage', [ExamTimetableController::class, 'store'])
-        ->name('exam-timetables.store');
-    
-    Route::get('/manage/{timetable}', [ExamTimetableController::class, 'show'])
-        ->name('exam-timetables.show');
-    
-    Route::get('/manage/{timetable}/edit', [ExamTimetableController::class, 'edit'])
-        ->name('exam-timetables.edit');
-    
-    Route::put('/manage/{timetable}', [ExamTimetableController::class, 'update'])
-        ->name('exam-timetables.update');
-    
-    Route::delete('/manage/{timetable}', [ExamTimetableController::class, 'destroy'])
-        ->name('exam-timetables.destroy');
-    
-    Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
-        ->name('exam-timetables.download-pdf');
-    
-    Route::get('/conflicts', [ExamTimetableController::class, 'showConflicts'])
-        ->name('exam-timetables.conflicts');
-}); 
-
-Route::prefix('classtimeslot')
-    ->middleware(['auth', 'permission:view-classtimeslots'])
-    ->group(function () {
-        Route::get('/', [ClassTimeSlotController::class, 'index'])
-            ->name('classtimeslot.index');
-        Route::post('/', [ClassTimeSlotController::class, 'store'])
-            ->middleware(['permission:create-classtimeslots'])
-            ->name('classtimeslot.store');
-        Route::put('/{id}', [ClassTimeSlotController::class, 'update'])
-            ->middleware(['permission:edit-classtimeslots'])
-            ->name('classtimeslot.update');
-        Route::delete('/{id}', [ClassTimeSlotController::class, 'destroy'])
-            ->middleware(['permission:delete-classtimeslot'])
-            ->name('classtimeslot.destroy');
-        Route::get('/{id}', [ClassTimeSlotController::class, 'show'])
-            ->name('classtimeslot.show');
+    // CLASS TIMETABLE OFFICE ROUTES
+    Route::prefix('classtimetables')->middleware(['role:Class Timetable office'])->group(function () {
+        Route::get('/', [DashboardController::class, 'classtimetablesDashboard'])
+            ->name('classtimetables.dashboard');
+        
+        Route::get('/manage', [ClassTimetableController::class, 'index'])
+            ->name('classtimetables.index');
+        
+        Route::get('/manage/create', [ClassTimetableController::class, 'create'])
+            ->name('classtimetables.create');
+        
+        Route::post('/manage', [ClassTimetableController::class, 'store'])
+            ->name('classtimetables.store');
+        
+        Route::get('/manage/{timetable}', [ClassTimetableController::class, 'show'])
+            ->name('classtimetables.show');
+        
+        Route::get('/manage/{timetable}/edit', [ClassTimetableController::class, 'edit'])
+            ->name('classtimetables.edit');
+        
+        Route::put('/manage/{timetable}', [ClassTimetableController::class, 'update'])
+            ->name('classtimetables.update');
+        
+        Route::delete('/manage/{timetable}', [ClassTimetableController::class, 'destroy'])
+            ->name('classtimetables.destroy');
+        
+        Route::get('/download/pdf', [ClassTimetableController::class, 'downloadAllPDF'])
+            ->name('classtimetables.download-pdf');
+        
+        Route::get('/conflicts', [ClassTimetableController::class, 'showConflicts'])
+            ->name('classtimetables.conflicts');
     });
-// CATCH-ALL ROUTE
-Route::get('/{any}', function () {
-    return Inertia::render('NotFound');
-})->where('any', '.*')->name('not-found');
+
+    // EXAM TIMETABLE OFFICE ROUTES
+    Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function () {
+        Route::get('/', [DashboardController::class, 'examofficeDashboard'])
+            ->name('examoffice.dashboard');
+
+        Route::get('/manage', [ExamTimetableController::class, 'index'])
+            ->name('exam-timetables.index');
+        
+        Route::get('/manage/create', [ExamTimetableController::class, 'create'])
+            ->name('exam-timetables.create');
+        
+        Route::post('/manage', [ExamTimetableController::class, 'store'])
+            ->name('exam-timetables.store');
+        
+        Route::get('/manage/{timetable}', [ExamTimetableController::class, 'show'])
+            ->name('exam-timetables.show');
+        
+        Route::get('/manage/{timetable}/edit', [ExamTimetableController::class, 'edit'])
+            ->name('exam-timetables.edit');
+        
+        Route::put('/manage/{timetable}', [ExamTimetableController::class, 'update'])
+            ->name('exam-timetables.update');
+        
+        Route::delete('/manage/{timetable}', [ExamTimetableController::class, 'destroy'])
+            ->name('exam-timetables.destroy');
+        
+        Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
+            ->name('exam-timetables.download-pdf');
+        
+        Route::get('/conflicts', [ExamTimetableController::class, 'showConflicts'])
+            ->name('exam-timetables.conflicts');
+    }); 
+
+    Route::prefix('classtimeslot')
+        ->middleware(['auth', 'permission:view-classtimeslots'])
+        ->group(function () {
+            Route::get('/', [ClassTimeSlotController::class, 'index'])
+                ->name('classtimeslot.index');
+            Route::post('/', [ClassTimeSlotController::class, 'store'])
+                ->middleware(['permission:create-classtimeslots'])
+                ->name('classtimeslot.store');
+            Route::put('/{id}', [ClassTimeSlotController::class, 'update'])
+                ->middleware(['permission:edit-classtimeslots'])
+                ->name('classtimeslot.update');
+            Route::delete('/{id}', [ClassTimeSlotController::class, 'destroy'])
+                ->middleware(['permission:delete-classtimeslot'])
+                ->name('classtimeslot.destroy');
+            Route::get('/{id}', [ClassTimeSlotController::class, 'show'])
+                ->name('classtimeslot.show');
+        });
+
+    // CATCH-ALL ROUTE
+    Route::get('/{any}', function () {
+        return Inertia::render('NotFound');
+    })->where('any', '.*')->name('not-found');
 });
