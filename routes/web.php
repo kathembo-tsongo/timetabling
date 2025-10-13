@@ -94,14 +94,27 @@ Route::middleware(['auth'])->group(function () {
         return Inertia::render('Dashboard');
     })->name('dashboard');
 
-    // ✅ FIXED: GLOBAL API ROUTES (No duplicates)
-    Route::prefix('api')->group(function () {
-       Route::get('/exam-timetables/classes-by-semester/{semesterId}', 
-        [ExamTimetableController::class, 'getClassesBySemester']);
-    
-    // ✅ This should match the method above
-    Route::get('/exam-timetables/units-by-class', 
-        [ExamTimetableController::class, 'getUnitsByClassAndSemesterForExam']);
+   // ============================================
+// GLOBAL API ROUTES
+// ============================================
+Route::prefix('api')
+    ->middleware(['auth'])
+    ->group(function () {
+        // Exam Timetable APIs
+        Route::prefix('exam-timetables')->group(function () {
+            Route::get('/classes-by-semester/{semesterId}', 
+                [ExamTimetableController::class, 'getClassesBySemester']
+            )->middleware(['permission:view-exam-timetables']);
+            
+            Route::get('/units-by-class', 
+                [ExamTimetableController::class, 'getUnitsByClassAndSemesterForExam']
+            )->middleware(['permission:view-exam-timetables']);
+            
+            // Debug endpoint
+            Route::get('/debug-classes/{semesterId}', 
+                [ExamTimetableController::class, 'debugClassesForSemester']
+            )->middleware(['permission:view-exam-timetables']);
+        });
     });
 
     // SCHOOL ADMIN DASHBOARD
@@ -561,6 +574,7 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
         });
     });
 });
+
 
 // ============================================
 // SBS SCHOOL ROUTES

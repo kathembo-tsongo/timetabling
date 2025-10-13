@@ -231,61 +231,74 @@ class ExamTimetableController extends Controller
      * Get classes for a specific semester (API endpoint)
      */
     public function getClassesBySemester(Request $request, $semesterId)
-    {
-        try {
-            Log::info('Getting classes for semester', ['semester_id' => $semesterId]);
+{
+    try {
+        $programId = $request->input('program_id');
+        
+        Log::info('Getting classes for semester and program', [
+            'semester_id' => $semesterId,
+            'program_id' => $programId
+        ]);
 
-            $classIds = DB::table('semester_unit')
-                ->where('semester_id', $semesterId)
-                ->distinct()
-                ->pluck('class_id');
+        // ✅ Filter by BOTH semester_id AND program_id
+        $classIds = DB::table('semester_unit')
+            ->join('units', 'semester_unit.unit_id', '=', 'units.id')
+            ->where('semester_unit.semester_id', $semesterId)
+            ->where('units.program_id', $programId)
+            ->distinct()
+            ->pluck('semester_unit.class_id');
 
-            if ($classIds->isNotEmpty()) {
-                $columns = \Schema::getColumnListing('classes');
-                $hasCodeColumn = in_array('code', $columns);
-                
-                if ($hasCodeColumn) {
-                    $classes = ClassModel::whereIn('id', $classIds)
-                        ->select('id', 'name', 'code', 'semester_id')
-                        ->get();
-                } else {
-                    $classes = ClassModel::whereIn('id', $classIds)
-                        ->select('id', 'name', 'semester_id', DB::raw('CONCAT("CLASS-", id) as code'))
-                        ->get();
-                }
+        if ($classIds->isNotEmpty()) {
+            $columns = \Schema::getColumnListing('classes');
+            $hasCodeColumn = in_array('code', $columns);
+            
+            if ($hasCodeColumn) {
+                $classes = ClassModel::whereIn('id', $classIds)
+                    ->where('program_id', $programId) // ✅ Additional safety check
+                    ->select('id', 'name', 'code', 'semester_id', 'program_id')
+                    ->get();
             } else {
-                $columns = \Schema::getColumnListing('classes');
-                $hasCodeColumn = in_array('code', $columns);
-                
-                if ($hasCodeColumn) {
-                    $classes = ClassModel::where('semester_id', $semesterId)
-                        ->select('id', 'name', 'code', 'semester_id')
-                        ->get();
-                } else {
-                    $classes = ClassModel::where('semester_id', $semesterId)
-                        ->select('id', 'name', 'semester_id', DB::raw('CONCAT("CLASS-", id) as code'))
-                        ->get();
-                }
+                $classes = ClassModel::whereIn('id', $classIds)
+                    ->where('program_id', $programId) // ✅ Additional safety check
+                    ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
+                    ->get();
             }
-
-            Log::info('Found classes for semester', [
-                'semester_id' => $semesterId,
-                'classes_count' => $classes->count(),
-                'classes' => $classes->toArray()
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'classes' => $classes
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to get classes for semester: ' . $e->getMessage());
-            return response()->json([
-                'success' => false, 
-                'message' => 'Failed to get classes: ' . $e->getMessage()
-            ], 500);
+        } else {
+            // Fallback: get classes directly from ClassModel
+            $columns = \Schema::getColumnListing('classes');
+            $hasCodeColumn = in_array('code', $columns);
+            
+            if ($hasCodeColumn) {
+                $classes = ClassModel::where('semester_id', $semesterId)
+                    ->where('program_id', $programId) // ✅ Filter by program
+                    ->select('id', 'name', 'code', 'semester_id', 'program_id')
+                    ->get();
+            } else {
+                $classes = ClassModel::where('semester_id', $semesterId)
+                    ->where('program_id', $programId) // ✅ Filter by program
+                    ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
+                    ->get();
+            }
         }
+
+        Log::info('Found classes for semester and program', [
+            'semester_id' => $semesterId,
+            'program_id' => $programId,
+            'classes_count' => $classes->count()
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'classes' => $classes
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Failed to get classes for semester: ' . $e->getMessage());
+        return response()->json([
+            'success' => false, 
+            'message' => 'Failed to get classes: ' . $e->getMessage()
+        ], 500);
     }
+}
 
     /**
      * ✅ ENHANCED: Get units by class and semester for exam timetable
