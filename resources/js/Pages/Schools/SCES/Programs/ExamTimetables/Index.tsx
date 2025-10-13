@@ -32,6 +32,9 @@ import {
   List,
   Layers,
   MapPinIcon,
+  AlertTriangle,
+  ShieldAlert,
+  Info,
 } from "lucide-react"
 import { toast } from "react-hot-toast"
 
@@ -121,6 +124,13 @@ interface PageProps {
   }
 }
 
+interface Conflict {
+  type: 'class' | 'lecturer' | 'venue' | 'unit'
+  severity: 'error' | 'warning'
+  message: string
+  conflictingExam?: ExamTimetable
+}
+
 const schoolThemes = {
   SCES: {
     primary: 'blue',
@@ -174,6 +184,7 @@ interface ExamCardProps {
   onDelete: () => void
   canEdit: boolean
   canDelete: boolean
+  conflicts?: Conflict[]
 }
 
 const ExamCard: React.FC<ExamCardProps> = ({
@@ -183,7 +194,8 @@ const ExamCard: React.FC<ExamCardProps> = ({
   onEdit,
   onDelete,
   canEdit,
-  canDelete
+  canDelete,
+  conflicts = []
 }) => {
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-US', {
@@ -203,8 +215,32 @@ const ExamCard: React.FC<ExamCardProps> = ({
     return `${displayHours}:${minutes} ${ampm}`
   }
 
+  const hasConflicts = conflicts.length > 0
+  const errorConflicts = conflicts.filter(c => c.severity === 'error')
+  const warningConflicts = conflicts.filter(c => c.severity === 'warning')
+
   return (
-    <div className="bg-white rounded-xl shadow-md hover:shadow-2xl border-2 border-slate-200 transition-all duration-300 overflow-hidden group">
+    <div className={`bg-white rounded-xl shadow-md hover:shadow-2xl border-2 transition-all duration-300 overflow-hidden group ${
+      hasConflicts ? 'border-red-400' : 'border-slate-200'
+    }`}>
+      {hasConflicts && (
+        <div className="bg-red-50 border-b-2 border-red-200 px-4 py-2">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-900">
+                {errorConflicts.length > 0 ? 'Scheduling Conflicts Detected' : 'Potential Issues'}
+              </p>
+              <p className="text-xs text-red-700 mt-0.5">
+                {errorConflicts.length > 0 && `${errorConflicts.length} error(s)`}
+                {errorConflicts.length > 0 && warningConflicts.length > 0 && ', '}
+                {warningConflicts.length > 0 && `${warningConflicts.length} warning(s)`}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={`p-5 bg-gradient-to-r ${theme.buttonGradient}`}>
         <div className="flex items-center justify-between text-white">
           <div className="flex items-center space-x-3">
@@ -229,6 +265,41 @@ const ExamCard: React.FC<ExamCardProps> = ({
       </div>
 
       <div className="p-6 space-y-4">
+        {hasConflicts && (
+          <div className="space-y-2">
+            {conflicts.map((conflict, index) => (
+              <div
+                key={index}
+                className={`p-3 rounded-lg border ${
+                  conflict.severity === 'error'
+                    ? 'bg-red-50 border-red-300'
+                    : 'bg-yellow-50 border-yellow-300'
+                }`}
+              >
+                <div className="flex items-start space-x-2">
+                  {conflict.severity === 'error' ? (
+                    <ShieldAlert className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <Info className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <p className={`text-xs font-semibold ${
+                      conflict.severity === 'error' ? 'text-red-800' : 'text-yellow-800'
+                    }`}>
+                      {conflict.type.toUpperCase()} CONFLICT
+                    </p>
+                    <p className={`text-xs mt-1 ${
+                      conflict.severity === 'error' ? 'text-red-700' : 'text-yellow-700'
+                    }`}>
+                      {conflict.message}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className={`inline-flex items-center px-3 py-1.5 ${theme.cardBg} border ${theme.cardBorder} rounded-full`}>
           <Layers className={`w-4 h-4 ${theme.iconColor} mr-2`} />
           <span className={`text-sm font-bold ${theme.iconColor}`}>{exam.semester_name}</span>
@@ -342,7 +413,8 @@ const ExamTableView: React.FC<{
   onDelete: (exam: ExamTimetable) => void
   canEdit: boolean
   canDelete: boolean
-}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete }) => {
+  allExams: ExamTimetable[]
+}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete, allExams }) => {
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-US', {
       month: 'short',
@@ -355,12 +427,59 @@ const ExamTableView: React.FC<{
     return time.substring(0, 5)
   }
 
+  const checkConflicts = (exam: ExamTimetable): Conflict[] => {
+    const conflicts: Conflict[] = []
+
+    allExams.forEach(otherExam => {
+      if (otherExam.id === exam.id) return
+
+      const sameDate = otherExam.date === exam.date
+      const timeOverlap = (
+        (otherExam.start_time <= exam.start_time && exam.start_time < otherExam.end_time) ||
+        (otherExam.start_time < exam.end_time && exam.end_time <= otherExam.end_time) ||
+        (exam.start_time <= otherExam.start_time && otherExam.end_time <= exam.end_time)
+      )
+
+      if (sameDate && timeOverlap) {
+        if (otherExam.class_id === exam.class_id) {
+          conflicts.push({
+            type: 'class',
+            severity: 'error',
+            message: `Class ${exam.class_name} has another exam (${otherExam.unit_code}) at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
+            conflictingExam: otherExam
+          })
+        }
+
+        if (otherExam.chief_invigilator === exam.chief_invigilator && exam.chief_invigilator !== 'No lecturer assigned') {
+          conflicts.push({
+            type: 'lecturer',
+            severity: 'error',
+            message: `${exam.chief_invigilator} is already invigilating ${otherExam.unit_code} at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
+            conflictingExam: otherExam
+          })
+        }
+
+        if (otherExam.venue === exam.venue) {
+          conflicts.push({
+            type: 'venue',
+            severity: 'error',
+            message: `${exam.venue} is already occupied by ${otherExam.unit_code} from ${formatTime(otherExam.start_time)} to ${formatTime(otherExam.end_time)}`,
+            conflictingExam: otherExam
+          })
+        }
+      }
+    })
+
+    return conflicts
+  }
+
   return (
     <div className={`bg-white rounded-2xl shadow-xl border-2 ${theme.tableBorder} overflow-hidden`}>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className={`bg-gradient-to-r ${theme.buttonGradient} text-white`}>
             <tr>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Status</th>
               <th className="px-4 py-4 text-left text-xs font-bold uppercase">Date & Day</th>
               <th className="px-4 py-4 text-left text-xs font-bold uppercase">Time</th>
               <th className="px-4 py-4 text-left text-xs font-bold uppercase">Semester</th>
@@ -374,122 +493,150 @@ const ExamTableView: React.FC<{
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
-            {exams.map((exam, index) => (
-              <tr
-                key={exam.id}
-                className={`hover:bg-slate-50 transition-colors ${
-                  index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
-                }`}
-              >
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <Calendar className={`w-5 h-5 ${theme.iconColor} flex-shrink-0`} />
-                    <div>
-                      <div className="text-sm font-bold text-gray-900">{formatDate(exam.date)}</div>
-                      <div className="text-xs text-gray-600 font-medium">{exam.day}</div>
-                    </div>
-                  </div>
-                </td>
+            {exams.map((exam, index) => {
+              const conflicts = checkConflicts(exam)
+              const hasConflicts = conflicts.length > 0
+              const hasErrors = conflicts.some(c => c.severity === 'error')
 
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-1 text-sm">
-                    <Clock className="w-4 h-4 text-gray-500" />
-                    <span className="font-semibold text-gray-900">
-                      {formatTime(exam.start_time)}
-                    </span>
-                    <span className="text-gray-500">-</span>
-                    <span className="font-semibold text-gray-900">
-                      {formatTime(exam.end_time)}
-                    </span>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className={`inline-flex items-center px-2 py-1 ${theme.cardBg} border ${theme.cardBorder} rounded-md`}>
-                    <Layers className={`w-3 h-3 ${theme.iconColor} mr-1`} />
-                    <span className={`text-xs font-bold ${theme.iconColor}`}>{exam.semester_name}</span>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <BookOpen className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                    <div>
-                      <div className="text-sm font-bold text-gray-900 max-w-xs truncate">{exam.unit_name}</div>
-                      <div className={`text-xs font-semibold ${theme.iconColor}`}>{exam.unit_code}</div>
-                    </div>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <School className="w-4 h-4 text-indigo-500" />
-                    <div>
-                      <div className="text-sm font-semibold text-gray-900">{exam.class_name}</div>
-                      <div className="text-xs text-gray-600">{exam.class_code}</div>
-                    </div>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <MapPinIcon className="w-4 h-4 text-green-600" />
-                    <span className="text-sm font-semibold text-gray-900">{exam.venue}</span>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <MapPin className="w-4 h-4 text-green-500" />
-                    <span className="text-sm text-gray-700">{exam.location || 'N/A'}</span>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4 text-center">
-                  <div className="inline-flex items-center px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg">
-                    <Users className="w-4 h-4 text-purple-600 mr-2" />
-                    <span className="text-base font-bold text-purple-900">{exam.no}</span>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 text-orange-600" />
-                    <span className="text-sm font-medium text-gray-900 max-w-xs truncate">{exam.chief_invigilator}</span>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center justify-center space-x-2">
-                    <button
-                      onClick={() => onView(exam)}
-                      className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="View details"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    {canEdit && (
-                      <button
-                        onClick={() => onEdit(exam)}
-                        className="p-2 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded-lg transition-colors"
-                        title="Edit exam"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
+              return (
+                <tr
+                  key={exam.id}
+                  className={`transition-colors ${
+                    hasErrors
+                      ? 'bg-red-50 hover:bg-red-100'
+                      : hasConflicts
+                      ? 'bg-yellow-50 hover:bg-yellow-100'
+                      : index % 2 === 0
+                      ? 'bg-white hover:bg-slate-50'
+                      : 'bg-slate-50/50 hover:bg-slate-100'
+                  }`}
+                >
+                  <td className="px-4 py-4">
+                    {hasErrors ? (
+                      <div className="flex items-center space-x-2" title={conflicts.map(c => c.message).join(', ')}>
+                        <AlertTriangle className="w-5 h-5 text-red-600" />
+                        <span className="text-xs font-bold text-red-700">{conflicts.filter(c => c.severity === 'error').length}</span>
+                      </div>
+                    ) : hasConflicts ? (
+                      <div className="flex items-center space-x-2" title={conflicts.map(c => c.message).join(', ')}>
+                        <AlertCircle className="w-5 h-5 text-yellow-600" />
+                        <span className="text-xs font-bold text-yellow-700">{conflicts.length}</span>
+                      </div>
+                    ) : (
+                      <CheckCircle className="w-5 h-5 text-green-600" title="No conflicts" />
                     )}
-                    {canDelete && (
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <Calendar className={`w-5 h-5 ${theme.iconColor} flex-shrink-0`} />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">{formatDate(exam.date)}</div>
+                        <div className="text-xs text-gray-600 font-medium">{exam.day}</div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-1 text-sm">
+                      <Clock className="w-4 h-4 text-gray-500" />
+                      <span className="font-semibold text-gray-900">
+                        {formatTime(exam.start_time)}
+                      </span>
+                      <span className="text-gray-500">-</span>
+                      <span className="font-semibold text-gray-900">
+                        {formatTime(exam.end_time)}
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className={`inline-flex items-center px-2 py-1 ${theme.cardBg} border ${theme.cardBorder} rounded-md`}>
+                      <Layers className={`w-3 h-3 ${theme.iconColor} mr-1`} />
+                      <span className={`text-xs font-bold ${theme.iconColor}`}>{exam.semester_name}</span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <BookOpen className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900 max-w-xs truncate">{exam.unit_name}</div>
+                        <div className={`text-xs font-semibold ${theme.iconColor}`}>{exam.unit_code}</div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <School className="w-4 h-4 text-indigo-500" />
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{exam.class_name}</div>
+                        <div className="text-xs text-gray-600">{exam.class_code}</div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <MapPinIcon className="w-4 h-4 text-green-600" />
+                      <span className="text-sm font-semibold text-gray-900">{exam.venue}</span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <MapPin className="w-4 h-4 text-green-500" />
+                      <span className="text-sm text-gray-700">{exam.location || 'N/A'}</span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4 text-center">
+                    <div className="inline-flex items-center px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg">
+                      <Users className="w-4 h-4 text-purple-600 mr-2" />
+                      <span className="text-base font-bold text-purple-900">{exam.no}</span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <User className="w-4 h-4 text-orange-600" />
+                      <span className="text-sm font-medium text-gray-900 max-w-xs truncate">{exam.chief_invigilator}</span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center justify-center space-x-2">
                       <button
-                        onClick={() => onDelete(exam)}
-                        className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete exam"
+                        onClick={() => onView(exam)}
+                        className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="View details"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Eye className="w-4 h-4" />
                       </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      {canEdit && (
+                        <button
+                          onClick={() => onEdit(exam)}
+                          className="p-2 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded-lg transition-colors"
+                          title="Edit exam"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => onDelete(exam)}
+                          className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete exam"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -505,6 +652,7 @@ interface ExamModalProps {
   semesters: Semester[]
   theme: any
   schoolCode: string
+  allExams: ExamTimetable[]
 }
 
 const ExamModal: React.FC<ExamModalProps> = ({
@@ -514,12 +662,15 @@ const ExamModal: React.FC<ExamModalProps> = ({
   program,
   semesters,
   theme,
-  schoolCode
+  schoolCode,
+  allExams
 }) => {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [units, setUnits] = useState<Unit[]>([])
   const [loadingClasses, setLoadingClasses] = useState(false)
   const [loadingUnits, setLoadingUnits] = useState(false)
+  const [conflicts, setConflicts] = useState<Conflict[]>([])
+  const [checkingConflicts, setCheckingConflicts] = useState(false)
 
   const { data, setData, post, put, processing, errors, reset } = useForm({
     semester_id: exam?.semester_id || '',
@@ -538,6 +689,7 @@ const ExamModal: React.FC<ExamModalProps> = ({
       reset()
       setClasses([])
       setUnits([])
+      setConflicts([])
     }
   }, [isOpen])
 
@@ -551,6 +703,74 @@ const ExamModal: React.FC<ExamModalProps> = ({
       }
     }
   }, [exam, isOpen])
+
+  const checkForConflicts = () => {
+    if (!data.date || !data.start_time || !data.end_time || !data.class_id || !data.chief_invigilator) {
+      return
+    }
+
+    setCheckingConflicts(true)
+    const detectedConflicts: Conflict[] = []
+
+    allExams.forEach(otherExam => {
+      if (exam && otherExam.id === exam.id) return
+
+      const sameDate = otherExam.date === data.date
+      const timeOverlap = (
+        (otherExam.start_time <= data.start_time && data.start_time < otherExam.end_time) ||
+        (otherExam.start_time < data.end_time && data.end_time <= otherExam.end_time) ||
+        (data.start_time <= otherExam.start_time && otherExam.end_time <= data.end_time)
+      )
+
+      if (sameDate && timeOverlap) {
+        if (otherExam.class_id.toString() === data.class_id.toString()) {
+          detectedConflicts.push({
+            type: 'class',
+            severity: 'error',
+            message: `This class already has an exam for ${otherExam.unit_code} (${otherExam.unit_name}) scheduled from ${otherExam.start_time.substring(0, 5)} to ${otherExam.end_time.substring(0, 5)} in ${otherExam.venue}`,
+            conflictingExam: otherExam
+          })
+        }
+
+        if (otherExam.chief_invigilator === data.chief_invigilator && data.chief_invigilator !== 'No lecturer assigned') {
+          detectedConflicts.push({
+            type: 'lecturer',
+            severity: 'error',
+            message: `${data.chief_invigilator} is already assigned to invigilate ${otherExam.unit_code} (${otherExam.unit_name}) from ${otherExam.start_time.substring(0, 5)} to ${otherExam.end_time.substring(0, 5)} in ${otherExam.venue}`,
+            conflictingExam: otherExam
+          })
+        }
+
+        if (otherExam.unit_id.toString() === data.unit_id.toString()) {
+          detectedConflicts.push({
+            type: 'unit',
+            severity: 'error',
+            message: `This unit is already scheduled for an exam from ${otherExam.start_time.substring(0, 5)} to ${otherExam.end_time.substring(0, 5)} in ${otherExam.venue}`,
+            conflictingExam: otherExam
+          })
+        }
+      }
+    })
+
+    setConflicts(detectedConflicts)
+    setCheckingConflicts(false)
+
+    if (detectedConflicts.length > 0) {
+      toast.error(`${detectedConflicts.filter(c => c.severity === 'error').length} conflict(s) detected!`)
+    } else {
+      toast.success('No conflicts detected! Safe to schedule.')
+    }
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (data.date && data.start_time && data.end_time && data.class_id && data.chief_invigilator) {
+        checkForConflicts()
+      }
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [data.date, data.start_time, data.end_time, data.class_id, data.chief_invigilator, data.unit_id])
 
   const fetchClasses = async (semesterId: string | number) => {
     if (!semesterId) {
@@ -575,7 +795,6 @@ const ExamModal: React.FC<ExamModalProps> = ({
       
       if (result.success && result.classes) {
         setClasses(result.classes)
-        console.log('Loaded classes for program:', program.name, result.classes)
       } else {
         toast.error('No classes found for this semester in this program')
         setClasses([])
@@ -611,11 +830,8 @@ const ExamModal: React.FC<ExamModalProps> = ({
       
       const result = await response.json()
       
-      console.log('Units API response for program:', program.name, result)
-      
       if (Array.isArray(result) && result.length > 0) {
         setUnits(result)
-        console.log('Loaded units:', result)
         toast.success(`${result.length} units loaded successfully`)
       } else {
         toast.error('No units found for this class in this program')
@@ -657,14 +873,6 @@ const ExamModal: React.FC<ExamModalProps> = ({
         
         const lecturerName = selectedUnit.lecturer_name || 'No lecturer assigned'
         setData('chief_invigilator', lecturerName)
-        
-        console.log('Auto-filled data:', {
-          unit_id: selectedUnit.id,
-          unit_code: selectedUnit.code,
-          student_count: studentCount,
-          lecturer_name: lecturerName,
-          program: program.name
-        })
       }
     }
   }, [data.unit_id, units])
@@ -691,13 +899,11 @@ const ExamModal: React.FC<ExamModalProps> = ({
       return
     }
 
-    console.log('Submitting exam timetable for:', {
-      program: program.name,
-      program_id: program.id,
-      school: program.school.name,
-      school_id: program.school_id,
-      data: data
-    })
+    const errorConflicts = conflicts.filter(c => c.severity === 'error')
+    if (errorConflicts.length > 0) {
+      toast.error(`Cannot schedule: ${errorConflicts.length} conflict(s) must be resolved first!`)
+      return
+    }
 
     const routeName = exam
       ? `schools.${schoolCode.toLowerCase()}.programs.exam-timetables.update`
@@ -730,6 +936,8 @@ const ExamModal: React.FC<ExamModalProps> = ({
 
   if (!isOpen) return null
 
+  const hasErrorConflicts = conflicts.some(c => c.severity === 'error')
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4">
@@ -738,8 +946,8 @@ const ExamModal: React.FC<ExamModalProps> = ({
           onClick={onClose}
         />
 
-        <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl transform transition-all">
-          <div className={`flex items-center justify-between p-6 border-b bg-gradient-to-r ${theme.buttonGradient}`}>
+        <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl transform transition-all max-h-[90vh] overflow-y-auto">
+          <div className={`flex items-center justify-between p-6 border-b bg-gradient-to-r ${theme.buttonGradient} sticky top-0 z-10`}>
             <div className="flex-1">
               <div className="flex items-center">
                 <Calendar className="w-6 h-6 text-white mr-3" />
@@ -783,6 +991,63 @@ const ExamModal: React.FC<ExamModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {conflicts.length > 0 && (
+              <div className={`mb-6 p-4 rounded-lg border-2 ${
+                hasErrorConflicts 
+                  ? 'bg-red-50 border-red-400' 
+                  : 'bg-yellow-50 border-yellow-400'
+              }`}>
+                <div className="flex items-start mb-3">
+                  {hasErrorConflicts ? (
+                    <ShieldAlert className="w-6 h-6 text-red-600 mr-3 flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-6 h-6 text-yellow-600 mr-3 flex-shrink-0" />
+                  )}
+                  <div>
+                    <h3 className={`font-bold text-lg ${
+                      hasErrorConflicts ? 'text-red-900' : 'text-yellow-900'
+                    }`}>
+                      {hasErrorConflicts ? '⚠️ Scheduling Conflicts Detected' : 'Potential Issues Found'}
+                    </h3>
+                    <p className={`text-sm mt-1 ${
+                      hasErrorConflicts ? 'text-red-800' : 'text-yellow-800'
+                    }`}>
+                      {hasErrorConflicts 
+                        ? 'You must resolve these conflicts before scheduling this exam.'
+                        : 'Please review these warnings before proceeding.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2 mt-3">
+                  {conflicts.map((conflict, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-md ${
+                        conflict.severity === 'error'
+                          ? 'bg-red-100 border border-red-300'
+                          : 'bg-yellow-100 border border-yellow-300'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-2">
+                        <div className={`px-2 py-0.5 rounded text-xs font-bold ${
+                          conflict.severity === 'error'
+                            ? 'bg-red-200 text-red-900'
+                            : 'bg-yellow-200 text-yellow-900'
+                        }`}>
+                          {conflict.type.toUpperCase()}
+                        </div>
+                        <p className={`text-sm flex-1 ${
+                          conflict.severity === 'error' ? 'text-red-900' : 'text-yellow-900'
+                        }`}>
+                          {conflict.message}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
@@ -982,10 +1247,10 @@ const ExamModal: React.FC<ExamModalProps> = ({
               <div className="flex items-start">
                 <CheckCircle className="w-5 h-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
                 <div className="text-sm text-green-800">
-                  <p className="font-semibold">Automatic Venue Assignment</p>
+                  <p className="font-semibold">Automatic Venue Assignment & Conflict Detection</p>
                   <p className="mt-1">
-                    The system will automatically assign the most suitable exam room based on
-                    student count and availability. Venue conflicts will be avoided automatically.
+                    The system automatically assigns suitable exam rooms and detects conflicts in real-time. 
+                    Classes, lecturers, and venues are checked for overlapping schedules.
                   </p>
                 </div>
               </div>
@@ -1001,9 +1266,28 @@ const ExamModal: React.FC<ExamModalProps> = ({
                 Cancel
               </button>
               <button
+                type="button"
+                onClick={checkForConflicts}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+                disabled={checkingConflicts || !data.date || !data.start_time || !data.end_time}
+              >
+                {checkingConflicts ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Checking...
+                  </>
+                ) : (
+                  <>
+                    <ShieldAlert className="w-4 h-4 mr-2" />
+                    Check Conflicts
+                  </>
+                )}
+              </button>
+              <button
                 type="submit"
-                disabled={processing}
+                disabled={processing || hasErrorConflicts}
                 className={`px-6 py-2 bg-gradient-to-r ${theme.buttonGradient} text-white rounded-lg ${theme.buttonHover} transition-all duration-300 flex items-center disabled:opacity-50 disabled:cursor-not-allowed`}
+                title={hasErrorConflicts ? 'Resolve conflicts before scheduling' : ''}
               >
                 {processing ? (
                   <>
@@ -1241,6 +1525,49 @@ const ExamTimetablesIndex: React.FC = () => {
     if (flash?.error) toast.error(flash.error)
   }, [flash])
 
+  const checkConflicts = (exam: ExamTimetable): Conflict[] => {
+    const conflicts: Conflict[] = []
+
+    examTimetables.data.forEach(otherExam => {
+      if (otherExam.id === exam.id) return
+
+      const sameDate = otherExam.date === exam.date
+      const timeOverlap = (
+        (otherExam.start_time <= exam.start_time && exam.start_time < otherExam.end_time) ||
+        (otherExam.start_time < exam.end_time && exam.end_time <= otherExam.end_time) ||
+        (exam.start_time <= otherExam.start_time && otherExam.end_time <= exam.end_time)
+      )
+
+      if (sameDate && timeOverlap) {
+        if (otherExam.class_id === exam.class_id) {
+          conflicts.push({
+            type: 'class',
+            severity: 'error',
+            message: `Class ${exam.class_name} has another exam (${otherExam.unit_code}) at this time in ${otherExam.venue}`
+          })
+        }
+
+        if (otherExam.chief_invigilator === exam.chief_invigilator && exam.chief_invigilator !== 'No lecturer assigned') {
+          conflicts.push({
+            type: 'lecturer',
+            severity: 'error',
+            message: `${exam.chief_invigilator} is invigilating ${otherExam.unit_code} at this time in ${otherExam.venue}`
+          })
+        }
+
+        if (otherExam.venue === exam.venue) {
+          conflicts.push({
+            type: 'venue',
+            severity: 'error',
+            message: `${exam.venue} is occupied by ${otherExam.unit_code} at this time`
+          })
+        }
+      }
+    })
+
+    return conflicts
+  }
+
   const handleFilter = () => {
     const params = new URLSearchParams()
     if (searchTerm) params.set('search', searchTerm)
@@ -1296,6 +1623,11 @@ const ExamTimetablesIndex: React.FC = () => {
     setIsViewModalOpen(true)
   }
 
+  const conflictCount = examTimetables.data.reduce((count, exam) => {
+    const conflicts = checkConflicts(exam)
+    return count + (conflicts.length > 0 ? 1 : 0)
+  }, 0)
+
   return (
     <AuthenticatedLayout>
       <Head title={`${program.name} - Exam Timetables`} />
@@ -1330,6 +1662,14 @@ const ExamTimetablesIndex: React.FC = () => {
                     <div className="text-sm text-slate-600">
                       Total Exams: <span className="font-semibold text-xl">{examTimetables.total}</span>
                     </div>
+                    {conflictCount > 0 && (
+                      <div className="flex items-center px-3 py-1.5 bg-red-50 border border-red-300 rounded-lg">
+                        <AlertTriangle className="w-4 h-4 text-red-600 mr-2" />
+                        <span className="text-sm font-bold text-red-700">
+                          {conflictCount} Conflict{conflictCount > 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 {can.create && (
@@ -1435,6 +1775,7 @@ const ExamTimetablesIndex: React.FC = () => {
                       onDelete={() => handleDeleteClick(exam)}
                       canEdit={can.edit}
                       canDelete={can.delete}
+                      conflicts={checkConflicts(exam)}
                     />
                   ))}
                 </div>
@@ -1448,6 +1789,7 @@ const ExamTimetablesIndex: React.FC = () => {
                     onDelete={handleDeleteClick}
                     canEdit={can.edit}
                     canDelete={can.delete}
+                    allExams={examTimetables.data}
                   />
                 </div>
               )}
@@ -1534,6 +1876,7 @@ const ExamTimetablesIndex: React.FC = () => {
         semesters={semesters}
         theme={theme}
         schoolCode={schoolCode}
+        allExams={examTimetables.data}
       />
 
       <ExamModal
@@ -1547,6 +1890,7 @@ const ExamTimetablesIndex: React.FC = () => {
         semesters={semesters}
         theme={theme}
         schoolCode={schoolCode}
+        allExams={examTimetables.data}
       />
 
       <DeleteModal
