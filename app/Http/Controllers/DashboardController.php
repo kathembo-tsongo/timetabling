@@ -28,7 +28,7 @@ class DashboardController extends Controller
     public function index()
     {
         $user = auth()->user();
-
+  
         // Enhanced debugging
         Log::info('Dashboard index accessed', [
             'user_id' => $user->id,
@@ -732,40 +732,40 @@ public function examofficeDashboard()
    /**
  * SCES Faculty Dashboard - FIXED to use unified units table
  */
+
 public function scesDashboard()
 {
     $user = auth()->user();
     
-    // Check if user has permission for SCES
     if (!$user->can('view-faculty-dashboard-sces') && !$user->hasRole('Faculty Admin - SCES')) {
-        Log::warning('Unauthorized access to SCES dashboard', [
-            'user_id' => $user->id,
-            'user_roles' => $user->getRoleNames()->toArray()
-        ]);
         abort(403, 'Unauthorized access to SCES faculty dashboard.');
     }
 
-    // Get SCES school
     $scesSchool = School::where('code', 'SCES')->first();
     
     if (!$scesSchool) {
-        Log::error('SCES school not found in database');
         abort(404, 'SCES school not found');
     }
 
-    // Get current semester
     $currentSemester = Semester::where('is_active', true)->first();
-    
     if (!$currentSemester) {
         $currentSemester = Semester::latest()->first();
     }
 
     try {
+        $schoolCode = 'SCES';
+        
         // Get all SCES programs
         $scesPrograms = Program::where('school_id', $scesSchool->id)->get();
         $scesProgramIds = $scesPrograms->pluck('id')->toArray();
 
-        // Get statistics for SCES
+        Log::info('SCES Dashboard Loading', [
+            'school_code' => $schoolCode,
+            'school_id' => $scesSchool->id,
+            'program_ids' => $scesProgramIds
+        ]);
+
+        // Initialize statistics
         $scesStats = [
             'total_students' => 0,
             'total_lecturers' => 0,
@@ -773,12 +773,38 @@ public function scesDashboard()
             'active_enrollments' => 0,
         ];
 
-        // Get units count for SCES programs
+        // ✅ CORRECTED: Count students from users table by school code and role
+        $scesStats['total_students'] = User::whereHas('roles', function($query) {
+                $query->where('name', 'Student');
+            })
+            ->where('schools', $schoolCode)
+            ->count();
+
+        Log::info('Students counted from users table', [
+            'count' => $scesStats['total_students'],
+            'school' => $schoolCode
+        ]);
+
+        // ✅ CORRECTED: Count lecturers from users table by school code and role
+        $scesStats['total_lecturers'] = User::whereHas('roles', function($query) {
+                $query->where('name', 'Lecturer');
+            })
+            ->where('schools', $schoolCode)
+            ->count();
+
+        Log::info('Lecturers counted from users table', [
+            'count' => $scesStats['total_lecturers'],
+            'school' => $schoolCode
+        ]);
+
+        // Count units for SCES programs
         $scesStats['total_units'] = Unit::whereIn('program_id', $scesProgramIds)
             ->where('is_active', 1)
             ->count();
 
-        // Get active enrollments for current semester
+        Log::info('Units counted', ['count' => $scesStats['total_units']]);
+
+        // Count active enrollments for current semester
         if ($currentSemester) {
             $scesStats['active_enrollments'] = Enrollment::where('semester_id', $currentSemester->id)
                 ->whereHas('unit', function($query) use ($scesProgramIds) {
@@ -786,428 +812,345 @@ public function scesDashboard()
                 })
                 ->where('status', 'enrolled')
                 ->count();
+
+            Log::info('Active enrollments counted', ['count' => $scesStats['active_enrollments']]);
         }
 
-        // Get total students enrolled in SCES programs
-        $scesStats['total_students'] = Enrollment::whereHas('unit', function($query) use ($scesProgramIds) {
-                $query->whereIn('program_id', $scesProgramIds);
-            })
-            ->distinct('student_code')
-            ->count('student_code');
-
-        // Get total lecturers assigned to SCES units
-        $scesStats['total_lecturers'] = DB::table('lecturer_assignments')
-            ->join('units', 'lecturer_assignments.unit_id', '=', 'units.id')
-            ->whereIn('units.program_id', $scesProgramIds)
-            ->distinct('lecturer_assignments.lecturer_code')
-            ->count();
-
-        // Calculate growth rates
-        $previousSemester = Semester::where('id', '<', $currentSemester->id ?? 0)
-            ->orderBy('id', 'desc')
-            ->first();
-
-        $studentsGrowthRate = 0;
-        $lecturersGrowthRate = 0;
-        $unitsGrowthRate = 0;
-        $enrollmentsGrowthRate = 0;
-
-        if ($previousSemester) {
-            // Students growth rate
-            $previousStudents = Enrollment::where('semester_id', $previousSemester->id)
-                ->whereHas('unit', function($query) use ($scesProgramIds) {
-                    $query->whereIn('program_id', $scesProgramIds);
-                })
-                ->distinct('student_code')
-                ->count('student_code');
+        // Get programs with FULL data for React component
+        $programsData = [];
+        foreach ($scesPrograms as $program) {
+            $programCode = $program->code;
             
-            $studentsGrowthRate = $this->calculateGrowthRate($scesStats['total_students'], $previousStudents);
-
-            // Enrollments growth rate
-            $previousEnrollments = Enrollment::where('semester_id', $previousSemester->id)
-                ->whereHas('unit', function($query) use ($scesProgramIds) {
-                    $query->whereIn('program_id', $scesProgramIds);
-                })
-                ->where('status', 'enrolled')
+            // Count units for this program
+            $unitsCount = Unit::where('program_id', $program->id)
+                ->where('is_active', 1)
                 ->count();
-            
-            $enrollmentsGrowthRate = $this->calculateGrowthRate($scesStats['active_enrollments'], $previousEnrollments);
 
-            // Units growth rate
-            $previousUnits = Unit::whereIn('program_id', $scesProgramIds)
-                ->where('created_at', '<', $currentSemester->created_at)
+            // ✅ CORRECTED: Count students for this program from users table
+            $enrolledStudents = User::whereHas('roles', function($query) {
+                    $query->where('name', 'Student');
+                })
+                ->where('schools', $schoolCode)
+                ->where('programs', $programCode)
                 ->count();
-            
-            $unitsGrowthRate = $this->calculateGrowthRate($scesStats['total_units'], $previousUnits);
+
+            // ✅ CORRECTED: Count lecturers for this program from users table
+            $lecturersCount = User::whereHas('roles', function($query) {
+                    $query->where('name', 'Lecturer');
+                })
+                ->where('schools', $schoolCode)
+                ->where('programs', $programCode)
+                ->count();
+
+            $programsData[] = [
+                'id' => $program->id,
+                'name' => $program->name,
+                'code' => $program->code,
+                'degree' => $program->degree_type ?? 'Bachelor',
+                'duration' => $program->duration ?? 4,
+                'totalUnits' => $unitsCount,
+                'enrolledStudents' => $enrolledStudents,
+                'lecturers' => $lecturersCount,
+                'capacity' => $program->capacity ?? 100,
+                'growth' => 0,
+                'colorClass' => $this->getProgramColorClass($program->code),
+            ];
+
+            Log::info('Program data compiled', [
+                'program' => $programCode,
+                'students' => $enrolledStudents,
+                'lecturers' => $lecturersCount,
+                'units' => $unitsCount
+            ]);
         }
 
-        // Get recent activities
-        $recentActivities = Enrollment::whereHas('unit', function($query) use ($scesProgramIds) {
+        // Get recent activities - keeping enrollment-based activities
+        $recentActivities = [];
+        $enrollments = Enrollment::whereHas('unit', function($query) use ($scesProgramIds) {
                 $query->whereIn('program_id', $scesProgramIds);
             })
             ->with(['unit', 'student'])
             ->orderBy('created_at', 'desc')
-            ->limit(5)
-            ->get()
-            ->map(function($enrollment) {
-                return [
-                    'id' => $enrollment->id,
-                    'type' => 'enrollment',
-                    'description' => ($enrollment->student ? $enrollment->student->first_name . ' ' . $enrollment->student->last_name : 'Student') . 
-                                   ' enrolled in ' . ($enrollment->unit ? $enrollment->unit->name : 'Unit'),
-                    'created_at' => $enrollment->created_at->toISOString(),
-                ];
-            });
+            ->limit(10)
+            ->get();
 
-        // Calculate pending approvals
-        $pendingApprovals = [
-            'enrollments' => Enrollment::where('semester_id', $currentSemester->id ?? 0)
-                ->whereHas('unit', function($query) use ($scesProgramIds) {
-                    $query->whereIn('program_id', $scesProgramIds);
-                })
-                ->where('status', 'pending')
-                ->count(),
-            'lecturerRequests' => 0, // You can implement this based on your business logic
-            'unitChanges' => Unit::whereIn('program_id', $scesProgramIds)
-                ->where('is_active', 0)
-                ->count(),
+        foreach ($enrollments as $enrollment) {
+            $studentName = 'Student';
+            if ($enrollment->student) {
+                $studentName = trim(($enrollment->student->first_name ?? '') . ' ' . ($enrollment->student->last_name ?? ''));
+                if (empty($studentName)) {
+                    $studentName = $enrollment->student_code ?? 'Student';
+                }
+            }
+
+            $unitName = $enrollment->unit ? ($enrollment->unit->name ?? $enrollment->unit->code ?? 'Unit') : 'Unit';
+
+            $recentActivities[] = [
+                'id' => $enrollment->id,
+                'type' => 'enrollment',
+                'message' => $studentName . ' enrolled in ' . $unitName,
+                'description' => 'Student enrollment activity',
+                'time' => $enrollment->created_at->diffForHumans(),
+                'created_at' => $enrollment->created_at->format('Y-m-d H:i:s'),
+            ];
+        }
+
+        // Prepare data for React
+        $dashboardData = [
+            'schoolName' => 'School of Computing and Engineering Sciences',
+            'schoolCode' => 'SCES',
+            'currentSemester' => $currentSemester ? [
+                'id' => $currentSemester->id,
+                'name' => $currentSemester->name,
+                'is_active' => (bool)$currentSemester->is_active,
+            ] : null,
+            'stats' => [
+                'totalStudents' => $scesStats['total_students'],
+                'studentsTrend' => '0%',
+                'activePrograms' => count($programsData),
+                'programsTrend' => '0%',
+                'totalUnits' => $scesStats['total_units'],
+                'unitsTrend' => '0%',
+                'totalLecturers' => $scesStats['total_lecturers'],
+                'lecturersTrend' => '0%',
+                'activeEnrollments' => $scesStats['active_enrollments'],
+                'enrollmentsTrend' => '0%',
+            ],
+            'programs' => $programsData,
+            'recentActivities' => $recentActivities,
+            'upcomingEvents' => [],
+            'pendingApprovals' => [],
+            'userPermissions' => $user->getAllPermissions()->pluck('name')->toArray(),
+            'userRoles' => $user->getRoleNames()->toArray(),
         ];
 
-        // Get program-specific unit counts
-        $programsWithUnits = $scesPrograms->map(function($program) {
-            return [
-                'name' => $program->name,
-                'code' => $program->code,
-                'units' => Unit::where('program_id', $program->id)
-                    ->where('is_active', 1)
-                    ->count(),
-            ];
-        });
+        Log::info('SCES Dashboard Ready', [
+            'students' => $scesStats['total_students'],
+            'lecturers' => $scesStats['total_lecturers'],
+            'units' => $scesStats['total_units'],
+            'enrollments' => $scesStats['active_enrollments'],
+            'programs' => count($programsData)
+        ]);
 
-        Log::info('SCES dashboard data generated', [
-            'user_id' => $user->id,
-            'stats' => $scesStats,
-            'current_semester' => $currentSemester ? $currentSemester->name : 'None',
-        ]);
-        
-        return Inertia::render('SchoolAdmin/Dashboard', [
-            'schoolCode' => 'SCES',
-            'schoolName' => 'School of Computing and Engineering Sciences',
-            'currentSemester' => $currentSemester,
-            'statistics' => [
-                'totalStudents' => [
-                    'count' => $scesStats['total_students'],
-                    'growthRate' => $studentsGrowthRate,
-                    'period' => 'vs last semester'
-                ],
-                'totalLecturers' => [
-                    'count' => $scesStats['total_lecturers'],
-                    'growthRate' => $lecturersGrowthRate,
-                    'period' => 'vs last semester'
-                ],
-                'totalUnits' => [
-                    'count' => $scesStats['total_units'],
-                    'growthRate' => $unitsGrowthRate,
-                    'period' => 'vs last semester'
-                ],
-                'activeEnrollments' => [
-                    'count' => $scesStats['active_enrollments'],
-                    'growthRate' => $enrollmentsGrowthRate,
-                    'period' => 'vs last semester'
-                ],
-            ],
-            'programs' => $programsWithUnits,
-            'facultyInfo' => [
-                'name' => 'School of Computing and Engineering Sciences',
-                'code' => 'SCES',
-                'totalPrograms' => $scesPrograms->count(),
-                'totalClasses' => ClassModel::whereIn('program_id', $scesProgramIds)
-                    ->where('is_active', true)
-                    ->count(),
-            ],
-            'pendingApprovals' => $pendingApprovals,
-            'recentActivities' => $recentActivities,
-            'userPermissions' => $user->getAllPermissions()->pluck('name'),
-            'userRoles' => $user->getRoleNames()
-        ]);
+        return Inertia::render('SchoolAdmin/Dashboard', $dashboardData);
 
     } catch (\Exception $e) {
         Log::error('Error in SCES dashboard', [
-            'user_id' => $user->id,
             'error' => $e->getMessage(),
             'trace' => $e->getTraceAsString()
         ]);
 
-        // Return safe defaults in case of error
         return Inertia::render('SchoolAdmin/Dashboard', [
-            'schoolCode' => 'SCES',
             'schoolName' => 'School of Computing and Engineering Sciences',
-            'currentSemester' => $currentSemester,
-            'statistics' => [
-                'totalStudents' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
-                'totalLecturers' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
-                'totalUnits' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
-                'activeEnrollments' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
+            'schoolCode' => 'SCES',
+            'currentSemester' => null,
+            'stats' => [
+                'totalStudents' => 0,
+                'studentsTrend' => '0%',
+                'activePrograms' => 0,
+                'programsTrend' => '0%',
+                'totalUnits' => 0,
+                'unitsTrend' => '0%',
+                'totalLecturers' => 0,
+                'lecturersTrend' => '0%',
             ],
             'programs' => [],
-            'facultyInfo' => [
-                'name' => 'School of Computing and Engineering Sciences',
-                'code' => 'SCES',
-                'totalPrograms' => 0,
-                'totalClasses' => 0,
-            ],
-            'pendingApprovals' => [
-                'enrollments' => 0,
-                'lecturerRequests' => 0,
-                'unitChanges' => 0,
-            ],
             'recentActivities' => [],
-            'userPermissions' => $user->getAllPermissions()->pluck('name'),
-            'userRoles' => $user->getRoleNames(),
-            'error' => 'Unable to load dashboard data: ' . $e->getMessage()
+            'upcomingEvents' => [],
+            'pendingApprovals' => [],
+            'userPermissions' => [],
+            'userRoles' => [],
+            'error' => $e->getMessage()
         ]);
     }
 }
-    // sbsdashboard
-    /**
- * SBS Faculty Dashboard - School of Business Studies
+
+/**
+ * SBS Dashboard - Same pattern for SBS
  */
 public function sbsDashboard()
 {
     $user = auth()->user();
     
-    // Check if user has permission for SBS
     if (!$user->can('view-faculty-dashboard-sbs') && !$user->hasRole('Faculty Admin - SBS')) {
-        Log::warning('Unauthorized access to SBS dashboard', [
-            'user_id' => $user->id,
-            'user_roles' => $user->getRoleNames()->toArray()
-        ]);
         abort(403, 'Unauthorized access to SBS faculty dashboard.');
     }
 
-    // Get SBS school
-    $sbsSchool = School::where('code', 'SBS')->first();
+    return $this->schoolDashboardByCode('SBS', 'School of Business Studies');
+}
+
+/**
+ * Generic School Dashboard Method - Reusable for all schools
+ */
+private function schoolDashboardByCode($schoolCode, $schoolName)
+{
+    $user = auth()->user();
     
-    if (!$sbsSchool) {
-        Log::error('SBS school not found in database');
-        abort(404, 'SBS school not found');
+    $school = School::where('code', $schoolCode)->first();
+    
+    if (!$school) {
+        abort(404, $schoolCode . ' school not found');
     }
 
-    // Get current semester
     $currentSemester = Semester::where('is_active', true)->first();
-    
     if (!$currentSemester) {
         $currentSemester = Semester::latest()->first();
     }
 
     try {
-        // Get all SBS programs
-        $sbsPrograms = Program::where('school_id', $sbsSchool->id)->get();
-        $sbsProgramIds = $sbsPrograms->pluck('id')->toArray();
+        // Get programs
+        $programs = Program::where('school_id', $school->id)->get();
+        $programIds = $programs->pluck('id')->toArray();
 
-        // Get statistics for SBS
-        $sbsStats = [
-            'total_students' => 0,
-            'total_lecturers' => 0,
-            'total_units' => 0,
-            'active_enrollments' => 0,
+        // Count from users table by school code
+        $stats = [
+            'total_students' => User::whereHas('roles', function($query) {
+                    $query->where('name', 'Student');
+                })
+                ->where('schools', $schoolCode)
+                ->count(),
+            
+            'total_lecturers' => User::whereHas('roles', function($query) {
+                    $query->where('name', 'Lecturer');
+                })
+                ->where('schools', $schoolCode)
+                ->count(),
+            
+            'total_units' => Unit::whereIn('program_id', $programIds)
+                ->where('is_active', 1)
+                ->count(),
+            
+            'active_enrollments' => $currentSemester ? Enrollment::where('semester_id', $currentSemester->id)
+                ->whereHas('unit', function($query) use ($programIds) {
+                    $query->whereIn('program_id', $programIds);
+                })
+                ->where('status', 'enrolled')
+                ->count() : 0,
         ];
 
-        // Get units count for SBS programs
-        $sbsStats['total_units'] = Unit::whereIn('program_id', $sbsProgramIds)
-            ->where('is_active', 1)
-            ->count();
-
-        // Get active enrollments for current semester
-        if ($currentSemester) {
-            $sbsStats['active_enrollments'] = Enrollment::where('semester_id', $currentSemester->id)
-                ->whereHas('unit', function($query) use ($sbsProgramIds) {
-                    $query->whereIn('program_id', $sbsProgramIds);
-                })
-                ->where('status', 'enrolled')
-                ->count();
-        }
-
-        // Get total students enrolled in SBS programs
-        $sbsStats['total_students'] = Enrollment::whereHas('unit', function($query) use ($sbsProgramIds) {
-                $query->whereIn('program_id', $sbsProgramIds);
-            })
-            ->distinct('student_code')
-            ->count('student_code');
-
-        // Get total lecturers assigned to SBS units
-        $sbsStats['total_lecturers'] = DB::table('lecturer_assignments')
-            ->join('units', 'lecturer_assignments.unit_id', '=', 'units.id')
-            ->whereIn('units.program_id', $sbsProgramIds)
-            ->distinct('lecturer_assignments.lecturer_code')
-            ->count();
-
-        // Calculate growth rates
-        $previousSemester = Semester::where('id', '<', $currentSemester->id ?? 0)
-            ->orderBy('id', 'desc')
-            ->first();
-
-        $studentsGrowthRate = 0;
-        $lecturersGrowthRate = 0;
-        $unitsGrowthRate = 0;
-        $enrollmentsGrowthRate = 0;
-
-        if ($previousSemester) {
-            // Students growth rate
-            $previousStudents = Enrollment::where('semester_id', $previousSemester->id)
-                ->whereHas('unit', function($query) use ($sbsProgramIds) {
-                    $query->whereIn('program_id', $sbsProgramIds);
-                })
-                ->distinct('student_code')
-                ->count('student_code');
-            
-            $studentsGrowthRate = $this->calculateGrowthRate($sbsStats['total_students'], $previousStudents);
-
-            // Enrollments growth rate
-            $previousEnrollments = Enrollment::where('semester_id', $previousSemester->id)
-                ->whereHas('unit', function($query) use ($sbsProgramIds) {
-                    $query->whereIn('program_id', $sbsProgramIds);
-                })
-                ->where('status', 'enrolled')
-                ->count();
-            
-            $enrollmentsGrowthRate = $this->calculateGrowthRate($sbsStats['active_enrollments'], $previousEnrollments);
-
-            // Units growth rate
-            $previousUnits = Unit::whereIn('program_id', $sbsProgramIds)
-                ->where('created_at', '<', $currentSemester->created_at)
-                ->count();
-            
-            $unitsGrowthRate = $this->calculateGrowthRate($sbsStats['total_units'], $previousUnits);
+        // Get programs data
+        $programsData = [];
+        foreach ($programs as $program) {
+            $programsData[] = [
+                'id' => $program->id,
+                'name' => $program->name,
+                'code' => $program->code,
+                'degree' => $program->degree_type ?? 'Bachelor',
+                'duration' => $program->duration ?? 4,
+                'totalUnits' => Unit::where('program_id', $program->id)->where('is_active', 1)->count(),
+                'enrolledStudents' => User::whereHas('roles', function($query) {
+                        $query->where('name', 'Student');
+                    })
+                    ->where('schools', $schoolCode)
+                    ->where('programs', $program->code)
+                    ->count(),
+                'capacity' => $program->capacity ?? 100,
+                'growth' => 0,
+                'colorClass' => $this->getProgramColorClass($program->code),
+            ];
         }
 
         // Get recent activities
-        $recentActivities = Enrollment::whereHas('unit', function($query) use ($sbsProgramIds) {
-                $query->whereIn('program_id', $sbsProgramIds);
+        $recentActivities = [];
+        $enrollments = Enrollment::whereHas('unit', function($query) use ($programIds) {
+                $query->whereIn('program_id', $programIds);
             })
             ->with(['unit', 'student'])
             ->orderBy('created_at', 'desc')
-            ->limit(5)
-            ->get()
-            ->map(function($enrollment) {
-                return [
-                    'id' => $enrollment->id,
-                    'type' => 'enrollment',
-                    'description' => ($enrollment->student ? $enrollment->student->first_name . ' ' . $enrollment->student->last_name : 'Student') . 
-                                   ' enrolled in ' . ($enrollment->unit ? $enrollment->unit->name : 'Unit'),
-                    'created_at' => $enrollment->created_at->toISOString(),
-                ];
-            });
+            ->limit(10)
+            ->get();
 
-        // Calculate pending approvals
-        $pendingApprovals = [
-            'enrollments' => Enrollment::where('semester_id', $currentSemester->id ?? 0)
-                ->whereHas('unit', function($query) use ($sbsProgramIds) {
-                    $query->whereIn('program_id', $sbsProgramIds);
-                })
-                ->where('status', 'pending')
-                ->count(),
-            'lecturerRequests' => 0,
-            'unitChanges' => Unit::whereIn('program_id', $sbsProgramIds)
-                ->where('is_active', 0)
-                ->count(),
-        ];
+        foreach ($enrollments as $enrollment) {
+            $studentName = $enrollment->student 
+                ? trim(($enrollment->student->first_name ?? '') . ' ' . ($enrollment->student->last_name ?? ''))
+                : ($enrollment->student_code ?? 'Student');
 
-        // Get program-specific unit counts
-        $programsWithUnits = $sbsPrograms->map(function($program) {
-            return [
-                'name' => $program->name,
-                'code' => $program->code,
-                'units' => Unit::where('program_id', $program->id)
-                    ->where('is_active', 1)
-                    ->count(),
+            $unitName = $enrollment->unit ? ($enrollment->unit->name ?? $enrollment->unit->code ?? 'Unit') : 'Unit';
+
+            $recentActivities[] = [
+                'id' => $enrollment->id,
+                'type' => 'enrollment',
+                'message' => $studentName . ' enrolled in ' . $unitName,
+                'time' => $enrollment->created_at->diffForHumans(),
+                'created_at' => $enrollment->created_at->format('Y-m-d H:i:s'),
             ];
-        });
+        }
 
-        Log::info('SBS dashboard data generated', [
-            'user_id' => $user->id,
-            'stats' => $sbsStats,
-            'current_semester' => $currentSemester ? $currentSemester->name : 'None',
-        ]);
-        
         return Inertia::render('SchoolAdmin/Dashboard', [
-            'schoolCode' => 'SBS',
-            'schoolName' => 'School of Business Studies',
-            'currentSemester' => $currentSemester,
-            'statistics' => [
-                'totalStudents' => [
-                    'count' => $sbsStats['total_students'],
-                    'growthRate' => $studentsGrowthRate,
-                    'period' => 'vs last semester'
-                ],
-                'totalLecturers' => [
-                    'count' => $sbsStats['total_lecturers'],
-                    'growthRate' => $lecturersGrowthRate,
-                    'period' => 'vs last semester'
-                ],
-                'totalUnits' => [
-                    'count' => $sbsStats['total_units'],
-                    'growthRate' => $unitsGrowthRate,
-                    'period' => 'vs last semester'
-                ],
-                'activeEnrollments' => [
-                    'count' => $sbsStats['active_enrollments'],
-                    'growthRate' => $enrollmentsGrowthRate,
-                    'period' => 'vs last semester'
-                ],
+            'schoolName' => $schoolName,
+            'schoolCode' => $schoolCode,
+            'currentSemester' => $currentSemester ? [
+                'id' => $currentSemester->id,
+                'name' => $currentSemester->name,
+                'is_active' => (bool)$currentSemester->is_active,
+            ] : null,
+            'stats' => [
+                'totalStudents' => $stats['total_students'],
+                'studentsTrend' => '0%',
+                'activePrograms' => count($programsData),
+                'programsTrend' => '0%',
+                'totalUnits' => $stats['total_units'],
+                'unitsTrend' => '0%',
+                'totalLecturers' => $stats['total_lecturers'],
+                'lecturersTrend' => '0%',
             ],
-            'programs' => $programsWithUnits,
-            'facultyInfo' => [
-                'name' => 'School of Business Studies',
-                'code' => 'SBS',
-                'totalPrograms' => $sbsPrograms->count(),
-                'totalClasses' => ClassModel::whereIn('program_id', $sbsProgramIds)
-                    ->where('is_active', true)
-                    ->count(),
-            ],
-            'pendingApprovals' => $pendingApprovals,
+            'programs' => $programsData,
             'recentActivities' => $recentActivities,
-            'userPermissions' => $user->getAllPermissions()->pluck('name'),
-            'userRoles' => $user->getRoleNames()
+            'upcomingEvents' => [],
+            'pendingApprovals' => [],
+            'userPermissions' => $user->getAllPermissions()->pluck('name')->toArray(),
+            'userRoles' => $user->getRoleNames()->toArray(),
         ]);
 
     } catch (\Exception $e) {
-        Log::error('Error in SBS dashboard', [
-            'user_id' => $user->id,
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+        Log::error("Error in $schoolCode dashboard", [
+            'error' => $e->getMessage()
         ]);
 
-        // Return safe defaults in case of error
         return Inertia::render('SchoolAdmin/Dashboard', [
-            'schoolCode' => 'SBS',
-            'schoolName' => 'School of Business Studies',
-            'currentSemester' => $currentSemester,
-            'statistics' => [
-                'totalStudents' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
-                'totalLecturers' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
-                'totalUnits' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
-                'activeEnrollments' => ['count' => 0, 'growthRate' => 0, 'period' => 'vs last semester'],
+            'schoolName' => $schoolName,
+            'schoolCode' => $schoolCode,
+            'currentSemester' => null,
+            'stats' => [
+                'totalStudents' => 0,
+                'studentsTrend' => '0%',
+                'activePrograms' => 0,
+                'programsTrend' => '0%',
+                'totalUnits' => 0,
+                'unitsTrend' => '0%',
+                'totalLecturers' => 0,
+                'lecturersTrend' => '0%',
             ],
             'programs' => [],
-            'facultyInfo' => [
-                'name' => 'School of Business Studies',
-                'code' => 'SBS',
-                'totalPrograms' => 0,
-                'totalClasses' => 0,
-            ],
-            'pendingApprovals' => [
-                'enrollments' => 0,
-                'lecturerRequests' => 0,
-                'unitChanges' => 0,
-            ],
             'recentActivities' => [],
-            'userPermissions' => $user->getAllPermissions()->pluck('name'),
-            'userRoles' => $user->getRoleNames(),
-            'error' => 'Unable to load dashboard data: ' . $e->getMessage()
+            'upcomingEvents' => [],
+            'pendingApprovals' => [],
+            'userPermissions' => [],
+            'userRoles' => [],
+            'error' => $e->getMessage()
         ]);
     }
 }
+
+/**
+ * Helper: Get program color class
+ */
+private function getProgramColorClass($code)
+{
+    $colors = [
+        'BBIT' => 'bg-blue-500',
+        'ICS' => 'bg-purple-500',
+        'SEEE' => 'bg-green-500',
+        'BCS' => 'bg-indigo-500',
+        'SE' => 'bg-pink-500',
+        'BCOM' => 'bg-orange-500',
+        'BA' => 'bg-yellow-500',
+    ];
+
+    return $colors[$code] ?? 'bg-gray-500';
+}
+
+
     /**
      * Generic faculty dashboard method for all schools (except SCES which has its own method)
      */
