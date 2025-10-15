@@ -193,7 +193,7 @@ class EnrollmentController extends Controller
 
         // Use lecturer_page parameter for independent pagination
         $page = $request->input('lecturer_page', 1);
-        $perPage = $request->input('lecturer_per_page', 10);
+        $perPage = $request->input('lecturer_per_page', 5);
         
         // Paginate with custom page parameter
         $lecturerAssignments = $query->paginate($perPage, ['*'], 'lecturer_page', $page);

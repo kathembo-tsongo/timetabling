@@ -49,7 +49,7 @@ class ClassTimetableController extends Controller
     if (!$user->can('view-class-timetables')) {
         abort(403, 'Unauthorized action.');
     }
-    $perPage = $request->input('per_page', 100);
+    $perPage = $request->input('per_page', 10);
     $search = $request->input('search', '');
 
     // ✅ ENHANCED: Fetch class timetables with comprehensive search capabilities

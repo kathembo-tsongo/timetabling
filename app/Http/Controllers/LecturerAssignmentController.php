@@ -189,7 +189,7 @@ class LecturerAssignmentController extends Controller
         $page = $request->input('lecturer_page', 1);
         
         // Paginate with custom page parameter and page name
-        $lecturerAssignments = $query->paginate(10, ['*'], 'lecturer_page', $page);
+        $lecturerAssignments = $query->paginate(100, ['*'], 'lecturer_page', $page);
         
         // Manually set the path and append query parameters
         $lecturerAssignments->withPath($request->url());

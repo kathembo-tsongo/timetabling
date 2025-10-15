@@ -486,8 +486,8 @@ const EnhancedClassTimetable = () => {
   units = [],
   lecturers = [],
   schools = [],
-  program, // ADD THIS - the program object from controller
-  schoolCode, // ADD THIS - the school code (SCES, SBS, etc.)
+  program, 
+  schoolCode, 
 } = pageProps
 
   const programs = useMemo(() => (Array.isArray(pageProps.programs) ? pageProps.programs : []), [pageProps.programs])
@@ -1191,7 +1191,7 @@ const handleOpenModal = useCallback(
       if (specificErrors.length > 0) {
         specificErrors.forEach((error, index) => {
           setTimeout(() => {
-            toast.error(error, { duration: 5000 })
+            toast.error(error, { duration: 30000 })
           }, index * 1000)
         })
       }
