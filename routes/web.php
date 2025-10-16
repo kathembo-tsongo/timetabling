@@ -359,6 +359,24 @@ Route::prefix('api')
             Route::get('/lecturerassignments/workload', [LecturerAssignmentController::class, 'getLecturerWorkload']);
             Route::get('/lecturerassignments/units', [LecturerAssignmentController::class, 'getFilteredUnits']);
             Route::get('/lecturerassignments/available-units', [LecturerAssignmentController::class, 'getAvailableUnits']);
+
+            // ✅ ADD CLASS TIMETABLE CONFLICT RESOLUTION API ROUTES HERE
+            Route::post('/classtimetables/resolve-conflict', [ClassTimetableController::class, 'resolveConflict'])
+                ->middleware(['permission:solve-class-conflicts'])
+                ->name('admin.classtimetables.resolve-conflict');
+            
+            Route::post('/classtimetables/resolve-all-conflicts', [ClassTimetableController::class, 'resolveAllConflicts'])
+                ->middleware(['permission:solve-class-conflicts'])
+                ->name('admin.classtimetables.resolve-all');
+            
+            // ✅ ADD EXAM TIMETABLE CONFLICT RESOLUTION API ROUTES HERE
+            Route::post('/examtimetables/resolve-conflict', [ExamTimetableController::class, 'resolveConflict'])
+                ->middleware(['permission:solve-exam-conflicts'])
+                ->name('admin.examtimetables.resolve-conflict');
+            
+            Route::post('/examtimetables/resolve-all-conflicts', [ExamTimetableController::class, 'resolveAllConflicts'])
+                ->middleware(['permission:solve-exam-conflicts'])
+                ->name('admin.examtimetables.resolve-all');
         });    
     });
 
@@ -535,6 +553,15 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 Route::get('/download/pdf', function(Program $program) {
                     return app(ClassTimetableController::class)->downloadProgramClassTimetablePDF($program, 'SCES');
                 })->name('download');
+
+                 // ✅ ADD CLASS TIMETABLE CONFLICT RESOLUTION FOR SCES
+    Route::post('/resolve-conflict', function(Program $program, Request $request) {
+        return app(ClassTimetableController::class)->resolveProgramConflict($program, $request, 'SCES');
+    })->name('resolve-conflict');
+    
+    Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
+        return app(ClassTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SCES');
+    })->name('resolve-all');
             });
 
             // ✅ EXAM TIMETABLES - FIXED PREFIX
@@ -570,6 +597,14 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 Route::get('/download/pdf', function(Program $program) {
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SCES');
                 })->name('download');
+                // ✅ ADD EXAM TIMETABLE CONFLICT RESOLUTION FOR SCES
+    Route::post('/resolve-conflict', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->resolveProgramConflict($program, $request, 'SCES');
+    })->name('resolve-conflict');
+    
+    Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SCES');
+    })->name('resolve-all');
             });
         });
     });
@@ -747,6 +782,14 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                 Route::get('/download/pdf', function(Program $program) {
                     return app(ClassTimetableController::class)->downloadProgramClassTimetablePDF($program, 'SBS');
                 })->name('download');
+                // For SBS class-timetables (around line 890)
+Route::post('/resolve-conflict', function(Program $program, Request $request) {
+    return app(ClassTimetableController::class)->resolveProgramConflict($program, $request, 'SBS');
+})->name('resolve-conflict');
+
+Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
+    return app(ClassTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SBS');
+})->name('resolve-all');
             });
 
             // ✅ EXAM TIMETABLES - FIXED PREFIX (was examtimetables, now exam-timetables)
@@ -782,6 +825,14 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                 Route::get('/download/pdf', function(Program $program) {
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
                 })->name('download');
+                // For SBS exam-timetables (around line 930)
+Route::post('/resolve-conflict', function(Program $program, Request $request) {
+    return app(ExamTimetableController::class)->resolveProgramConflict($program, $request, 'SBS');
+})->name('resolve-conflict');
+
+Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
+    return app(ExamTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SBS');
+})->name('resolve-all');
             });
         });
     });
@@ -891,6 +942,14 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
         
         Route::get('/conflicts', [ClassTimetableController::class, 'showConflicts'])
             ->name('classtimetables.conflicts');
+             // ✅ ADD CLASS TIMETABLE CONFLICT RESOLUTION ROUTES HERE
+        Route::post('/resolve-conflict', [ClassTimetableController::class, 'resolveConflict'])
+            ->name('classtimetables.resolve-conflict');
+    
+        Route::post('/resolve-all-conflicts', [ClassTimetableController::class, 'resolveAllConflicts'])
+            ->name('classtimetables.resolve-all');
+
+        
     });
 
     // EXAM TIMETABLE OFFICE ROUTES
@@ -924,6 +983,13 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
         
         Route::get('/conflicts', [ExamTimetableController::class, 'showConflicts'])
             ->name('exam-timetables.conflicts');
+
+        // ✅ ADD EXAM TIMETABLE CONFLICT RESOLUTION ROUTES HERE
+    Route::post('/resolve-conflict', [ExamTimetableController::class, 'resolveConflict'])
+        ->name('exam-timetables.resolve-conflict');
+    
+    Route::post('/resolve-all-conflicts', [ExamTimetableController::class, 'resolveAllConflicts'])
+        ->name('exam-timetables.resolve-all');
     }); 
 
     Route::prefix('classtimeslot')

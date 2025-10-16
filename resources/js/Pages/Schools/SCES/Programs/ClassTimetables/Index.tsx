@@ -530,6 +530,9 @@ const EnhancedClassTimetable = () => {
   const [detectedConflicts, setDetectedConflicts] = useState<any[]>([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showConflictAnalysis, setShowConflictAnalysis] = useState(false)
+  // Add these state variables with your other useState declarations
+  const [isResolving, setIsResolving] = useState(false)
+  const [resolutionResults, setResolutionResults] = useState<any[]>([])
 
   // Enhanced day ordering to organizedTimetables
   const organizedTimetables = useMemo(() => {
@@ -1514,6 +1517,121 @@ const handleOpenModal = useCallback(
     }
   }, [])
 
+// Add these handler functions before the return statement (around line 800)
+
+/**
+ * 🔧 Handle individual conflict resolution
+ */
+const handleResolveConflict = useCallback(async (conflict: any) => {
+  setIsResolving(true)
+  try {
+    const affectedIds = conflict.affectedSessions.map((s: any) => s.id)
+    
+    console.log('🔧 Resolving conflict:', {
+      type: conflict.type,
+      affected_ids: affectedIds
+    })
+    
+    const response = await axios.post(
+      `/schools/${schoolCode.toLowerCase()}/programs/${program.id}/class-timetables/resolve-conflict`,
+      {
+        conflict_type: conflict.type,
+        affected_session_ids: affectedIds,
+        resolution_strategy: 'auto'
+      }
+    )
+
+    if (response.data.success) {
+      toast.success(response.data.message, {
+        duration: 5000,
+      })
+      
+      // Show detailed changes
+      if (response.data.changes && response.data.changes.length > 0) {
+        response.data.changes.forEach((change: any, index: number) => {
+          setTimeout(() => {
+            const changeMessage = change.new_venue 
+              ? `📝 ${change.unit_code}: Venue changed from ${change.old_venue} to ${change.new_venue}`
+              : change.new_time
+              ? `⏰ ${change.unit_code}: Time changed from ${change.old_time} to ${change.new_time}`
+              : change.new_schedule
+              ? `📅 ${change.unit_code}: Rescheduled from ${change.old_schedule} to ${change.new_schedule}`
+              : `✅ ${change.unit_code}: Updated successfully`
+            
+            toast.info(changeMessage, { duration: 4000 })
+          }, index * 1000)
+        })
+      }
+      
+      // Reload the page to show updated timetable
+      setTimeout(() => {
+        router.reload({ only: ['classTimetables'] })
+      }, 2000)
+    } else {
+      toast.error(response.data.message || 'Failed to resolve conflict')
+    }
+  } catch (error: any) {
+    console.error('Conflict resolution error:', error)
+    const errorMessage = error.response?.data?.message || error.message || 'Failed to resolve conflict'
+    toast.error(errorMessage)
+  } finally {
+    setIsResolving(false)
+  }
+}, [schoolCode, program])
+
+/**
+ * 🔄 Handle bulk resolution of all conflicts
+ */
+const handleResolveAllConflicts = useCallback(async () => {
+  if (!confirm('This will automatically resolve all detected conflicts. Continue?')) {
+    return
+  }
+
+  setIsResolving(true)
+  try {
+    console.log('🔄 Starting bulk conflict resolution...')
+    
+    const response = await axios.post(
+      `/schools/${schoolCode.toLowerCase()}/programs/${program.id}/class-timetables/resolve-all-conflicts`
+    )
+
+    if (response.data.success) {
+      const { resolved_count, failed_count, changes } = response.data
+      
+      toast.success(
+        `✅ Resolved ${resolved_count} conflict${resolved_count !== 1 ? 's' : ''}! ${
+          failed_count > 0 ? `${failed_count} could not be resolved automatically.` : ''
+        }`,
+        { duration: 6000 }
+      )
+      
+      // Show summary of changes
+      if (changes && changes.length > 0) {
+        setTimeout(() => {
+          toast.info(
+            `📊 Made ${changes.length} schedule modification${changes.length !== 1 ? 's' : ''}`,
+            { duration: 4000 }
+          )
+        }, 1000)
+      }
+      
+      // Reload to show updated timetable
+      setTimeout(() => {
+        router.reload({ only: ['classTimetables'] })
+        handleCloseModal()
+      }, 3000)
+    } else {
+      toast.error(response.data.message || 'Failed to resolve conflicts')
+    }
+  } catch (error: any) {
+    console.error('Bulk resolution error:', error)
+    const errorMessage = error.response?.data?.message || error.message || 'Failed to resolve all conflicts'
+    toast.error(errorMessage)
+  } finally {
+    setIsResolving(false)
+  }
+}, [schoolCode, program, handleCloseModal])
+
   return (
     <AuthenticatedLayout>
       <Head title="Enhanced Class Timetable" />
@@ -2335,73 +2453,132 @@ const handleOpenModal = useCallback(
                 </>
               )}
 
-              {/* CONFLICTS MODAL */}
-              {modalType === "conflicts" && (
-                <>
-                  <h2 className="text-xl font-semibold mb-4 flex items-center">
-                    <AlertCircle className="w-5 h-5 mr-2 text-red-500" />
-                    Conflict Analysis
-                  </h2>
+              {/* CONFLICTS MODAL - ENHANCED WITH RESOLUTION BUTTONS */}
+{modalType === "conflicts" && (
+  <>
+    <h2 className="text-xl font-semibold mb-4 flex items-center">
+      <AlertCircle className="w-5 h-5 mr-2 text-red-500" />
+      Conflict Analysis & Resolution
+    </h2>
 
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <div>
-                        <p className="text-sm text-gray-600">
-                          Found {detectedConflicts?.length || 0} conflicts in the current timetable
-                        </p>
-                      </div>
+    <div className="space-y-4">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <p className="text-sm text-gray-600">
+            Found {detectedConflicts?.length || 0} conflict{detectedConflicts?.length !== 1 ? 's' : ''} in the current timetable
+          </p>
+          {detectedConflicts && detectedConflicts.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {detectedConflicts.filter((c) => c.severity === "high").length} high priority, {" "}
+              {detectedConflicts.filter((c) => c.severity === "medium").length} medium priority
+            </p>
+          )}
+        </div>
+        
+        {/* Bulk Resolve Button */}
+        {detectedConflicts && detectedConflicts.length > 0 && can.solve_conflicts && (
+          <Button
+            onClick={handleResolveAllConflicts}
+            disabled={isResolving}
+            className="bg-green-500 hover:bg-green-600 text-white"
+          >
+            {isResolving ? (
+              <>
+                <Clock className="w-4 h-4 mr-2 animate-spin" />
+                Resolving...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                Auto-Resolve All ({detectedConflicts.length})
+              </>
+            )}
+          </Button>
+        )}
+      </div>
+
+      {detectedConflicts && detectedConflicts.length > 0 ? (
+        <div className="space-y-3 max-h-96 overflow-y-auto">
+          {detectedConflicts.map((conflict, index) => (
+            <div key={index} className="border border-red-200 rounded-lg p-4 bg-red-50">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium text-red-800">
+                      {conflict.type?.replace(/_/g, " ").toUpperCase()}
+                    </h4>
+                    <div className="flex gap-2">
+                      <Badge variant="destructive" className="text-xs">
+                        {conflict.severity}
+                      </Badge>
+                      
+                      {/* Individual Resolve Button */}
+                      {can.solve_conflicts && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleResolveConflict(conflict)}
+                          disabled={isResolving}
+                          className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1"
+                        >
+                          {isResolving ? (
+                            <Clock className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <>
+                              <Zap className="w-3 h-3 mr-1" />
+                              Fix
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
-
-                    {detectedConflicts && detectedConflicts.length > 0 ? (
-                      <div className="space-y-3 max-h-96 overflow-y-auto">
-                        {detectedConflicts.map((conflict, index) => (
-                          <div key={index} className="border border-red-200 rounded-lg p-4 bg-red-50">
-                            <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <h4 className="font-medium text-red-800">
-                                  {conflict.type?.replace("_", " ").toUpperCase()}
-                                </h4>
-                                <p className="text-sm text-red-700">{conflict.description}</p>
-                              </div>
-                              <Badge variant="destructive" className="text-xs">
-                                {conflict.severity}
-                              </Badge>
-                            </div>
-
-                            {conflict.affectedSessions && conflict.affectedSessions.length > 0 && (
-                              <div className="mt-3 space-y-2">
-                                <p className="text-xs font-medium text-red-800">Affected Sessions:</p>
-                                {conflict.affectedSessions.map((session, sessionIndex) => (
-                                  <div key={sessionIndex} className="text-xs bg-white p-2 rounded border">
-                                    <span className="font-medium">{session.unit_code}</span> - {session.day}{" "}
-                                    {formatTimeToHi(session.start_time)}-{formatTimeToHi(session.end_time)} -{" "}
-                                    {session.lecturer} - {session.venue}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                        <p className="text-lg text-green-600 font-medium">No conflicts detected!</p>
-                        <p className="text-sm text-gray-500 mt-2">Your timetable is optimally scheduled.</p>
-                      </div>
-                    )}
                   </div>
+                  <p className="text-sm text-red-700 mb-2">{conflict.description}</p>
+                  
+                  {/* Recommendation */}
+                  {conflict.recommendation && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                      <strong className="text-blue-800">💡 Recommendation:</strong>
+                      <p className="text-blue-700 mt-1">{conflict.recommendation}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-                  <div className="mt-6 flex justify-end border-t pt-4">
-                    <Button onClick={handleCloseModal} className="bg-gray-400 hover:bg-gray-500 text-white">
-                      Close
-                    </Button>
-                  </div>
-                </>
+              {conflict.affectedSessions && conflict.affectedSessions.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs font-medium text-red-800">Affected Sessions:</p>
+                  {conflict.affectedSessions.map((session, sessionIndex) => (
+                    <div key={sessionIndex} className="text-xs bg-white p-2 rounded border">
+                      <span className="font-medium">{session.unit_code}</span> - {session.day}{" "}
+                      {formatTimeToHi(session.start_time)}-{formatTimeToHi(session.end_time)} -{" "}
+                      {session.lecturer} - {session.venue}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-8">
+          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <p className="text-lg text-green-600 font-medium">No conflicts detected!</p>
+          <p className="text-sm text-gray-500 mt-2">Your timetable is optimally scheduled.</p>
+        </div>
+      )}
+    </div>
+
+    <div className="mt-6 flex justify-end border-t pt-4">
+      <Button onClick={handleCloseModal} className="bg-gray-400 hover:bg-gray-500 text-white">
+        Close
+      </Button>
+    </div>
+  </>
+)}
+
+</div>
           </div>
-        )}
+        )}          
 
         {/* Enhanced Statistics Dashboard */}
         {classTimetables?.data?.length > 0 && (
@@ -2467,9 +2644,9 @@ const handleOpenModal = useCallback(
                 </div>
               </CardContent>
             </Card>
-          </div>
+          </div>                    // ← Closes statistics dashboard grid
         )}
-      </div>
+      </div>                        // ← Closes main "p-6" container
     </AuthenticatedLayout>
   )
 }
