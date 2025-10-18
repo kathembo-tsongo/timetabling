@@ -3291,7 +3291,7 @@ public function storeProgramClassTimetable(Program $program, Request $request, $
             'school_id' => $schoolId,
         ]);
 
-        \Log::info('✅ Class timetable created successfully (no conflicts)', [
+        \Log::info(' Class timetable created successfully (no conflicts)', [
             'timetable_id' => $classTimetable->id,
             'program_id' => $program->id
         ]);

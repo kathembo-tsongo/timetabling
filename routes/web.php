@@ -795,6 +795,11 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                 Route::get('/download/pdf', function(Program $program) {
                     return app(ClassTimetableController::class)->downloadProgramClassTimetablePDF($program, 'SBS');
                 })->name('download');
+
+                // ✅ ADD THIS BULK SCHEDULE ROUTE FOR SBS
+                Route::post('/bulk-schedule', function(Program $program, Request $request) {
+                    return app(ClassTimetableController::class)->bulkSchedule($request);
+                })->middleware(['permission:create-class-timetables'])->name('bulk-schedule');
                 
                 // ✅ FIXED: CLASS TIMETABLE CONFLICT RESOLUTION FOR SBS
                 Route::post('/resolve-conflict', function(Program $program, Request $request) {
@@ -844,18 +849,21 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                     return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
                 })->name('download');
                 
-                // ✅ FIXED: EXAM TIMETABLE CONFLICT RESOLUTION FOR SBS
+                // ✅ ADD THIS BULK SCHEDULE ROUTE FOR SBS
+                Route::post('/bulk-schedule', function(Program $program, Request $request) {
+                    return app(ClassTimetableController::class)->bulkSchedule($request);
+                })->middleware(['permission:create-class-timetables'])->name('bulk-schedule');
+
+                // ✅ FIXED: CLASS TIMETABLE CONFLICT RESOLUTION FOR SBS
                 Route::post('/resolve-conflict', function(Program $program, Request $request) {
-                    // ✅ Call the correct method that exists in the controller
-                    return app(ExamTimetableController::class)->resolveConflict($request);
-                })->middleware(['permission:solve-exam-conflicts'])
-                  ->name('resolve-conflict');
-                
+                    return app(ClassTimetableController::class)->resolveConflict($request);
+                })->middleware(['permission:solve-class-conflicts'])
+                ->name('resolve-conflict');
+    
                 Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
-                    // ✅ This method exists and is correct
-                    return app(ExamTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SBS');
-                })->middleware(['permission:solve-exam-conflicts'])
-                  ->name('resolve-all');
+                    return app(ClassTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SBS');
+                })->middleware(['permission:solve-class-conflicts'])
+                ->name('resolve-all');
             });
         });
     });
