@@ -486,8 +486,8 @@ const EnhancedClassTimetable = () => {
   units = [],
   lecturers = [],
   schools = [],
-  program, // ADD THIS - the program object from controller
-  schoolCode, // ADD THIS - the school code (SCES, SBS, etc.)
+  program, 
+  schoolCode, 
 } = pageProps
 
   const programs = useMemo(() => (Array.isArray(pageProps.programs) ? pageProps.programs : []), [pageProps.programs])
@@ -530,6 +530,257 @@ const EnhancedClassTimetable = () => {
   const [detectedConflicts, setDetectedConflicts] = useState<any[]>([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showConflictAnalysis, setShowConflictAnalysis] = useState(false)
+  // Add these state variables with your other useState declarations
+  const [isResolving, setIsResolving] = useState(false)
+  const [resolutionResults, setResolutionResults] = useState<any[]>([])
+
+  // State declarations for bulk scheduling
+const [bulkFilteredPrograms, setBulkFilteredPrograms] = useState<any[]>([])
+const [bulkFilteredClasses, setBulkFilteredClasses] = useState<any[]>([])
+const [isBulkLoading, setIsBulkLoading] = useState(false)
+const [isBulkModalOpen, setIsBulkModalOpen] = useState(false)
+const [bulkFormState, setBulkFormState] = useState<{
+  semester_id: number
+  school_id: number | null
+  program_id: number | null
+  selected_classes: Array<{
+    class_id: number
+    group_id: number | null
+    unit_id: number
+    class_name: string
+    unit_code: string
+  }>
+  selected_timeslots: number[]
+  selected_classrooms: number[]  // ✅ NEW: Add this
+  distribution_strategy: 'round_robin' | 'random' | 'balanced'
+}>({
+  semester_id: 0,
+  school_id: null,
+  program_id: null,
+  selected_classes: [],
+  selected_timeslots: [],
+  selected_classrooms: [],  // ✅ NEW: Add this
+  distribution_strategy: 'balanced'
+})
+const [availableClassUnits, setAvailableClassUnits] = useState<any[]>([])
+const [isBulkSubmitting, setIsBulkSubmitting] = useState(false)
+// ✅ ADD THIS: Map to store units per class
+const [classUnitMap, setClassUnitMap] = useState<Map<number, number[]>>(new Map())
+const [currentlyLoadingClass, setCurrentlyLoadingClass] = useState<number | null>(null)
+
+// Add the bulk schedule handler function (around line 800)
+const handleBulkSchedule = useCallback(async () => {
+  if (!bulkFormState.semester_id || !bulkFormState.school_id || !bulkFormState.program_id) {
+    toast.error('Please select semester, school, and program')
+    return
+  }
+
+  if (bulkFormState.selected_classes.length === 0) {
+    toast.error('Please select at least one class/unit combination')
+    return
+  }
+
+  if (bulkFormState.selected_timeslots.length === 0) {
+    toast.error('Please select at least one time slot')
+    return
+  }
+
+  // ✅ NEW: Add classroom selection info to confirmation
+  const classroomInfo = bulkFormState.selected_classrooms.length > 0
+    ? ` using ${bulkFormState.selected_classrooms.length} selected classrooms`
+    : ' using all available classrooms'
+
+  if (!confirm(
+    `Create ${bulkFormState.selected_classes.length} timetable entries ` +
+    `across ${bulkFormState.selected_timeslots.length} time slots${classroomInfo}?`
+  )) {
+    return
+  }
+
+  setIsBulkSubmitting(true)
+
+  try {
+    const response = await axios.post(
+      `/schools/${schoolCode.toLowerCase()}/programs/${program.id}/class-timetables/bulk-schedule`,
+      {
+        semester_id: bulkFormState.semester_id,
+        school_id: bulkFormState.school_id,
+        program_id: bulkFormState.program_id,
+        selected_classes: bulkFormState.selected_classes,
+        selected_timeslots: bulkFormState.selected_timeslots,
+        selected_classrooms: bulkFormState.selected_classrooms,  // ✅ NEW: Include classrooms
+        distribution_strategy: bulkFormState.distribution_strategy
+      }
+    )
+
+    if (response.data.success) {
+      const { summary, created_sessions, skipped_sessions } = response.data
+
+      toast.success(
+        `✅ Bulk scheduling complete!\n${summary.created} created, ${summary.skipped} skipped`,
+        { duration: 6000 }
+      )
+
+      // Show detailed results
+      if (created_sessions.length > 0) {
+        setTimeout(() => {
+          toast.info(
+            `📅 Created sessions:\n${created_sessions.slice(0, 3).map(s => 
+              `${s.class} - ${s.unit} on ${s.day} at ${s.venue}`
+            ).join('\n')}${created_sessions.length > 3 ? `\n...and ${created_sessions.length - 3} more` : ''}`, 
+            { duration: 5000 }
+          )
+        }, 1000)
+      }
+
+      if (skipped_sessions.length > 0) {
+        setTimeout(() => {
+          toast.warning(`⚠️ Skipped ${skipped_sessions.length} due to conflicts`, { duration: 4000 })
+        }, 2000)
+      }
+
+      
+
+      setTimeout(() => {
+        router.reload({ only: ['classTimetables'] })
+      }, 3000)
+    }
+  } catch (error: any) {
+    console.error('Bulk schedule error:', error)
+    toast.error(error.response?.data?.message || 'Failed to create bulk schedule')
+  } finally {
+    setIsBulkSubmitting(false)
+  }
+}, [bulkFormState, schoolCode, program])
+
+// Add handler for loading class units
+
+// REPLACE THIS ENTIRE FUNCTION
+const handleBulkClassChange = useCallback(async (classId: number) => {
+  if (!bulkFormState.semester_id) {
+    toast.error('Please select a semester first')
+    return
+  }
+
+  setCurrentlyLoadingClass(classId)
+
+  try {
+    const response = await axios.get('/admin/api/timetable/units/by-class', {
+      params: {
+        class_id: classId,
+        semester_id: bulkFormState.semester_id
+      }
+    })
+
+    if (response.data && response.data.length > 0) {
+      // ✅ Store units for THIS specific class in the map
+      setClassUnitMap(prev => {
+        const newMap = new Map(prev)
+        newMap.set(classId, response.data)
+        return newMap
+      })
+      
+      toast.success(`Loaded ${response.data.length} units for class ${classId}`)
+      
+      console.log(`✅ Units loaded and stored for class ${classId}:`, response.data.map(u => ({
+        unit_id: u.id,
+        unit_code: u.code,
+        lecturer: u.lecturer_name || u.lecturer_code
+      })))
+    } else {
+      toast.warning('No units found for this class')
+    }
+  } catch (error) {
+    toast.error('Failed to load units for class')
+  } finally {
+    setCurrentlyLoadingClass(null)
+  }
+}, [bulkFormState.semester_id])
+
+// Handler for bulk school change - fetches programs
+const handleBulkSchoolChange = useCallback(async (schoolId: number | string) => {
+  const numericSchoolId = schoolId === "" ? null : Number(schoolId)
+
+  setBulkFormState(prev => ({
+    ...prev,
+    school_id: numericSchoolId,
+    program_id: null,
+    selected_classes: [],
+  }))
+
+  setBulkFilteredPrograms([])
+  setBulkFilteredClasses([])
+  setAvailableClassUnits([])
+
+  if (numericSchoolId === null) {
+    return
+  }
+
+  setIsBulkLoading(true)
+
+  try {
+    const response = await axios.get("/admin/api/timetable/programs/by-school", {
+      params: {
+        school_id: numericSchoolId,
+      },
+    })
+
+    if (response.data && response.data.length > 0) {
+      setBulkFilteredPrograms(response.data)
+      toast.success(`Loaded ${response.data.length} programs for selected school`)
+    } else {
+      setBulkFilteredPrograms([])
+      toast.warning("No programs found for the selected school")
+    }
+  } catch (error) {
+    toast.error("Failed to fetch programs for the selected school")
+    setBulkFilteredPrograms([])
+  } finally {
+    setIsBulkLoading(false)
+  }
+}, [])
+
+// Handler for bulk program change - fetches classes
+const handleBulkProgramChange = useCallback(async (programId: number | string) => {
+  const numericProgramId = programId === "" ? null : Number(programId)
+
+  setBulkFormState(prev => ({
+    ...prev,
+    program_id: numericProgramId,
+    selected_classes: [],
+  }))
+
+  setBulkFilteredClasses([])
+  setAvailableClassUnits([])
+
+  if (numericProgramId === null || !bulkFormState.semester_id) {
+    return
+  }
+
+  setIsBulkLoading(true)
+
+  try {
+    const response = await axios.get("/admin/api/timetable/classes/by-program", {
+      params: {
+        program_id: numericProgramId,
+        semester_id: bulkFormState.semester_id,
+      },
+    })
+
+    if (response.data && response.data.length > 0) {
+      setBulkFilteredClasses(response.data)
+      toast.success(`Loaded ${response.data.length} classes for selected program`)
+    } else {
+      setBulkFilteredClasses([])
+      toast.warning("No classes found for the selected program in this semester")
+    }
+  } catch (error) {
+    toast.error("Failed to fetch classes for the selected program")
+    setBulkFilteredClasses([])
+  } finally {
+    setIsBulkLoading(false)
+  }
+}, [bulkFormState.semester_id])
 
   // Enhanced day ordering to organizedTimetables
   const organizedTimetables = useMemo(() => {
@@ -1514,6 +1765,121 @@ const handleOpenModal = useCallback(
     }
   }, [])
 
+// Add these handler functions before the return statement (around line 800)
+
+/**
+ * 🔧 Handle individual conflict resolution
+ */
+const handleResolveConflict = useCallback(async (conflict: any) => {
+  setIsResolving(true)
+  try {
+    const affectedIds = conflict.affectedSessions.map((s: any) => s.id)
+    
+    console.log('🔧 Resolving conflict:', {
+      type: conflict.type,
+      affected_ids: affectedIds
+    })
+    
+    const response = await axios.post(
+      `/schools/${schoolCode.toLowerCase()}/programs/${program.id}/class-timetables/resolve-conflict`,
+      {
+        conflict_type: conflict.type,
+        affected_session_ids: affectedIds,
+        resolution_strategy: 'auto'
+      }
+    )
+
+    if (response.data.success) {
+      toast.success(response.data.message, {
+        duration: 5000,
+      })
+      
+      // Show detailed changes
+      if (response.data.changes && response.data.changes.length > 0) {
+        response.data.changes.forEach((change: any, index: number) => {
+          setTimeout(() => {
+            const changeMessage = change.new_venue 
+              ? `📝 ${change.unit_code}: Venue changed from ${change.old_venue} to ${change.new_venue}`
+              : change.new_time
+              ? `⏰ ${change.unit_code}: Time changed from ${change.old_time} to ${change.new_time}`
+              : change.new_schedule
+              ? `📅 ${change.unit_code}: Rescheduled from ${change.old_schedule} to ${change.new_schedule}`
+              : `✅ ${change.unit_code}: Updated successfully`
+            
+            toast.info(changeMessage, { duration: 4000 })
+          }, index * 1000)
+        })
+      }
+      
+      // Reload the page to show updated timetable
+      setTimeout(() => {
+        router.reload({ only: ['classTimetables'] })
+      }, 2000)
+    } else {
+      toast.error(response.data.message || 'Failed to resolve conflict')
+    }
+  } catch (error: any) {
+    console.error('Conflict resolution error:', error)
+    const errorMessage = error.response?.data?.message || error.message || 'Failed to resolve conflict'
+    toast.error(errorMessage)
+  } finally {
+    setIsResolving(false)
+  }
+}, [schoolCode, program])
+
+/**
+ * 🔄 Handle bulk resolution of all conflicts
+ */
+const handleResolveAllConflicts = useCallback(async () => {
+  if (!confirm('This will automatically resolve all detected conflicts. Continue?')) {
+    return
+  }
+
+  setIsResolving(true)
+  try {
+    console.log('🔄 Starting bulk conflict resolution...')
+    
+    const response = await axios.post(
+      `/schools/${schoolCode.toLowerCase()}/programs/${program.id}/class-timetables/resolve-all-conflicts`
+    )
+
+    if (response.data.success) {
+      const { resolved_count, failed_count, changes } = response.data
+      
+      toast.success(
+        `✅ Resolved ${resolved_count} conflict${resolved_count !== 1 ? 's' : ''}! ${
+          failed_count > 0 ? `${failed_count} could not be resolved automatically.` : ''
+        }`,
+        { duration: 6000 }
+      )
+      
+      // Show summary of changes
+      if (changes && changes.length > 0) {
+        setTimeout(() => {
+          toast.info(
+            `📊 Made ${changes.length} schedule modification${changes.length !== 1 ? 's' : ''}`,
+            { duration: 4000 }
+          )
+        }, 1000)
+      }
+      
+      // Reload to show updated timetable
+      setTimeout(() => {
+        router.reload({ only: ['classTimetables'] })
+        handleCloseModal()
+      }, 3000)
+    } else {
+      toast.error(response.data.message || 'Failed to resolve conflicts')
+    }
+  } catch (error: any) {
+    console.error('Bulk resolution error:', error)
+    const errorMessage = error.response?.data?.message || error.message || 'Failed to resolve all conflicts'
+    toast.error(errorMessage)
+  } finally {
+    setIsResolving(false)
+  }
+}, [schoolCode, program, handleCloseModal])
+
   return (
     <AuthenticatedLayout>
       <Head title="Enhanced Class Timetable" />
@@ -1535,11 +1901,22 @@ const handleOpenModal = useCallback(
         <div className="flex justify-between items-center mb-6">
           <div className="flex space-x-2">
             {can.create && (
+            <>
               <Button onClick={() => handleOpenModal("create", null)} className="bg-green-500 hover:bg-green-600">
                 <Plus className="w-4 h-4 mr-2" />
-                Add Class
+                   Add Class
               </Button>
-            )}
+
+              {/* NEW: Bulk Schedule Button */}
+              <Button
+                onClick={() => setIsBulkModalOpen(true)}
+                className="bg-purple-500 hover:bg-purple-600"
+              >
+                <Zap className="w-4 h-4 mr-2" />
+                Bulk Schedule
+              </Button>
+            </>
+          )}    
 
             <Button
               onClick={() => handleOpenModal("conflicts", null)}
@@ -2335,73 +2712,132 @@ const handleOpenModal = useCallback(
                 </>
               )}
 
-              {/* CONFLICTS MODAL */}
+              {/* CONFLICTS MODAL - ENHANCED WITH RESOLUTION BUTTONS */}
               {modalType === "conflicts" && (
                 <>
                   <h2 className="text-xl font-semibold mb-4 flex items-center">
                     <AlertCircle className="w-5 h-5 mr-2 text-red-500" />
-                    Conflict Analysis
+                      Conflict Analysis & Resolution
                   </h2>
 
                   <div className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
-                      <div>
-                        <p className="text-sm text-gray-600">
-                          Found {detectedConflicts?.length || 0} conflicts in the current timetable
-                        </p>
-                      </div>
+        <div>
+          <p className="text-sm text-gray-600">
+            Found {detectedConflicts?.length || 0} conflict{detectedConflicts?.length !== 1 ? 's' : ''} in the current timetable
+          </p>
+          {detectedConflicts && detectedConflicts.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {detectedConflicts.filter((c) => c.severity === "high").length} high priority, {" "}
+              {detectedConflicts.filter((c) => c.severity === "medium").length} medium priority
+            </p>
+          )}
+        </div>
+        
+        {/* Bulk Resolve Button */}
+        {detectedConflicts && detectedConflicts.length > 0 && can.solve_conflicts && (
+          <Button
+            onClick={handleResolveAllConflicts}
+            disabled={isResolving}
+            className="bg-green-500 hover:bg-green-600 text-white"
+          >
+            {isResolving ? (
+              <>
+                <Clock className="w-4 h-4 mr-2 animate-spin" />
+                Resolving...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                Auto-Resolve All ({detectedConflicts.length})
+              </>
+            )}
+          </Button>
+        )}
+      </div>
+
+      {detectedConflicts && detectedConflicts.length > 0 ? (
+        <div className="space-y-3 max-h-96 overflow-y-auto">
+          {detectedConflicts.map((conflict, index) => (
+            <div key={index} className="border border-red-200 rounded-lg p-4 bg-red-50">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium text-red-800">
+                      {conflict.type?.replace(/_/g, " ").toUpperCase()}
+                    </h4>
+                    <div className="flex gap-2">
+                      <Badge variant="destructive" className="text-xs">
+                        {conflict.severity}
+                      </Badge>
+                      
+                      {/* Individual Resolve Button */}
+                      {can.solve_conflicts && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleResolveConflict(conflict)}
+                          disabled={isResolving}
+                          className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1"
+                        >
+                          {isResolving ? (
+                            <Clock className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <>
+                              <Zap className="w-3 h-3 mr-1" />
+                              Fix
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
-
-                    {detectedConflicts && detectedConflicts.length > 0 ? (
-                      <div className="space-y-3 max-h-96 overflow-y-auto">
-                        {detectedConflicts.map((conflict, index) => (
-                          <div key={index} className="border border-red-200 rounded-lg p-4 bg-red-50">
-                            <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <h4 className="font-medium text-red-800">
-                                  {conflict.type?.replace("_", " ").toUpperCase()}
-                                </h4>
-                                <p className="text-sm text-red-700">{conflict.description}</p>
-                              </div>
-                              <Badge variant="destructive" className="text-xs">
-                                {conflict.severity}
-                              </Badge>
-                            </div>
-
-                            {conflict.affectedSessions && conflict.affectedSessions.length > 0 && (
-                              <div className="mt-3 space-y-2">
-                                <p className="text-xs font-medium text-red-800">Affected Sessions:</p>
-                                {conflict.affectedSessions.map((session, sessionIndex) => (
-                                  <div key={sessionIndex} className="text-xs bg-white p-2 rounded border">
-                                    <span className="font-medium">{session.unit_code}</span> - {session.day}{" "}
-                                    {formatTimeToHi(session.start_time)}-{formatTimeToHi(session.end_time)} -{" "}
-                                    {session.lecturer} - {session.venue}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                        <p className="text-lg text-green-600 font-medium">No conflicts detected!</p>
-                        <p className="text-sm text-gray-500 mt-2">Your timetable is optimally scheduled.</p>
-                      </div>
-                    )}
                   </div>
+                  <p className="text-sm text-red-700 mb-2">{conflict.description}</p>
+                  
+                  {/* Recommendation */}
+                  {conflict.recommendation && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                      <strong className="text-blue-800">💡 Recommendation:</strong>
+                      <p className="text-blue-700 mt-1">{conflict.recommendation}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-                  <div className="mt-6 flex justify-end border-t pt-4">
-                    <Button onClick={handleCloseModal} className="bg-gray-400 hover:bg-gray-500 text-white">
-                      Close
-                    </Button>
-                  </div>
-                </>
+              {conflict.affectedSessions && conflict.affectedSessions.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs font-medium text-red-800">Affected Sessions:</p>
+                  {conflict.affectedSessions.map((session, sessionIndex) => (
+                    <div key={sessionIndex} className="text-xs bg-white p-2 rounded border">
+                      <span className="font-medium">{session.unit_code}</span> - {session.day}{" "}
+                      {formatTimeToHi(session.start_time)}-{formatTimeToHi(session.end_time)} -{" "}
+                      {session.lecturer} - {session.venue}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-8">
+          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <p className="text-lg text-green-600 font-medium">No conflicts detected!</p>
+          <p className="text-sm text-gray-500 mt-2">Your timetable is optimally scheduled.</p>
+        </div>
+      )}
+    </div>
+
+    <div className="mt-6 flex justify-end border-t pt-4">
+      <Button onClick={handleCloseModal} className="bg-gray-400 hover:bg-gray-500 text-white">
+        Close
+      </Button>
+    </div>
+  </>
+)}
+
+</div>
           </div>
-        )}
+        )}          
 
         {/* Enhanced Statistics Dashboard */}
         {classTimetables?.data?.length > 0 && (
@@ -2467,9 +2903,661 @@ const handleOpenModal = useCallback(
                 </div>
               </CardContent>
             </Card>
+          </div>                    
+        )}
+
+        {/* BULK SCHEDULE MODAL */}
+{isBulkModalOpen && (
+  <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+    <div className="bg-white p-6 rounded-lg shadow-xl w-[800px] max-h-[90vh] overflow-y-auto">
+      <h2 className="text-xl font-semibold mb-4 flex items-center">
+        <Zap className="w-5 h-5 mr-2 text-purple-600" />
+        Bulk Schedule Classes
+      </h2>
+
+      <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded text-sm">
+        <h4 className="font-medium text-purple-800 mb-1">How Bulk Scheduling Works:</h4>
+        <ul className="text-purple-700 space-y-1">
+          <li>Select multiple classes and their units</li>
+          <li>Select multiple time slots</li>
+          <li>System automatically distributes and assigns venues</li>
+          <li>Respects all conflict rules (lecturers, venues, students)</li>
+          <li>Skips sessions that would cause conflicts</li>
+        </ul>
+      </div>
+
+      {/* Semester Selection */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Semester *</label>
+        <select
+          value={bulkFormState.semester_id}
+          onChange={(e) => setBulkFormState(prev => ({
+            ...prev,
+            semester_id: Number(e.target.value),
+            school_id: null,
+            program_id: null,
+            selected_classes: []
+          }))}
+          className="w-full border rounded p-2"
+          required
+        >
+          <option value="0">Select Semester</option>
+          {semesters.map(sem => (
+            <option key={sem.id} value={sem.id}>{sem.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* School Selection */}
+      {/* School Selection */}
+{bulkFormState.semester_id > 0 && (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-700 mb-1">
+      School *
+    </label>
+    <select
+      value={bulkFormState.school_id || ''}
+      onChange={(e) => handleBulkSchoolChange(e.target.value)}
+      className="w-full border rounded p-2"
+      required
+      disabled={isBulkLoading}
+    >
+      <option value="">Select School</option>
+      {schools.map(school => (
+        <option key={school.id} value={school.id}>
+          {school.code} - {school.name}
+        </option>
+      ))}
+    </select>
+    {isBulkLoading && (
+      <div className="text-xs text-blue-600 mt-1">Loading programs...</div>
+    )}
+  </div>
+)}
+
+      {/* Program Selection */}
+      {/* Program Selection */}
+{bulkFormState.school_id && (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-700 mb-1">
+      Program *
+      <span className="text-blue-600 text-xs ml-2">
+        (Filtered by selected school)
+      </span>
+    </label>
+    <select
+      value={bulkFormState.program_id || ''}
+      onChange={(e) => handleBulkProgramChange(e.target.value)}
+      className="w-full border rounded p-2"
+      required
+      disabled={isBulkLoading}
+    >
+      <option value="">Select Program</option>
+      {bulkFilteredPrograms.map(prog => (
+        <option key={prog.id} value={prog.id}>
+          {prog.code} - {prog.name}
+        </option>
+      ))}
+    </select>
+    {isBulkLoading && (
+      <div className="text-xs text-blue-600 mt-1">Loading classes...</div>
+    )}
+    {bulkFilteredPrograms.length === 0 && bulkFormState.school_id && !isBulkLoading && (
+      <div className="text-xs text-orange-600 mt-1">
+        No programs found for selected school
+      </div>
+    )}
+  </div>
+)}
+
+      {/* Class/Unit Selection */}
+{bulkFormState.program_id && bulkFilteredClasses.length > 0 && (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+      Select Classes & Units *
+      <span className="text-green-600 text-xs ml-2">
+        (Filtered by program & semester)
+      </span>
+    </label>
+    <div className="border rounded p-3 max-h-60 overflow-y-auto space-y-2">
+      {bulkFilteredClasses.map(cls => (
+        <div key={cls.id} className="border-b pb-2">
+          <div className="font-medium text-sm mb-1">
+            {cls.display_name || cls.name}
+            {cls.section && ` - Section ${cls.section}`}
+            {cls.year_level && ` (Year ${cls.year_level})`}
           </div>
+          <button
+            type="button"
+            onClick={() => handleBulkClassChange(cls.id)}
+            className="text-xs text-blue-600 hover:underline mb-1"
+          >
+            Load Units for this Class
+          </button>
+          
+          {/* ✅ NEW: Show units if they exist for THIS specific class */}
+    {classUnitMap.has(cls.id) && (
+      <div className="ml-4 space-y-1 mt-2">
+        <div className="text-xs text-green-600 mb-1">
+          ✅ {classUnitMap.get(cls.id)?.length} units loaded for this class
+        </div>
+        {classUnitMap.get(cls.id)?.map(unit => {
+          const isSelected = bulkFormState.selected_classes.some(
+            sc => sc.class_id === cls.id && sc.unit_id === unit.id
+          )
+          
+          return (
+            <label 
+              key={unit.id} 
+              className={`flex items-center text-sm p-2 rounded ${
+                isSelected ? 'bg-green-50 border border-green-200' : 'hover:bg-gray-50'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setBulkFormState(prev => ({
+                      ...prev,
+                      selected_classes: [
+                        ...prev.selected_classes,
+                        {
+                          class_id: cls.id,
+                          group_id: null,
+                          unit_id: unit.id,
+                          class_name: cls.name,
+                          unit_code: unit.code
+                        }
+                      ]
+                    }))
+                    toast.success(`Added ${unit.code} for ${cls.name}`)
+                  } else {
+                    setBulkFormState(prev => ({
+                      ...prev,
+                      selected_classes: prev.selected_classes.filter(
+                        sc => !(sc.class_id === cls.id && sc.unit_id === unit.id)
+                      )
+                    }))
+                    toast.info(`Removed ${unit.code} for ${cls.name}`)
+                  }
+                }}
+                className="mr-2"
+              />
+              <div className="flex-1">
+                <span className="font-medium">{unit.code}</span>
+                <span className="text-gray-600"> - {unit.name}</span>
+                <div className="text-xs text-gray-500 mt-1">
+                  {unit.student_count} students
+                  {unit.lecturer_name && (
+                    <span className="ml-2">• {unit.lecturer_name}</span>
+                  )}
+                </div>
+              </div>
+              {isSelected && (
+                <span className="ml-2 text-green-600">✓</span>
+              )}
+            </label>
+          )
+        })}
+      </div>
+    )}
+    
+    {/* Show loading indicator */}
+    {currentlyLoadingClass === cls.id && (
+      <div className="ml-4 mt-2 text-xs text-blue-600">
+        <Clock className="w-3 h-3 inline mr-1 animate-spin" />
+        Loading units...
+      </div>
+    )}
+        </div>
+      ))}
+    </div>
+    <div className="text-xs text-gray-600 mt-2 flex justify-between">
+      <span>Selected: {bulkFormState.selected_classes.length} class/unit combinations</span>
+      {bulkFormState.selected_classes.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setBulkFormState(prev => ({
+            ...prev,
+            selected_classes: []
+          }))}
+          className="text-red-600 hover:underline"
+        >
+          Clear All
+        </button>
+      )}
+    </div>
+  </div>
+)}
+
+{/* Time Slot Selection - ADD THIS SECTION */}
+{bulkFormState.selected_classes.length > 0 && (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+      Select Time Slots *
+      <span className="text-blue-600 text-xs ml-2">
+        (Multiple selections allowed)
+      </span>
+    </label>
+    
+    <div className="mb-2 flex justify-between items-center">
+      <div className="text-xs text-gray-600">
+        {bulkFormState.selected_timeslots.length === 0 
+          ? 'No time slots selected' 
+          : `${bulkFormState.selected_timeslots.length} time slot(s) selected`}
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const allSlotIds = classtimeSlots.map(ts => ts.id)
+            setBulkFormState(prev => ({
+              ...prev,
+              selected_timeslots: allSlotIds
+            }))
+            toast.success(`Selected all ${allSlotIds.length} time slots`)
+          }}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          Select All
+        </button>
+        {bulkFormState.selected_timeslots.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setBulkFormState(prev => ({
+                ...prev,
+                selected_timeslots: []
+              }))
+              toast.info('Cleared time slot selection')
+            }}
+            className="text-xs text-red-600 hover:underline"
+          >
+            Clear All
+          </button>
         )}
       </div>
+    </div>
+
+    <div className="border rounded p-3 max-h-60 overflow-y-auto">
+      {/* Group by day */}
+      {Object.entries(
+        classtimeSlots.reduce((acc, slot) => {
+          if (!acc[slot.day]) acc[slot.day] = []
+          acc[slot.day].push(slot)
+          return acc
+        }, {} as Record<string, any[]>)
+      ).map(([day, daySlots]) => (
+        <div key={day} className="mb-3">
+          <div className="font-medium text-sm text-gray-700 mb-1 flex items-center">
+            <Calendar className="w-3 h-3 mr-1" />
+            {day}
+            <button
+              type="button"
+              onClick={() => {
+                const daySlotIds = daySlots.map(s => s.id)
+                const allSelected = daySlotIds.every(id => 
+                  bulkFormState.selected_timeslots.includes(id)
+                )
+                
+                if (allSelected) {
+                  setBulkFormState(prev => ({
+                    ...prev,
+                    selected_timeslots: prev.selected_timeslots.filter(
+                      id => !daySlotIds.includes(id)
+                    )
+                  }))
+                } else {
+                  setBulkFormState(prev => ({
+                    ...prev,
+                    selected_timeslots: [
+                      ...new Set([...prev.selected_timeslots, ...daySlotIds])
+                    ]
+                  }))
+                }
+              }}
+              className="ml-2 text-xs text-blue-600 hover:underline"
+            >
+              {daySlots.every(s => bulkFormState.selected_timeslots.includes(s.id))
+                ? 'Deselect All' 
+                : 'Select All'}
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2 ml-4">
+            {daySlots.map(slot => {
+              const isSelected = bulkFormState.selected_timeslots.includes(slot.id)
+              const duration = calculateDuration(slot.start_time, slot.end_time)
+              const autoMode = getTeachingModeFromDuration(slot.start_time, slot.end_time)
+              
+              return (
+                <label 
+                  key={slot.id}
+                  className={`flex items-center text-sm p-2 rounded cursor-pointer transition-colors ${
+                    isSelected 
+                      ? 'bg-blue-50 border border-blue-200' 
+                      : 'hover:bg-gray-50 border border-gray-200'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setBulkFormState(prev => ({
+                          ...prev,
+                          selected_timeslots: [...prev.selected_timeslots, slot.id]
+                        }))
+                      } else {
+                        setBulkFormState(prev => ({
+                          ...prev,
+                          selected_timeslots: prev.selected_timeslots.filter(
+                            id => id !== slot.id
+                          )
+                        }))
+                      }
+                    }}
+                    className="mr-2"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium">
+                      {slot.start_time} - {slot.end_time}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {duration.toFixed(1)}h • {autoMode}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <span className="ml-2 text-blue-600">✓</span>
+                  )}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
+{/* Show message if program selected but no classes loaded */}
+{bulkFormState.program_id && bulkFilteredClasses.length === 0 && !isBulkLoading && (
+  <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded text-sm text-orange-700">
+    No classes found for the selected program and semester. Please check if classes exist for this combination.
+  </div>
+)}
+
+      {/* ✅ NEW: Classroom Selection */}
+{bulkFormState.selected_timeslots.length > 0 && (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+      Select Classrooms (Optional)
+      <span className="text-blue-600 text-xs ml-2">
+        (Leave empty to use all available classrooms)
+      </span>
+    </label>
+    
+    <div className="mb-2 flex justify-between items-center">
+      <div className="text-xs text-gray-600">
+        {bulkFormState.selected_classrooms.length === 0 
+          ? 'All classrooms will be considered' 
+          : `${bulkFormState.selected_classrooms.length} classroom(s) selected`}
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const allClassroomIds = classrooms.map(c => c.id)
+            setBulkFormState(prev => ({
+              ...prev,
+              selected_classrooms: allClassroomIds
+            }))
+            toast.success(`Selected all ${allClassroomIds.length} classrooms`)
+          }}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          Select All
+        </button>
+        {bulkFormState.selected_classrooms.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setBulkFormState(prev => ({
+                ...prev,
+                selected_classrooms: []
+              }))
+              toast.info('Cleared classroom selection - will use all classrooms')
+            }}
+            className="text-xs text-red-600 hover:underline"
+          >
+            Clear All
+          </button>
+        )}
+      </div>
+    </div>
+
+    <div className="border rounded p-3 max-h-48 overflow-y-auto">
+      {/* Group classrooms by location/building */}
+      {Object.entries(
+        classrooms.reduce((acc, classroom) => {
+          const location = classroom.location || 'Unknown Location'
+          if (!acc[location]) acc[location] = []
+          acc[location].push(classroom)
+          return acc
+        }, {} as Record<string, any[]>)
+      ).map(([location, locationClassrooms]) => (
+        <div key={location} className="mb-3">
+          <div className="font-medium text-sm text-gray-700 mb-1 flex items-center">
+            <MapPin className="w-3 h-3 mr-1" />
+            {location}
+            <button
+              type="button"
+              onClick={() => {
+                const locationIds = locationClassrooms.map(c => c.id)
+                const allSelected = locationIds.every(id => 
+                  bulkFormState.selected_classrooms.includes(id)
+                )
+                
+                if (allSelected) {
+                  // Deselect all from this location
+                  setBulkFormState(prev => ({
+                    ...prev,
+                    selected_classrooms: prev.selected_classrooms.filter(
+                      id => !locationIds.includes(id)
+                    )
+                  }))
+                } else {
+                  // Select all from this location
+                  setBulkFormState(prev => ({
+                    ...prev,
+                    selected_classrooms: [
+                      ...new Set([...prev.selected_classrooms, ...locationIds])
+                    ]
+                  }))
+                }
+              }}
+              className="ml-2 text-xs text-blue-600 hover:underline"
+            >
+              {locationClassrooms.every(c => 
+                bulkFormState.selected_classrooms.includes(c.id)
+              ) ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2 ml-4">
+            {locationClassrooms.map(classroom => {
+              const isSelected = bulkFormState.selected_classrooms.includes(classroom.id)
+              
+              return (
+                <label 
+                  key={classroom.id}
+                  className={`flex items-center text-sm p-2 rounded cursor-pointer transition-colors ${
+                    isSelected 
+                      ? 'bg-blue-50 border border-blue-200' 
+                      : 'hover:bg-gray-50 border border-gray-200'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setBulkFormState(prev => ({
+                          ...prev,
+                          selected_classrooms: [...prev.selected_classrooms, classroom.id]
+                        }))
+                      } else {
+                        setBulkFormState(prev => ({
+                          ...prev,
+                          selected_classrooms: prev.selected_classrooms.filter(
+                            id => id !== classroom.id
+                          )
+                        }))
+                      }
+                    }}
+                    className="mr-2"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium">{classroom.name}</div>
+                    <div className="text-xs text-gray-500">
+                      Capacity: {classroom.capacity}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <span className="ml-2 text-blue-600">✓</span>
+                  )}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+
+    {bulkFormState.selected_classrooms.length > 0 && (
+      <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+        <div className="text-blue-800">
+          <strong>Selected Venues:</strong>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {bulkFormState.selected_classrooms.map(id => {
+              const classroom = classrooms.find(c => c.id === id)
+              return classroom ? (
+                <span key={id} className="inline-flex items-center bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                  {classroom.name}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkFormState(prev => ({
+                        ...prev,
+                        selected_classrooms: prev.selected_classrooms.filter(
+                          cId => cId !== id
+                        )
+                      }))
+                    }}
+                    className="ml-1 text-blue-600 hover:text-blue-800"
+                  >
+                    ×
+                  </button>
+                </span>
+              ) : null
+            })}
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
+
+      {/* Distribution Strategy */}
+      {bulkFormState.selected_timeslots.length > 0 && (
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Distribution Strategy
+          </label>
+          <select
+            value={bulkFormState.distribution_strategy}
+            onChange={(e) => setBulkFormState(prev => ({
+              ...prev,
+              distribution_strategy: e.target.value as any
+            }))}
+            className="w-full border rounded p-2"
+          >
+            <option value="balanced">Balanced (Spread across days)</option>
+            <option value="round_robin">Round Robin (Even distribution)</option>
+            <option value="random">Random Assignment</option>
+          </select>
+          <div className="text-xs text-gray-500 mt-1">
+            {bulkFormState.distribution_strategy === 'balanced' && 'Distributes classes evenly across different days'}
+            {bulkFormState.distribution_strategy === 'round_robin' && 'Assigns classes sequentially to time slots'}
+            {bulkFormState.distribution_strategy === 'random' && 'Randomly assigns classes to available slots'}
+          </div>
+        </div>
+      )}
+
+      {/* Summary */}
+{bulkFormState.selected_classes.length > 0 && bulkFormState.selected_timeslots.length > 0 && (
+  <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
+    <div className="text-sm font-medium text-green-800 mb-1">
+      Ready to Schedule:
+    </div>
+    <div className="text-sm text-green-700">
+      • {bulkFormState.selected_classes.length} class/unit combinations<br/>
+      • {bulkFormState.selected_timeslots.length} time slots available<br/>
+      • {bulkFormState.selected_classrooms.length > 0 
+          ? `${bulkFormState.selected_classrooms.length} classrooms selected` 
+          : 'All classrooms will be considered'}<br/>
+      • Up to {bulkFormState.selected_classes.length} sessions will be created<br/>
+      • Conflicts will be automatically detected and skipped
+    </div>
+  </div>
+)}
+
+      {/* Actions */}
+      <div className="flex justify-end space-x-3">
+        <Button
+          onClick={() => {
+            setIsBulkModalOpen(false)
+            setBulkFormState({
+              semester_id: 0,
+              school_id: null,
+              program_id: null,
+              selected_classes: [],
+              selected_timeslots: [],
+              distribution_strategy: 'balanced'
+            })
+          }}
+          className="bg-gray-400 hover:bg-gray-500 text-white"
+        >
+          Cancel
+        </Button>
+
+        <Button
+          onClick={handleBulkSchedule}
+          disabled={
+            isBulkSubmitting ||
+            bulkFormState.selected_classes.length === 0 ||
+            bulkFormState.selected_timeslots.length === 0
+          }
+          className="bg-purple-500 hover:bg-purple-600 text-white disabled:opacity-50"
+        >
+          {isBulkSubmitting ? (
+            <>
+              <Clock className="w-4 h-4 mr-2 animate-spin" />
+              Scheduling...
+            </>
+          ) : (
+            <>
+              <Zap className="w-4 h-4 mr-2" />
+              Create Bulk Schedule
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  </div>
+)}
+      </div>                        
     </AuthenticatedLayout>
   )
 }

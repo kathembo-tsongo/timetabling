@@ -1961,7 +1961,7 @@ private function formatChanges($changes)
     return rtrim($changeText, ' - ');
 }
 /**
- * ✅ NEW: Optimized bulk update method for multiple timetables
+ * NEW: Optimized bulk update method for multiple timetables
  */
 public function bulkUpdate(Request $request)
 {
@@ -3067,7 +3067,7 @@ public function programClassTimetables(Program $program, Request $request, $scho
     $programs = DB::table('programs')->select('id', 'code', 'name')->get();
     $schools = DB::table('schools')->select('id', 'name', 'code')->get();
 
-    return Inertia::render('Schools/SCES/Programs/ClassTimetables/Index', [
+     return Inertia::render("Schools/{$schoolCode}/Programs/ClassTimetables/Index", [
         'program' => $program,
         'schoolCode' => strtoupper($schoolCode),
         'classTimetables' => $classTimetables,
@@ -4696,10 +4696,6 @@ private function validateVenueConflict($data)
     return $conflict;
 }
 
-// Bulk Schedule with Rest Time Consideration
-/**
- * BULK SCHEDULE: Create multiple timetables with smart distribution
- */
 public function bulkSchedule(Request $request)
 {
     $request->validate([
@@ -4712,7 +4708,7 @@ public function bulkSchedule(Request $request)
         'selected_classes.*.unit_id' => 'required|exists:units,id',
         'selected_timeslots' => 'required|array|min:1',
         'selected_timeslots.*' => 'required|exists:class_time_slots,id',
-        'selected_classrooms' => 'nullable|array',  // ✅ NEW: Accept classroom selection
+        'selected_classrooms' => 'nullable|array',
         'selected_classrooms.*' => 'nullable|exists:classrooms,id',
         'distribution_strategy' => 'nullable|in:round_robin,random,balanced',
     ]);
@@ -4725,14 +4721,14 @@ public function bulkSchedule(Request $request)
         $programId = $request->program_id;
         $selectedClasses = $request->selected_classes;
         $selectedTimeslotIds = $request->selected_timeslots;
-        $selectedClassroomIds = $request->selected_classrooms ?? [];  // ✅ NEW: Get selected classrooms
+        $selectedClassroomIds = $request->selected_classrooms ?? [];
         $strategy = $request->distribution_strategy ?? 'balanced';
         
-        \Log::info('🔦 Starting bulk schedule', [
+        \Log::info('📦 Starting bulk schedule', [
             'classes_count' => count($selectedClasses),
             'timeslots_count' => count($selectedTimeslotIds),
             'classrooms_count' => count($selectedClassroomIds),
-            'strategy' => $strategy
+            'strategy' => $strategy,
         ]);
 
         // Fetch time slots
@@ -4744,52 +4740,128 @@ public function bulkSchedule(Request $request)
             ->toArray();
 
         if (empty($timeSlots)) {
+            DB::rollback();
             return response()->json([
                 'success' => false,
                 'message' => 'No valid time slots found'
             ], 400);
         }
 
-        // ✅ NEW: Fetch selected classrooms or all active classrooms
+        // Fetch classrooms
         if (!empty($selectedClassroomIds)) {
             $classrooms = Classroom::whereIn('id', $selectedClassroomIds)
                 ->where('is_active', true)
                 ->get();
             
             if ($classrooms->isEmpty()) {
+                DB::rollback();
                 return response()->json([
                     'success' => false,
                     'message' => 'No valid classrooms found from selection'
                 ], 400);
             }
-            
-            \Log::info('✅ Using selected classrooms', [
-                'count' => $classrooms->count(),
-                'classrooms' => $classrooms->pluck('name')->toArray()
-            ]);
         } else {
-            // If no classrooms selected, use all active ones
             $classrooms = Classroom::where('is_active', true)->get();
-            
-            \Log::info('📍 Using all active classrooms', [
-                'count' => $classrooms->count()
-            ]);
         }
 
+        // ✅ AUTO-FILTER: Only keep valid class/unit combinations (BEFORE distribution!)
+        $validatedClasses = [];
+        $skippedCombinations = [];
+
+        \Log::info('🔍 Validating class/unit combinations', [
+            'total_to_validate' => count($selectedClasses)
+        ]);
+
+        foreach ($selectedClasses as $classData) {
+            $classId = $classData['class_id'];
+            $unitId = $classData['unit_id'];
+            
+            // Check if this combination exists in unit_assignments
+            $unitAssignment = DB::table('unit_assignments')
+                ->where('unit_id', $unitId)
+                ->where('class_id', $classId)
+                ->where('semester_id', $semesterId)
+                ->first();
+            
+            if ($unitAssignment) {
+                // Valid combination - keep it
+                $validatedClasses[] = $classData;
+                \Log::debug("✅ Valid combination", [
+                    'class_id' => $classId,
+                    'unit_id' => $unitId
+                ]);
+            } else {
+                // Invalid combination - skip it but log
+                $classInfo = ClassModel::find($classId);
+                $unitInfo = Unit::find($unitId);
+                
+                $skippedCombinations[] = [
+                    'class' => $classInfo ? $classInfo->name : "Class $classId",
+                    'unit' => $unitInfo ? $unitInfo->code : "Unit $unitId",
+                    'reason' => 'Not assigned in unit_assignments'
+                ];
+                
+                \Log::info("⚠️ Skipping invalid combination", [
+                    'class_id' => $classId,
+                    'class_name' => $classInfo ? $classInfo->name : "Unknown",
+                    'unit_id' => $unitId,
+                    'unit_code' => $unitInfo ? $unitInfo->code : "Unknown",
+                    'reason' => 'Not assigned in unit_assignments'
+                ]);
+            }
+        }
+
+        // Check if we have any valid combinations
+        if (empty($validatedClasses)) {
+            DB::rollback();
+            
+            \Log::error('❌ No valid class/unit combinations found', [
+                'skipped' => $skippedCombinations,
+                'semester_id' => $semesterId,
+                'original_count' => count($selectedClasses)
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'No valid class/unit combinations found in your selection. Please check unit assignments.',
+                'skipped_combinations' => $skippedCombinations
+            ], 422);
+        }
+
+        \Log::info("✅ Filtered to valid combinations", [
+            'original_count' => count($selectedClasses),
+            'valid_count' => count($validatedClasses),
+            'skipped_count' => count($skippedCombinations)
+        ]);
+
+        // NOW distribute using only the validated classes
         $createdSessions = [];
         $errors = [];
-        $skipped = [];
+        $skipped = $skippedCombinations; // Start with already skipped combinations
         
-        // Distribute classes across time slots using selected strategy
+        // ✅ Distribute ONLY the validated classes
         $assignments = $this->distributeClassesToTimeslots(
-            $selectedClasses,
+            $validatedClasses,  // ✅ Only valid combinations
             $timeSlots,
             $strategy
         );
 
-        foreach ($assignments as $assignment) {
+        \Log::info('📊 Assignments created from valid combinations', [
+            'total_assignments' => count($assignments),
+            'assignments_preview' => array_slice($assignments, 0, 5)
+        ]);
+        
+        // Process EVERY assignment
+        foreach ($assignments as $index => $assignment) {
             $classData = $assignment['class'];
             $timeSlot = $assignment['timeslot'];
+            
+            \Log::info("Processing assignment {$index}", [
+                'class_id' => $classData['class_id'],
+                'unit_id' => $classData['unit_id'],
+                'day' => $timeSlot->day,
+                'time' => "{$timeSlot->start_time}-{$timeSlot->end_time}"
+            ]);
             
             try {
                 // Get class and unit details
@@ -4798,7 +4870,8 @@ public function bulkSchedule(Request $request)
                 $group = $classData['group_id'] ? Group::find($classData['group_id']) : null;
                 
                 if (!$class || !$unit) {
-                    $errors[] = "Class or Unit not found for assignment";
+                    $errors[] = "Class or Unit not found for assignment {$index}";
+                    \Log::warning("Skipping assignment {$index} - class or unit not found");
                     continue;
                 }
 
@@ -4815,6 +4888,7 @@ public function bulkSchedule(Request $request)
                         'unit' => $unit->code,
                         'reason' => 'No lecturer assigned'
                     ];
+                    \Log::warning("Skipping assignment {$index} - no lecturer");
                     continue;
                 }
 
@@ -4857,17 +4931,18 @@ public function bulkSchedule(Request $request)
                         'time' => "{$timeSlot->start_time}-{$timeSlot->end_time}",
                         'reason' => $hasConflict['reason']
                     ];
+                    \Log::warning("Skipping assignment {$index} - conflict: {$hasConflict['reason']}");
                     continue;
                 }
 
-                // ✅ UPDATED: Find suitable venue from selected classrooms
+                // Find suitable venue
                 $venueResult = $this->findSuitableVenueForBulk(
                     $studentCount,
                     $timeSlot->day,
                     $timeSlot->start_time,
                     $timeSlot->end_time,
                     $teachingMode,
-                    $classrooms  // Pass the filtered classrooms
+                    $classrooms
                 );
 
                 if (!$venueResult['success']) {
@@ -4876,12 +4951,13 @@ public function bulkSchedule(Request $request)
                         'unit' => $unit->code,
                         'day' => $timeSlot->day,
                         'time' => "{$timeSlot->start_time}-{$timeSlot->end_time}",
-                        'reason' => 'No suitable venue available from selected classrooms'
+                        'reason' => 'No suitable venue available'
                     ];
+                    \Log::warning("Skipping assignment {$index} - no venue");
                     continue;
                 }
 
-                // Create the timetable entry
+                // CREATE THE TIMETABLE ENTRY
                 $timetable = ClassTimetable::create([
                     'day' => $timeSlot->day,
                     'unit_id' => $unit->id,
@@ -4909,11 +4985,19 @@ public function bulkSchedule(Request $request)
                     'teaching_mode' => $teachingMode
                 ];
 
+                \Log::info("✅ Successfully created timetable {$index}", [
+                    'timetable_id' => $timetable->id,
+                    'class' => $class->name,
+                    'unit' => $unit->code
+                ]);
+
             } catch (\Exception $e) {
-                $errors[] = "Error creating session: " . $e->getMessage();
-                \Log::error('Bulk schedule error for assignment', [
-                    'class_id' => $classData['class_id'],
-                    'error' => $e->getMessage()
+                $errorMsg = "Error creating session for assignment {$index}: " . $e->getMessage();
+                $errors[] = $errorMsg;
+                \Log::error($errorMsg, [
+                    'class_id' => $classData['class_id'] ?? null,
+                    'unit_id' => $classData['unit_id'] ?? null,
+                    'exception' => $e->getTraceAsString()
                 ]);
             }
         }
@@ -4925,11 +5009,13 @@ public function bulkSchedule(Request $request)
         $totalSkipped = count($skipped);
         $totalErrors = count($errors);
 
-        \Log::info('🔦 Bulk schedule completed', [
+        \Log::info('📦 Bulk schedule completed', [
             'attempted' => $totalAttempted,
             'created' => $totalCreated,
             'skipped' => $totalSkipped,
-            'errors' => $totalErrors
+            'errors' => $totalErrors,
+            'created_details' => $createdSessions,
+            'skipped_details' => $skipped
         ]);
 
         return response()->json([
@@ -4959,7 +5045,6 @@ public function bulkSchedule(Request $request)
         ], 500);
     }
 }
-
 /**
  *  Distribute classes to timeslots using selected strategy
  */
@@ -4967,32 +5052,42 @@ private function distributeClassesToTimeslots($classes, $timeSlots, $strategy)
 {
     $assignments = [];
     
+    \Log::info('🎯 Distributing classes to timeslots', [
+        'total_classes' => count($classes),
+        'total_timeslots' => count($timeSlots),
+        'strategy' => $strategy
+    ]);
+    
     switch ($strategy) {
         case 'round_robin':
             // Distribute evenly across all time slots
             $slotIndex = 0;
-            foreach ($classes as $class) {
+            foreach ($classes as $classIndex => $class) {
+                $slot = $timeSlots[$slotIndex % count($timeSlots)];
                 $assignments[] = [
                     'class' => $class,
-                    'timeslot' => $timeSlots[$slotIndex % count($timeSlots)]
+                    'timeslot' => $slot
                 ];
+                \Log::debug("Round robin: Class {$classIndex} -> Slot {$slotIndex}");
                 $slotIndex++;
             }
             break;
             
         case 'random':
             // Randomly assign to time slots
-            foreach ($classes as $class) {
+            foreach ($classes as $classIndex => $class) {
+                $randomIndex = array_rand($timeSlots);
                 $assignments[] = [
                     'class' => $class,
-                    'timeslot' => $timeSlots[array_rand($timeSlots)]
+                    'timeslot' => $timeSlots[$randomIndex]
                 ];
+                \Log::debug("Random: Class {$classIndex} -> Random slot {$randomIndex}");
             }
             break;
             
         case 'balanced':
         default:
-            // Try to balance by day and avoid conflicts
+            // Try to balance by day
             $dayGroups = [];
             foreach ($timeSlots as $slot) {
                 $dayGroups[$slot->day][] = $slot;
@@ -5000,22 +5095,27 @@ private function distributeClassesToTimeslots($classes, $timeSlots, $strategy)
             
             $classIndex = 0;
             foreach ($classes as $class) {
-                // Cycle through days
                 $days = array_keys($dayGroups);
                 $dayIndex = $classIndex % count($days);
                 $selectedDay = $days[$dayIndex];
                 
-                // Pick a random slot from that day
                 $daySlots = $dayGroups[$selectedDay];
+                $slotIndex = floor($classIndex / count($days)) % count($daySlots);
+                
                 $assignments[] = [
                     'class' => $class,
-                    'timeslot' => $daySlots[array_rand($daySlots)]
+                    'timeslot' => $daySlots[$slotIndex]
                 ];
                 
+                \Log::debug("Balanced: Class {$classIndex} -> {$selectedDay} slot {$slotIndex}");
                 $classIndex++;
             }
             break;
     }
+    
+    \Log::info('✅ Distribution complete', [
+        'total_assignments' => count($assignments)
+    ]);
     
     return $assignments;
 }
