@@ -4,7 +4,8 @@ import {
   Home, Users, Building, Calendar, ClipboardList, Layers,
   ClipboardCheck, Settings, BookOpen, GraduationCap,
   BarChart3, Scale, ChevronDown, ChevronRight, Clock,
-  FileText, AlertTriangle, MapPin, Download
+  FileText, AlertTriangle, MapPin, Download, UserCircle,
+  BookMarked, FileCheck
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -21,7 +22,9 @@ export default function Sidebar() {
   const isFacultyAdmin = roles.some((r: string) => r.startsWith('Faculty Admin'));
   const isClassTimetableOffice = isRole('Class Timetable office');
   const isExamTimetableOffice = isRole('Exam Timetable office');
-  const isExamOffice = isRole('Exam Office'); // ✅ FIXED: Capital O
+  const isExamOffice = isRole('Exam Office');
+  const isLecturer = isRole('Lecturer');
+  const isStudent = isRole('Student'); // ✅ NEW: Check for Student role
 
   // Extract school code from Faculty Admin role
   const getSchoolCode = (): string | null => {
@@ -51,6 +54,68 @@ export default function Sidebar() {
           <Home className="mr-3 h-5 w-5" />
           <span>Dashboard</span>
         </Link>
+
+        {/* ✅ STUDENT SECTION */}
+        {isStudent && (
+          <div className="mt-4">
+            <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Student Portal</div>
+            
+            {/* My Enrollments/Units */}
+            <Link href="/student/enrollments" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <BookMarked className="mr-3 h-5 w-5" />
+              <span>My Units</span>
+            </Link>
+
+            {/* Class Timetable */}
+            <Link href="/student/timetable" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <Calendar className="mr-3 h-5 w-5" />
+              <span>Class Timetable</span>
+            </Link>
+
+            {/* Exam Timetable */}
+            <Link href="/student/examtimetable" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <FileCheck className="mr-3 h-5 w-5" />
+              <span>Exam Timetable</span>
+            </Link>
+
+            {/* Profile
+            <Link href="/student/profile" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <UserCircle className="mr-3 h-5 w-5" />
+              <span>Profile</span>
+            </Link> */}
+          </div>
+        )}
+
+        {/* ✅ LECTURER SECTION */}
+        {isLecturer && (
+          <div className="mt-4">
+            <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Lecturer Portal</div>
+            
+            {/* My Classes */}
+            <Link href="/lecturer/classes" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <BookOpen className="mr-3 h-5 w-5" />
+              <span>My Classes</span>
+            </Link>
+
+            {/* Class Timetable */}
+            <Link href="/lecturer/class-timetable" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <Calendar className="mr-3 h-5 w-5" />
+              <span>Class Timetable</span>
+            </Link>
+
+            {/* Exam Supervision */}
+            <Link href="/lecturer/exam-supervision" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <ClipboardCheck className="mr-3 h-5 w-5" />
+              <span>Exam Supervision</span>
+            </Link>
+
+            {/* Profile */}
+            <Link href="/lecturer/profile" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+              <UserCircle className="mr-3 h-5 w-5" />
+              <span>Profile</span>
+            </Link>
+          </div>
+        )}
 
         {/* SYSTEM ADMINISTRATION - Admin Only */}
         {isAdmin && (

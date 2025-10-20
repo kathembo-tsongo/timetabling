@@ -871,7 +871,7 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
         Route::post('/enrollments', [StudentController::class, 'enrollInUnit'])->name('student.enrollments.store');
         Route::delete('/enrollments/{enrollment}', [StudentController::class, 'dropUnit'])->name('student.enrollments.drop');
         Route::get('/api/units/{unit}/classes', [StudentController::class, 'getAvailableClassesForUnit'])->name('student.units.classes');
-        Route::get('/exams', [StudentController::class, 'myExams'])->name('student.exams');
+        Route::get('/examtimetable', [StudentController::class, 'myExams'])->name('student.examtimetable');
         Route::get('/timetable', [StudentController::class, 'myTimetable'])->name('student.timetable');
         Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadStudentPDF'])->name('student.classtimetable.download');
         Route::get('/profile', [StudentController::class, 'profile'])->name('student.profile');

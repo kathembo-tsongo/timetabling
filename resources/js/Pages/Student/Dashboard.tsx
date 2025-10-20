@@ -217,9 +217,6 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                           <h3 className="font-semibold text-gray-900">
                             {currentSemester?.name || 'N/A'}
                           </h3>
-                          {/* <p className="text-gray-600 text-sm">
-                            Academic Year {currentSemester?.year || 'N/A'}
-                          </p> */}
                         </div>
                       </div>
                     </div>
@@ -332,7 +329,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                   
                   <div className="mt-6 pt-4 border-t border-gray-100">
                     <a 
-                      href="/my-exams" 
+                      href="/student/exams" 
                       className="inline-flex items-center text-purple-600 hover:text-purple-700 font-medium transition-colors duration-200"
                     >
                       View all exams
@@ -395,7 +392,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                   )}
                   
                   <a 
-                    href="/enroll" 
+                    href="/student/enrollments" 
                     className="block w-full bg-gradient-to-r from-green-500 to-teal-600 text-white text-center py-3 px-4 rounded-xl font-medium hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5"
                   >
                     View All Current Enrollments
@@ -425,7 +422,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                     </a>
                     
                     <a 
-                      href="/my-exams" 
+                      href="/student/exams" 
                       className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl hover:shadow-md transition-all duration-200 group"
                     >
                       <div className="flex items-center space-x-3">
@@ -438,7 +435,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                     </a>
                     
                     <a 
-                      href="/student/timetable/download" 
+                      href="/student/download-classtimetable" 
                       className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl hover:shadow-md transition-all duration-200 group"
                     >
                       <div className="flex items-center space-x-3">
