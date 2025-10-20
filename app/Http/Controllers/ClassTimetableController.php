@@ -2773,7 +2773,7 @@ public function downloadStudentPDF(Request $request)
             'record_count' => $classTimetables->count()
         ]);
 
-        return $pdf->download($filename);
+        return $pdf->stream($filename);
 
     } catch (\Exception $e) {
         \Log::error('Student PDF generation failed', [

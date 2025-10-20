@@ -65,75 +65,95 @@ class StudentController extends Controller
 
         try {
             // Get current active semester
-            $currentSemester = Semester::where('is_active', true)->first();
-            if (!$currentSemester) {
-                $currentSemester = Semester::latest()->first();
-            }
+            // ✅ FIXED: Get the student's actual enrolled semester (not just "active" semester)
+$allEnrollments = Enrollment::where('student_code', $user->code)->get();
+
+if ($allEnrollments->isNotEmpty()) {
+    // Use semester from most recent enrollment (same logic as enrollments page)
+    $latestSemesterId = $allEnrollments->sortByDesc('created_at')->first()->semester_id;
+    $currentSemester = Semester::find($latestSemesterId);
+    
+    Log::info('Dashboard using student enrolled semester', [
+        'student_code' => $user->code,
+        'semester_id' => $latestSemesterId,
+        'semester_name' => $currentSemester->name ?? 'Unknown'
+    ]);
+} else {
+    // Fallback: Use active semester if student has no enrollments yet
+    $currentSemester = Semester::where('is_active', true)->first();
+    if (!$currentSemester) {
+        $currentSemester = Semester::latest()->first();
+    }
+    
+    Log::info('Dashboard using fallback active semester (no enrollments)', [
+        'student_code' => $user->code,
+        'semester_name' => $currentSemester->name ?? 'N/A'
+    ]);
+}
 
             $enrolledUnits = collect();
-            $upcomingExams = collect();
+$upcomingExams = collect();
 
-            if ($currentSemester && $user->code) {
-                // Get student's enrolled units for current semester
-                $enrolledUnits = Enrollment::where('student_code', $user->code)
-                    ->where('semester_id', $currentSemester->id)
-                    ->where('status', 'enrolled')
-                    ->with(['unit.school'])
-                    ->get()
-                    ->map(function ($enrollment) {
-                        return [
-                            'id' => $enrollment->unit->id,
-                            'code' => $enrollment->unit->code,
-                            'name' => $enrollment->unit->name,
-                            'school' => [
-                                'name' => $enrollment->unit->school->name ?? 'Unknown School'
-                            ]
-                        ];
-                    });
+if ($currentSemester && $user->code) {
+    // Get student's enrolled units for their actual enrolled semester
+    $enrolledUnits = Enrollment::where('student_code', $user->code)
+        ->where('semester_id', $currentSemester->id)
+        ->where('status', 'enrolled')
+        ->with(['unit.school'])
+        ->get()
+        ->map(function ($enrollment) {
+            return [
+                'id' => $enrollment->unit->id,
+                'code' => $enrollment->unit->code,
+                'name' => $enrollment->unit->name,
+                'school' => [
+                    'name' => $enrollment->unit->school->name ?? 'Unknown School'
+                ]
+            ];
+        });
 
-                $enrolledUnitIds = $enrolledUnits->pluck('id')->toArray();
+    $enrolledUnitIds = $enrolledUnits->pluck('id')->toArray();
 
-                // Get upcoming exams
-                if (!empty($enrolledUnitIds)) {
-                    try {
-                        $upcomingExams = DB::table('exam_timetable')
-                            ->join('units', 'exam_timetable.unit_id', '=', 'units.id')
-                            ->whereIn('exam_timetable.unit_id', $enrolledUnitIds)
-                            ->where('exam_timetable.date', '>=', now()->toDateString())
-                            ->orderBy('exam_timetable.date')
-                            ->orderBy('exam_timetable.start_time')
-                            ->select(
-                                'exam_timetable.id',
-                                'exam_timetable.date',
-                                'exam_timetable.day',
-                                'exam_timetable.start_time',
-                                'exam_timetable.end_time',
-                                'exam_timetable.venue',
-                                'units.code as unit_code',
-                                'units.name as unit_name'
-                            )
-                            ->get()
-                            ->map(function ($exam) {
-                                return [
-                                    'id' => $exam->id,
-                                    'date' => $exam->date,
-                                    'day' => $exam->day,
-                                    'start_time' => $exam->start_time,
-                                    'end_time' => $exam->end_time,
-                                    'venue' => $exam->venue ?? 'TBA',
-                                    'unit' => [
-                                        'code' => $exam->unit_code,
-                                        'name' => $exam->unit_name
-                                    ]
-                                ];
-                            });
-                    } catch (\Exception $e) {
-                        Log::info('Exam timetable table not found', ['error' => $e->getMessage()]);
-                    }
-                }
-            }
-
-            return Inertia::render('Student/Dashboard', [
+    // Get upcoming exams for the student's semester
+    if (!empty($enrolledUnitIds)) {
+        try {
+            $upcomingExams = DB::table('exam_timetable')
+                ->join('units', 'exam_timetable.unit_id', '=', 'units.id')
+                ->whereIn('exam_timetable.unit_id', $enrolledUnitIds)
+                ->where('exam_timetable.semester_id', $currentSemester->id) // ✅ Filter by student's semester
+                ->where('exam_timetable.date', '>=', now()->toDateString())
+                ->orderBy('exam_timetable.date')
+                ->orderBy('exam_timetable.start_time')
+                ->select(
+                    'exam_timetable.id',
+                    'exam_timetable.date',
+                    'exam_timetable.day',
+                    'exam_timetable.start_time',
+                    'exam_timetable.end_time',
+                    'exam_timetable.venue',
+                    'units.code as unit_code',
+                    'units.name as unit_name'
+                )
+                ->get()
+                ->map(function ($exam) {
+                    return [
+                        'id' => $exam->id,
+                        'date' => $exam->date,
+                        'day' => $exam->day,
+                        'start_time' => $exam->start_time,
+                        'end_time' => $exam->end_time,
+                        'venue' => $exam->venue ?? 'TBA',
+                        'unit' => [
+                            'code' => $exam->unit_code,
+                            'name' => $exam->unit_name
+                        ]
+                    ];
+                });
+        } catch (\Exception $e) {
+            Log::info('Exam timetable table not found', ['error' => $e->getMessage()]);
+        }
+    }
+}            return Inertia::render('Student/Dashboard', [
                 'enrolledUnits' => $enrolledUnits,
                 'upcomingExams' => $upcomingExams,
                 'currentSemester' => $currentSemester ? [

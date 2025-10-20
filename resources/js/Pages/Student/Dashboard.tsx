@@ -329,7 +329,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                   
                   <div className="mt-6 pt-4 border-t border-gray-100">
                     <a 
-                      href="/student/exams" 
+                      href="/student/examtimetable" 
                       className="inline-flex items-center text-purple-600 hover:text-purple-700 font-medium transition-colors duration-200"
                     >
                       View all exams
@@ -422,7 +422,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                     </a>
                     
                     <a 
-                      href="/student/exams" 
+                      href="/student/examtimetable" 
                       className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl hover:shadow-md transition-all duration-200 group"
                     >
                       <div className="flex items-center space-x-3">
@@ -434,7 +434,8 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                       <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-purple-500 transition-colors duration-200" />
                     </a>
                     
-                    <a 
+                    
+                    {/* <a 
                       href="/student/download-classtimetable" 
                       className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl hover:shadow-md transition-all duration-200 group"
                     >
@@ -445,7 +446,7 @@ export default function Dashboard({ enrolledUnits, upcomingExams, currentSemeste
                         <span className="font-medium text-gray-900">Download Timetable</span>
                       </div>
                       <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-green-500 transition-colors duration-200" />
-                    </a>
+                    </a> */}
                   </div>
                 </div>
               </div>
