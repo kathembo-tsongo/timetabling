@@ -260,13 +260,16 @@ export default function Sidebar() {
           <div className="mt-4">
             <div className="px-4 py-2 text-xs font-semibold text-blue-300 uppercase">Exam Management</div>
             
-            {/* Exam Timetables */}
-            {can('view-exam-timetables') && (
-              <Link href="/examoffice/manage" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <FileText className="mr-3 h-5 w-5" />
-                <span>Exam Timetables</span>
-              </Link>
-            )}
+            {/* Exam Rooms */}
+    {can('view-exam-rooms') && (
+      <Link 
+        href="/examoffice/examrooms" 
+        className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md"
+      >
+        <FileText className="mr-3 h-5 w-5" />
+        <span>Exam Rooms</span>
+      </Link>
+    )}
 
             {/* Schools Exam Timetables Dropdown */}
             {can('view-exam-timetables') && can('view-programs') && (
@@ -344,15 +347,7 @@ export default function Sidebar() {
                   </div>
                 )}
               </div>
-            )}
-
-            {/* Exam Rooms */}
-            {(can('view-classrooms') || can('view-exam-rooms')) && (
-              <Link href="/admin/classrooms" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <MapPin className="mr-3 h-5 w-5" />
-                <span>Exam Rooms</span>
-              </Link>
-            )}
+            )}            
 
             {/* Conflicts */}
             {can('solve-exam-conflicts') && (

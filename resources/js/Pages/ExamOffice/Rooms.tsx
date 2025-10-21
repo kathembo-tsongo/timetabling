@@ -47,53 +47,52 @@ const Examrooms = () => {
         setModalType('');
         setCurrentExamroom(null);
     };
+const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+    if (modalType === 'create') {
+        router.post('/examoffice/examrooms', currentExamroom, {  // ← Add /examoffice
+            onSuccess: () => {
+                alert('Exam room created successfully!');
+                handleCloseModal();
+            },
+            onError: (errors) => {
+                console.error('Error creating exam room:', errors);
+            },
+        });
+    } else if (modalType === 'edit' && currentExamroom) {
+        router.put(`/examoffice/examrooms/${currentExamroom.id}`, currentExamroom, {  // ← Add /examoffice
+            onSuccess: () => {
+                alert('Exam room updated successfully!');
+                handleCloseModal();
+            },
+            onError: (errors) => {
+                console.error('Error updating exam room:', errors);
+            },
+        });
+    } else if (modalType === 'delete' && currentExamroom) {
+        router.delete(`/examoffice/examrooms/${currentExamroom.id}`, {  // ← Add /examoffice
+            onSuccess: () => {
+                alert('Exam room deleted successfully!');
+                handleCloseModal();
+            },
+            onError: (errors) => {
+                console.error('Error deleting exam room:', errors);
+            },
+        });
+    }
+};
 
-        if (modalType === 'create') {
-            router.post('/examrooms', currentExamroom, {
-                onSuccess: () => {
-                    alert('Exam room created successfully!');
-                    handleCloseModal();
-                },
-                onError: (errors) => {
-                    console.error('Error creating exam room:', errors);
-                },
-            });
-        } else if (modalType === 'edit' && currentExamroom) {
-            router.put(`/examrooms/${currentExamroom.id}`, currentExamroom, {
-                onSuccess: () => {
-                    alert('Exam room updated successfully!');
-                    handleCloseModal();
-                },
-                onError: (errors) => {
-                    console.error('Error updating exam room:', errors);
-                },
-            });
-        } else if (modalType === 'delete' && currentExamroom) {
-            router.delete(`/examrooms/${currentExamroom.id}`, {
-                onSuccess: () => {
-                    alert('Exam room deleted successfully!');
-                    handleCloseModal();
-                },
-                onError: (errors) => {
-                    console.error('Error deleting exam room:', errors);
-                },
-            });
-        }
-    };
+const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    router.get('/examoffice/examrooms', { search: searchQuery, per_page: itemsPerPage }, { preserveState: true });  // ← Add /examoffice
+};
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        router.get('/examrooms', { search: searchQuery, per_page: itemsPerPage }, { preserveState: true });
-    };
-
-    const handlePerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const newPerPage = parseInt(e.target.value, 10);
-        setItemsPerPage(newPerPage);
-        router.get('/examrooms', { per_page: newPerPage, search: searchQuery }, { preserveState: true });
-    };
+const handlePerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newPerPage = parseInt(e.target.value, 10);
+    setItemsPerPage(newPerPage);
+    router.get('/examoffice/examrooms', { per_page: newPerPage, search: searchQuery }, { preserveState: true });  // ← Add /examoffice
+};
 
     const handlePageChange = (url: string | null) => {
         if (url) {

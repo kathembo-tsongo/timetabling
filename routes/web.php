@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\ExamTimetableController;
+use App\Http\Controllers\ExamroomController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SemesterController;
@@ -100,7 +101,91 @@ Route::middleware(['auth'])->group(function () {
 Route::prefix('api')
     ->middleware(['auth'])
     ->group(function () {
-        // Exam Timetable APIs
+        
+        // ✅ ADD THIS - Schools API for bulk scheduling
+        Route::get('/schools', function () {
+            try {
+                $schools = \App\Models\School::select('id', 'code', 'name')
+                    ->orderBy('name')
+                    ->get();
+                
+                \Log::info('Schools API called', ['count' => $schools->count()]);
+                
+                // ✅ Return array directly, not wrapped
+                return response()->json($schools);
+            } catch (\Exception $e) {
+                \Log::error('Schools API error: ' . $e->getMessage());
+                return response()->json([], 500);
+            }
+        })->name('api.schools');
+        
+        // ✅ ADD THIS - Programs by school API for bulk scheduling  
+        // ✅ Programs by school API for bulk scheduling  
+Route::get('/programs-by-school', function(Request $request) {
+    try {
+        $schoolId = $request->input('school_id');
+        $semesterId = $request->input('semester_id');
+        
+        if (!$schoolId || !$semesterId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'school_id and semester_id are required'
+            ], 400);
+        }
+        
+        // ✅ FIXED: Check which columns exist in programs table
+        $programsTable = \Schema::getColumnListing('programs');
+        $selectColumns = ['id', 'code', 'name', 'school_id'];
+        
+        // ✅ Only select full_name if it exists
+        if (in_array('full_name', $programsTable)) {
+            $selectColumns[] = 'full_name';
+        }
+        
+        $programs = \App\Models\Program::where('school_id', $schoolId)
+            ->with('school:id,code,name')
+            ->select($selectColumns)
+            ->orderBy('name')
+            ->get();
+        
+        \Log::info('Programs by school API called', [
+            'school_id' => $schoolId,
+            'semester_id' => $semesterId,
+            'programs_count' => $programs->count()
+        ]);
+        
+        return response()->json([
+            'success' => true,
+            'programs' => $programs
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Programs by school API error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to fetch programs'
+        ], 500);
+    }
+})->name('api.programs-by-school');
+        
+        // ✅ ADD THIS - Classrooms API for bulk scheduling
+        Route::get('/classrooms', function() {
+            try {
+                $classrooms = \App\Models\Examroom::where('is_active', true)
+                    ->select('id', 'name', 'capacity', 'location')
+                    ->orderBy('capacity')
+                    ->get();
+                
+                \Log::info('Classrooms API called', ['count' => $classrooms->count()]);
+                
+                return response()->json($classrooms);
+            } catch (\Exception $e) {
+                \Log::error('Classrooms API error: ' . $e->getMessage());
+                return response()->json([], 500);
+            }
+        })->name('api.classrooms');
+        
+        
+        // Exam Timetable APIs (your existing code)
         Route::prefix('exam-timetables')->group(function () {
             Route::get('/classes-by-semester/{semesterId}', 
                 [ExamTimetableController::class, 'getClassesBySemester']
@@ -109,14 +194,8 @@ Route::prefix('api')
             Route::get('/units-by-class', 
                 [ExamTimetableController::class, 'getUnitsByClassAndSemesterForExam']
             )->middleware(['permission:view-exam-timetables']);
-            
-            // Debug endpoint
-            Route::get('/debug-classes/{semesterId}', 
-                [ExamTimetableController::class, 'debugClassesForSemester']
-            )->middleware(['permission:view-exam-timetables']);
         });
     });
-
     // SCHOOL ADMIN DASHBOARD
     Route::prefix('SchoolAdmin')->group(function() {
         Route::get('/dashboard', function() {
@@ -574,52 +653,69 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
             });
 
             // ✅ EXAM TIMETABLES - FIXED PREFIX
-            Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
-                Route::get('/', function(Program $program, Request $request) {
-                    return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SCES');
-                })->name('index');
-                
-                Route::get('/create', function(Program $program) {
-                    return app(ExamTimetableController::class)->createProgramExamTimetable($program, 'SCES');
-                })->name('create');
-                
-                Route::post('/', function(Program $program, Request $request) {
-                    return app(ExamTimetableController::class)->storeProgramExamTimetable($program, $request, 'SCES');
-                })->name('store');
-                
-                Route::get('/{timetable}', function(Program $program, $timetable) {
-                    return app(ExamTimetableController::class)->showProgramExamTimetable($program, $timetable, 'SCES');
-                })->name('show');
-                
-                Route::get('/{timetable}/edit', function(Program $program, $timetable) {
-                    return app(ExamTimetableController::class)->editProgramExamTimetable($program, $timetable, 'SCES');
-                })->name('edit');
-                
-                Route::put('/{timetable}', function(Program $program, $timetable, Request $request) {
-                    return app(ExamTimetableController::class)->updateProgramExamTimetable($program, $timetable, $request, 'SCES');
-                })->name('update');
-                
-                Route::delete('/{timetable}', function(Program $program, $timetable) {
-                    return app(ExamTimetableController::class)->destroyProgramExamTimetable($program, $timetable, 'SCES');
-                })->name('destroy');
-                
-                Route::get('/download/pdf', function(Program $program) {
-                    return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SCES');
-                })->name('download');
-                
-                // ✅ FIXED: EXAM TIMETABLE CONFLICT RESOLUTION FOR SCES
-                Route::post('/resolve-conflict', function(Program $program, Request $request) {
-                    // ✅ Call the correct method that exists in the controller
-                    return app(ExamTimetableController::class)->resolveConflict($request);
-                })->middleware(['permission:solve-exam-conflicts'])
-                  ->name('resolve-conflict');
-                
-                Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
-                    // ✅ This method exists and is correct
-                    return app(ExamTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SCES');
-                })->middleware(['permission:solve-exam-conflicts'])
-                  ->name('resolve-all');
-            });
+            // ✅ EXAM TIMETABLES - COMPLETE WITH BULK SCHEDULING FOR SCES
+Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
+    // ✅ Get classes for bulk scheduling - MUST BE FIRST
+    Route::get('/classes-with-units', function(Program $program) {
+        return app(ExamTimetableController::class)->getClassesWithUnits($program, 'SCES');  // ✅ FIXED
+    })->name('classes-with-units');
+    
+    // Index
+    Route::get('/', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SCES');
+    })->name('index');
+    
+    // Bulk schedule
+    Route::post('/bulk-schedule', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->bulkScheduleExams($program, $request, 'SCES');  // ✅ FIXED
+    })->middleware(['permission:create-exam-timetables'])->name('bulk-schedule');
+    
+    // Create
+    Route::get('/create', function(Program $program) {
+        return app(ExamTimetableController::class)->createProgramExamTimetable($program, 'SCES');
+    })->name('create');
+    
+    // Store
+    Route::post('/', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->storeProgramExamTimetable($program, $request, 'SCES');
+    })->name('store');
+    
+    // Show
+    Route::get('/{timetable}', function(Program $program, $timetable) {
+        return app(ExamTimetableController::class)->showProgramExamTimetable($program, $timetable, 'SCES');
+    })->name('show');
+    
+    // Edit
+    Route::get('/{timetable}/edit', function(Program $program, $timetable) {
+        return app(ExamTimetableController::class)->editProgramExamTimetable($program, $timetable, 'SCES');
+    })->name('edit');
+    
+    // Update
+    Route::put('/{timetable}', function(Program $program, $timetable, Request $request) {
+        return app(ExamTimetableController::class)->updateProgramExamTimetable($program, $timetable, $request, 'SCES');
+    })->name('update');
+    
+    // Delete
+    Route::delete('/{timetable}', function(Program $program, $timetable) {
+        return app(ExamTimetableController::class)->destroyProgramExamTimetable($program, $timetable, 'SCES');
+    })->name('destroy');
+    
+    // Download PDF
+    Route::get('/download/pdf', function(Program $program) {
+        return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SCES');
+    })->name('download');
+    
+    // Conflict resolution
+    Route::post('/resolve-conflict', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->resolveConflict($request);
+    })->middleware(['permission:solve-exam-conflicts'])
+      ->name('resolve-conflict');
+    
+    Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SCES');
+    })->middleware(['permission:solve-exam-conflicts'])
+      ->name('resolve-all');
+});
         });
     });
 });
@@ -815,51 +911,60 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
                   ->name('resolve-all');
             });
 
-            // ✅ EXAM TIMETABLES - FIXED PREFIX
-            Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
-                Route::get('/', function(Program $program, Request $request) {
-                    return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SBS');
-                })->name('index');
-                
-                Route::get('/create', function(Program $program) {
-                    return app(ExamTimetableController::class)->createProgramExamTimetable($program, 'SBS');
-                })->name('create');
-                
-                Route::post('/', function(Program $program, Request $request) {
-                    return app(ExamTimetableController::class)->storeProgramExamTimetable($program, $request, 'SBS');
-                })->name('store');
-                
-                Route::get('/{timetable}', function(Program $program, $timetable) {
-                    return app(ExamTimetableController::class)->showProgramExamTimetable($program, $timetable, 'SBS');
-                })->name('show');
-                
-                Route::get('/{timetable}/edit', function(Program $program, $timetable) {
-                    return app(ExamTimetableController::class)->editProgramExamTimetable($program, $timetable, 'SBS');
-                })->name('edit');
-                
-                Route::put('/{timetable}', function(Program $program, $timetable, Request $request) {
-                    return app(ExamTimetableController::class)->updateProgramExamTimetable($program, $timetable, $request, 'SBS');
-                })->name('update');
-                
-                Route::delete('/{timetable}', function(Program $program, $timetable) {
-                    return app(ExamTimetableController::class)->destroyProgramExamTimetable($program, $timetable, 'SBS');
-                })->name('destroy');
-                
-                Route::get('/download/pdf', function(Program $program) {
-                    return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
-                })->name('download');
-                
-               // FIXED: CLASS TIMETABLE CONFLICT RESOLUTION FOR SBS
-                Route::post('/resolve-conflict', function(Program $program, Request $request) {
-                    return app(ClassTimetableController::class)->resolveConflict($request);
-                })->middleware(['permission:solve-class-conflicts'])
-                ->name('resolve-conflict');
+            // ✅ EXAM TIMETABLES - COMPLETE WITH BULK SCHEDULING
+Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
+    // ✅ MUST BE FIRST - Get classes for bulk scheduling
+    Route::get('/classes-with-units', function(Program $program) {
+        return app(ExamTimetableController::class)->getClassesWithUnits($program, 'SBS');
+    })->name('classes-with-units');
     
-                Route::post('/resolve-all-conflicts', function(Program $program, Request $request) {
-                    return app(ClassTimetableController::class)->resolveAllProgramConflicts($program, $request, 'SBS');
-                })->middleware(['permission:solve-class-conflicts'])
-                ->name('resolve-all');
-            });
+    // Index
+    Route::get('/', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->programExamTimetables($program, $request, 'SBS');
+    })->name('index');
+    
+    // Bulk schedule
+    Route::post('/bulk-schedule', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->bulkScheduleExams($program, $request, 'SBS');
+    })->middleware(['permission:create-exam-timetables'])->name('bulk-schedule');
+    
+    // Create
+    Route::get('/create', function(Program $program) {
+        return app(ExamTimetableController::class)->createProgramExamTimetable($program, 'SBS');
+    })->name('create');
+    
+    // Store
+    Route::post('/', function(Program $program, Request $request) {
+        return app(ExamTimetableController::class)->storeProgramExamTimetable($program, $request, 'SBS');
+    })->name('store');
+    
+    // Show
+    Route::get('/{timetable}', function(Program $program, $timetable) {
+        return app(ExamTimetableController::class)->showProgramExamTimetable($program, $timetable, 'SBS');
+    })->name('show');
+    
+    // Edit
+    Route::get('/{timetable}/edit', function(Program $program, $timetable) {
+        return app(ExamTimetableController::class)->editProgramExamTimetable($program, $timetable, 'SBS');
+    })->name('edit');
+    
+    // Update
+    Route::put('/{timetable}', function(Program $program, $timetable, Request $request) {
+        return app(ExamTimetableController::class)->updateProgramExamTimetable($program, $timetable, $request, 'SBS');
+    })->name('update');
+    
+    // Delete
+    Route::delete('/{timetable}', function(Program $program, $timetable) {
+        return app(ExamTimetableController::class)->destroyProgramExamTimetable($program, $timetable, 'SBS');
+    })->name('destroy');
+    
+    // Download PDF
+    Route::get('/download/pdf', function(Program $program) {
+        return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
+    })->name('download');
+});
+            
+
         });
     });
 });
@@ -979,45 +1084,53 @@ Route::prefix('schools/sbs')->name('schools.sbs.')->middleware(['auth'])->group(
     });
 
     // EXAM TIMETABLE OFFICE ROUTES
-    Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function () {
-        Route::get('/', [DashboardController::class, 'examofficeDashboard'])
-            ->name('examoffice.dashboard');
-
-        Route::get('/manage', [ExamTimetableController::class, 'index'])
-            ->name('exam-timetables.index');
-        
-        Route::get('/manage/create', [ExamTimetableController::class, 'create'])
-            ->name('exam-timetables.create');
-        
-        Route::post('/manage', [ExamTimetableController::class, 'store'])
-            ->name('exam-timetables.store');
-        
-        Route::get('/manage/{timetable}', [ExamTimetableController::class, 'show'])
-            ->name('exam-timetables.show');
-        
-        Route::get('/manage/{timetable}/edit', [ExamTimetableController::class, 'edit'])
-            ->name('exam-timetables.edit');
-        
-        Route::put('/manage/{timetable}', [ExamTimetableController::class, 'update'])
-            ->name('exam-timetables.update');
-        
-        Route::delete('/manage/{timetable}', [ExamTimetableController::class, 'destroy'])
-            ->name('exam-timetables.destroy');
-        
-        Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
-            ->name('exam-timetables.download-pdf');
-        
-        Route::get('/conflicts', [ExamTimetableController::class, 'showConflicts'])
-            ->name('exam-timetables.conflicts');
-
-        // ✅ ADD EXAM TIMETABLE CONFLICT RESOLUTION ROUTES HERE
+Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function () {
+    Route::get('/', [DashboardController::class, 'examofficeDashboard'])
+        ->name('examoffice.dashboard');
+    
+    // ✅ EXAM TIMETABLE ROUTES (you had these before!)
+    Route::get('/manage', [ExamTimetableController::class, 'index'])
+        ->name('exam-timetables.index');
+    Route::get('/manage/create', [ExamTimetableController::class, 'create'])
+        ->name('exam-timetables.create');
+    Route::post('/manage', [ExamTimetableController::class, 'store'])
+        ->name('exam-timetables.store');
+    Route::get('/manage/{timetable}', [ExamTimetableController::class, 'show'])
+        ->name('exam-timetables.show');
+    Route::get('/manage/{timetable}/edit', [ExamTimetableController::class, 'edit'])
+        ->name('exam-timetables.edit');
+    Route::put('/manage/{timetable}', [ExamTimetableController::class, 'update'])
+        ->name('exam-timetables.update');
+    Route::delete('/manage/{timetable}', [ExamTimetableController::class, 'destroy'])
+        ->name('exam-timetables.destroy');
+    
+    Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
+        ->name('exam-timetables.download-pdf');
+    Route::get('/conflicts', [ExamTimetableController::class, 'showConflicts'])
+        ->name('exam-timetables.conflicts');
+    
+    // Conflict resolution routes
     Route::post('/resolve-conflict', [ExamTimetableController::class, 'resolveConflict'])
         ->name('exam-timetables.resolve-conflict');
-    
     Route::post('/resolve-all-conflicts', [ExamTimetableController::class, 'resolveAllConflicts'])
         ->name('exam-timetables.resolve-all');
-    }); 
-
+    
+   // ✅ EXAMROOM ROUTES - CORRECT ORDER
+Route::get('/examrooms', [ExamroomController::class, 'index'])
+    ->name('examrooms.index');
+Route::get('/examrooms/create', [ExamroomController::class, 'create'])  // ← This MUST come before {examroom}
+    ->name('examrooms.create');
+Route::post('/examrooms', [ExamroomController::class, 'store'])
+    ->name('examrooms.store');
+Route::get('/examrooms/{examroom}/edit', [ExamroomController::class, 'edit'])  // ← Edit before show
+    ->name('examrooms.edit');
+Route::get('/examrooms/{examroom}', [ExamroomController::class, 'show'])  // ← This should be LAST
+    ->name('examrooms.show');
+Route::put('/examrooms/{examroom}', [ExamroomController::class, 'update'])
+    ->name('examrooms.update');
+Route::delete('/examrooms/{examroom}', [ExamroomController::class, 'destroy'])
+    ->name('examrooms.destroy');
+});
     Route::prefix('classtimeslot')
         ->middleware(['auth', 'permission:view-classtimeslots'])
         ->group(function () {

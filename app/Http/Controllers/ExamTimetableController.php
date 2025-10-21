@@ -1504,4 +1504,488 @@ public function updateProgramExamTimetable(Program $program, $timetable, Request
             return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
         }
     }
+
+    /**
+ * Get classes with their units for bulk scheduling
+ */
+public function getClassesWithUnits(Program $program, $schoolCode)
+{
+    try {
+        \Log::info('Getting classes with units for bulk scheduling', [
+            'program_id' => $program->id,
+            'program_name' => $program->name,
+            'school_code' => $schoolCode
+        ]);
+
+        $classes = ClassModel::where('program_id', $program->id)
+            ->get()
+            ->map(function($class) use ($program) {
+                // Get unit count for this class
+                $unitCount = DB::table('units')
+                    ->where('class_id', $class->id)
+                    ->where('program_id', $program->id)
+                    ->count();
+                
+                // Get student count
+                $studentCount = DB::table('enrollments')
+                    ->where('class_id', $class->id)
+                    ->distinct('student_code')
+                    ->count();
+                
+                // Check if code column exists
+                $columns = \Schema::getColumnListing('classes');
+                $hasCodeColumn = in_array('code', $columns);
+                
+                return [
+                    'id' => $class->id,
+                    'name' => $class->name,
+                    'code' => $hasCodeColumn ? ($class->code ?? 'CLASS-' . $class->id) : 'CLASS-' . $class->id,
+                    'semester_id' => $class->semester_id,
+                    'program_id' => $class->program_id,
+                    'unit_count' => $unitCount,
+                    'student_count' => $studentCount,
+                ];
+            })
+            ->filter(function($class) {
+                // Only include classes that have units
+                return $class['unit_count'] > 0;
+            })
+            ->values();
+
+        \Log::info('Classes with units retrieved', [
+            'program_id' => $program->id,
+            'classes_count' => $classes->count(),
+            'total_units' => $classes->sum('unit_count')
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'classes' => $classes
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('Failed to get classes with units', [
+            'program_id' => $program->id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to fetch classes: ' . $e->getMessage()
+        ], 500);
+    }
+}
+/**
+ * ✅ FINAL VERSION: INTELLIGENT BULK EXAM SCHEDULING
+ * - Respects gap between exams PER CLASS (students get rest)
+ * - Distributes exams evenly across date range
+ * - Uses two time slots randomly
+ * - Stores lecturers correctly
+ */
+public function bulkScheduleExams(Program $program, Request $request, $schoolCode)
+{
+    \Log::info('=== BULK EXAM SCHEDULING STARTED ===', [
+        'program_id' => $program->id,
+        'program_name' => $program->name,
+        'request_data' => $request->all()
+    ]);
+
+    $validated = $request->validate([
+        'class_ids' => 'required|array|min:1',
+        'class_ids.*' => 'required|integer|exists:classes,id',
+        'start_date' => 'required|date|after_or_equal:today',
+        'end_date' => 'required|date|after:start_date',
+        'exam_duration_hours' => 'required|integer|min:1|max:4',
+        'gap_between_exams_days' => 'required|integer|min:0|max:7',
+        'start_time' => 'required|date_format:H:i',
+        'excluded_days' => 'nullable|array',
+        'excluded_days.*' => 'string|in:Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday',
+        'max_exams_per_day' => 'required|integer|min:1|max:10',
+        'selected_examrooms' => 'nullable|array'
+    ]);
+
+    try {
+        DB::beginTransaction();
+
+        $scheduledExams = [];
+        $conflicts = [];
+        $warnings = [];
+        
+        // ✅ Define university time slots
+        $timeSlots = [
+            ['start' => '09:00', 'end' => '11:00', 'label' => 'Morning Session'],
+            ['start' => '11:30', 'end' => '13:30', 'label' => 'Afternoon Session']
+        ];
+        
+        // Get all existing exams for conflict checking
+        $existingExams = ExamTimetable::whereBetween('date', [
+            $validated['start_date'], 
+            $validated['end_date']
+        ])->get();
+
+        // Get unique units across all selected classes
+        $unitsData = DB::table('unit_assignments')
+            ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
+            ->whereIn('unit_assignments.class_id', $validated['class_ids'])
+            ->where('units.program_id', $program->id)
+            ->select(
+                'units.id as unit_id',
+                'units.code as unit_code',
+                'units.name as unit_name',
+                'unit_assignments.class_id',
+                'unit_assignments.lecturer_code',
+                'unit_assignments.semester_id'
+            )
+            ->get();
+
+        // Group units manually
+        $unitsByClass = [];
+        foreach ($unitsData as $unitRecord) {
+            $unitId = $unitRecord->unit_id;
+            if (!isset($unitsByClass[$unitId])) {
+                $unitsByClass[$unitId] = [];
+            }
+            $unitsByClass[$unitId][] = (array) $unitRecord;
+        }
+
+        if (empty($unitsByClass)) {
+            throw new \Exception('No units found for the selected classes');
+        }
+
+        \Log::info('Units grouped for bulk scheduling', [
+            'total_units' => count($unitsByClass),
+            'units' => array_keys($unitsByClass)
+        ]);
+
+        // ✅ Calculate recommended gap based on exam period and unit count
+        $examPeriodDays = Carbon::parse($validated['start_date'])->diffInDays(Carbon::parse($validated['end_date']));
+        $totalUnits = count($unitsByClass);
+        
+        // If user didn't set a gap, calculate one automatically
+        if ($validated['gap_between_exams_days'] == 0 && $totalUnits > 0) {
+            $recommendedGap = max(1, floor($examPeriodDays / $totalUnits));
+            $gapDays = min($recommendedGap, 3); // Cap at 3 days max auto-gap
+            \Log::info("Auto-calculated gap: {$gapDays} days", [
+                'exam_period_days' => $examPeriodDays,
+                'total_units' => $totalUnits
+            ]);
+        } else {
+            $gapDays = $validated['gap_between_exams_days'];
+        }
+
+        $excludedDays = $validated['excluded_days'] ?? [];
+        $maxExamsPerDay = $validated['max_exams_per_day'];
+
+        // ✅ Track last exam date PER CLASS (this is the key fix!)
+        $classLastExamDate = []; // ['class_id' => Carbon date]
+        
+        // ✅ Track exams scheduled per day per time slot
+        $dailySchedule = []; // ['2025-10-21' => ['09:00' => count, '11:30' => count]]
+        
+        // ✅ Start from the beginning date for each exam
+        $currentDate = Carbon::parse($validated['start_date']);
+
+        // Loop through units
+        foreach ($unitsByClass as $unitId => $unitRecords) {
+            $firstUnit = $unitRecords[0];
+            
+            // Get all class IDs studying this unit
+            $classIds = array_unique(array_column($unitRecords, 'class_id'));
+            
+            // Calculate TOTAL student count
+            $totalStudents = DB::table('enrollments')
+                ->where('unit_id', $unitId)
+                ->whereIn('class_id', $classIds)
+                ->distinct('student_code')
+                ->count('student_code');
+            
+            if ($totalStudents === 0) {
+                $warnings[] = "Skipped {$firstUnit['unit_code']} - No students enrolled across selected classes";
+                continue;
+            }
+            
+            // Get lecturer
+            $lecturerCodes = array_filter(array_column($unitRecords, 'lecturer_code'));
+            $lecturerCode = null;
+            
+            if (!empty($lecturerCodes)) {
+                $lecturerCounts = array_count_values($lecturerCodes);
+                arsort($lecturerCounts);
+                $lecturerCode = array_key_first($lecturerCounts);
+            }
+            
+            $lecturer = $lecturerCode ? User::where('code', $lecturerCode)->first() : null;
+            $chiefInvigilator = $lecturer 
+                ? trim("{$lecturer->first_name} {$lecturer->last_name}")
+                : 'No lecturer assigned';
+            
+            \Log::info("Processing unit for scheduling", [
+                'unit_code' => $firstUnit['unit_code'],
+                'unit_name' => $firstUnit['unit_name'],
+                'class_count' => count($classIds),
+                'total_students' => $totalStudents,
+                'lecturer_code' => $lecturerCode,
+                'chief_invigilator' => $chiefInvigilator,
+                'classes' => $classIds
+            ]);
+
+            // ✅ Find earliest allowed date considering gap for ALL affected classes
+            $earliestAllowedDate = clone $currentDate;
+            
+            foreach ($classIds as $classId) {
+                if (isset($classLastExamDate[$classId])) {
+                    $classMinDate = $classLastExamDate[$classId]->copy()->addDays($gapDays + 1);
+                    if ($classMinDate->gt($earliestAllowedDate)) {
+                        $earliestAllowedDate = $classMinDate;
+                    }
+                }
+            }
+            
+            \Log::info("Earliest allowed date for unit", [
+                'unit_code' => $firstUnit['unit_code'],
+                'earliest_date' => $earliestAllowedDate->format('Y-m-d'),
+                'reason' => 'Respecting gap between exams for classes'
+            ]);
+
+            // Find next available slot
+            $scheduled = false;
+            $attempts = 0;
+            $maxAttempts = 200;
+            $attemptDate = clone $earliestAllowedDate;
+            $endDate = Carbon::parse($validated['end_date']);
+
+            while (!$scheduled && $attempts < $maxAttempts && $attemptDate->lte($endDate)) {
+                $attempts++;
+
+                // Skip excluded days
+                if (in_array($attemptDate->format('l'), $excludedDays)) {
+                    $attemptDate->addDay();
+                    continue;
+                }
+
+                $examDate = $attemptDate->format('Y-m-d');
+                $examDay = $attemptDate->format('l');
+                
+                // Initialize daily schedule tracking
+                if (!isset($dailySchedule[$examDate])) {
+                    $dailySchedule[$examDate] = [];
+                    foreach ($timeSlots as $slot) {
+                        $dailySchedule[$examDate][$slot['start']] = 0;
+                    }
+                }
+                
+                // Check if we've hit max exams for this day
+                $totalExamsToday = array_sum($dailySchedule[$examDate]);
+                if ($totalExamsToday >= $maxExamsPerDay) {
+                    $attemptDate->addDay();
+                    continue;
+                }
+                
+                // Try each time slot randomly
+                $shuffledTimeSlots = $timeSlots;
+                shuffle($shuffledTimeSlots);
+                
+                foreach ($shuffledTimeSlots as $timeSlot) {
+                    // Skip if this time slot has too many exams
+                    if ($dailySchedule[$examDate][$timeSlot['start']] >= ceil($maxExamsPerDay / 2)) {
+                        continue;
+                    }
+                    
+                    $examStartTime = Carbon::parse($examDate . ' ' . $timeSlot['start']);
+                    $examEndTime = Carbon::parse($examDate . ' ' . $timeSlot['end']);
+
+                    // Smart venue assignment
+                    $venueResult = $this->assignSmartVenue(
+                        $totalStudents,
+                        $examDate,
+                        $examStartTime->format('H:i'),
+                        $examEndTime->format('H:i')
+                    );
+
+                    // Check for conflicts
+                    $hasConflict = false;
+                    $conflictReasons = [];
+
+                    // Check class conflicts
+                    foreach ($classIds as $classId) {
+                        $classConflict = $existingExams->first(function($exam) use ($examDate, $examStartTime, $examEndTime, $classId) {
+                            if ($exam->date !== $examDate || $exam->class_id !== $classId) {
+                                return false;
+                            }
+                            
+                            $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
+                            $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
+                            
+                            return $existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime);
+                        });
+
+                        if ($classConflict) {
+                            $hasConflict = true;
+                            $conflictReasons[] = "Class ID {$classId} has exam at this time";
+                            break;
+                        }
+                    }
+
+                    // Check lecturer conflicts
+                    if (!$hasConflict && $chiefInvigilator !== 'No lecturer assigned') {
+                        $lecturerConflict = $existingExams->first(function($exam) use ($examDate, $examStartTime, $examEndTime, $chiefInvigilator) {
+                            if ($exam->date !== $examDate || $exam->chief_invigilator !== $chiefInvigilator) {
+                                return false;
+                            }
+                            
+                            $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
+                            $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
+                            
+                            return $existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime);
+                        });
+
+                        if ($lecturerConflict) {
+                            $hasConflict = true;
+                            $conflictReasons[] = "{$chiefInvigilator} is already invigilating at this time";
+                        }
+                    }
+
+                    // Check venue conflicts
+                    if (!$hasConflict && $venueResult['success']) {
+                        $venueConflict = $existingExams->first(function($exam) use ($examDate, $examStartTime, $examEndTime, $venueResult) {
+                            if ($exam->date !== $examDate || $exam->venue !== $venueResult['venue']) {
+                                return false;
+                            }
+                            
+                            $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
+                            $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
+                            
+                            return $existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime);
+                        });
+
+                        if ($venueConflict) {
+                            $hasConflict = true;
+                            $conflictReasons[] = "Venue {$venueResult['venue']} is occupied";
+                        }
+                    }
+
+                    // If no conflicts, create exam
+                    if (!$hasConflict && $venueResult['success']) {
+                        $primaryClassId = $classIds[0];
+                        $primaryClass = ClassModel::find($primaryClassId);
+                        
+                        $examData = [
+                            'unit_id' => $unitId,
+                            'semester_id' => $firstUnit['semester_id'] ?? $primaryClass->semester_id,
+                            'class_id' => $primaryClassId,
+                            'program_id' => $program->id,
+                            'school_id' => $program->school_id,
+                            'date' => $examDate,
+                            'day' => $examDay,
+                            'start_time' => $examStartTime->format('H:i'),
+                            'end_time' => $examEndTime->format('H:i'),
+                            'venue' => $venueResult['venue'],
+                            'location' => $venueResult['location'] ?? 'Main Campus',
+                            'no' => $totalStudents,
+                            'chief_invigilator' => $chiefInvigilator,
+                        ];
+
+                        $createdExam = ExamTimetable::create($examData);
+                        $existingExams->push($createdExam);
+                        
+                        // ✅ KEY FIX: Update last exam date for ALL affected classes
+                        $examDateCarbon = Carbon::parse($examDate);
+                        foreach ($classIds as $classId) {
+                            $classLastExamDate[$classId] = clone $examDateCarbon;
+                        }
+                        
+                        // Track this exam in daily schedule
+                        $dailySchedule[$examDate][$timeSlot['start']]++;
+                        
+                        $classNames = ClassModel::whereIn('id', $classIds)->pluck('name')->toArray();
+                        
+                        $scheduledExams[] = [
+                            'exam' => $createdExam,
+                            'unit_code' => $firstUnit['unit_code'],
+                            'unit_name' => $firstUnit['unit_name'],
+                            'classes' => $classNames,
+                            'class_count' => count($classIds),
+                            'total_students' => $totalStudents,
+                            'date' => $examDate,
+                            'time' => "{$examStartTime->format('H:i')} - {$examEndTime->format('H:i')}",
+                            'venue' => $venueResult['venue'],
+                            'lecturer' => $chiefInvigilator
+                        ];
+
+                        $scheduled = true;
+
+                        \Log::info("✅ Scheduled exam with {$gapDays} day gap", [
+                            'unit' => $firstUnit['unit_code'],
+                            'classes' => $classNames,
+                            'students' => $totalStudents,
+                            'date' => $examDate,
+                            'time_slot' => $timeSlot['label'],
+                            'venue' => $venueResult['venue'],
+                            'lecturer' => $chiefInvigilator,
+                            'next_allowed_dates_for_classes' => array_map(function($date) {
+                                return $date->format('Y-m-d');
+                            }, $classLastExamDate)
+                        ]);
+                        
+                        break; // Break out of time slot loop
+                    }
+                }
+                
+                if (!$scheduled) {
+                    $attemptDate->addDay();
+                }
+            }
+
+            if (!$scheduled) {
+                $classNames = ClassModel::whereIn('id', $classIds)->pluck('name')->toArray();
+                $conflicts[] = [
+                    'unit_code' => $firstUnit['unit_code'],
+                    'unit_name' => $firstUnit['unit_name'],
+                    'classes' => $classNames,
+                    'reason' => "Could not find suitable slot within date range after {$attempts} attempts"
+                ];
+            }
+        }
+
+        DB::commit();
+
+        \Log::info('=== BULK SCHEDULING COMPLETED ===', [
+            'scheduled_count' => count($scheduledExams),
+            'conflicts_count' => count($conflicts),
+            'warnings_count' => count($warnings),
+            'gap_days_used' => $gapDays,
+            'date_distribution' => array_map(function($slots) {
+                return array_sum($slots);
+            }, $dailySchedule)
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'scheduled' => $scheduledExams,
+            'conflicts' => $conflicts,
+            'warnings' => $warnings,
+            'summary' => [
+                'total_scheduled' => count($scheduledExams),
+                'total_conflicts' => count($conflicts),
+                'total_warnings' => count($warnings),
+                'gap_days_used' => $gapDays,
+                'date_distribution' => $dailySchedule
+            ]
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        \Log::error('Bulk scheduling failed', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Bulk scheduling failed: ' . $e->getMessage()
+        ], 500);
+    }
+}
 }
