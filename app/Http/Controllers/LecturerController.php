@@ -904,82 +904,124 @@ public function viewClassTimetable(Request $request)
     }
 }
     
-    /**
-     * Display the lecturer's exam supervision assignments
-     */
-    public function examSupervision(Request $request)
-    {
-        $user = $request->user();
+   /**
+ * Display the lecturer's exam supervision assignments - FIXED VERSION
+ */
+public function examSupervision(Request $request)
+{
+    $user = $request->user();
 
-        if (!$user) {
-            Log::error('Exam Supervision accessed with invalid user');
+    if (!$user || !$user->code) {
+        Log::error('Exam Supervision accessed with invalid user', [
+            'user_id' => $user ? $user->id : 'null',
+            'has_code' => $user && isset($user->code)
+        ]);
 
-            return Inertia::render('Lecturer/ExamSupervision', [
-                'error' => 'User profile is incomplete. Please contact an administrator.',
-                'supervisions' => [],
-                'lecturerSemesters' => [],
-                'units' => [],
-            ]);
-        }
-
-        try {
-            // Find semesters where the lecturer is assigned units
-            $lecturerSemesters = Enrollment::where('lecturer_code', $user->code)
-                ->distinct('semester_id')
-                ->join('semesters', 'enrollments.semester_id', '=', 'semesters.id')
-                ->select('semesters.*')
-                ->orderBy('semesters.name')
-                ->get();
-
-            // Get all exam timetables where this lecturer is the chief invigilator for the relevant semesters
-            $supervisions = ExamTimetable::where('chief_invigilator', $user->name)
-                ->whereIn('semester_id', $lecturerSemesters->pluck('id'))
-                ->with('unit') // Include unit details
-                ->orderBy('date')
-                ->orderBy('start_time')
-                ->get();
-
-            // Format the supervisions for the view
-            $formattedSupervisions = $supervisions->map(function ($exam) {
-                return [
-                    'id' => $exam->id,
-                    'unit_code' => $exam->unit->code ?? '',
-                    'unit_name' => $exam->unit->name ?? '',
-                    'venue' => $exam->venue,
-                    'location' => $exam->location,
-                    'day' => $exam->day,
-                    'date' => $exam->date,
-                    'start_time' => $exam->start_time,
-                    'end_time' => $exam->end_time,
-                    'no' => $exam->no,
-                ];
-            });
-
-            // Get all units assigned to the lecturer
-            $units = Unit::whereIn('id', $supervisions->pluck('unit_id')->unique())
-                ->select('id', 'code', 'name')
-                ->get();
-
-            return Inertia::render('Lecturer/ExamSupervision', [
-                'supervisions' => $formattedSupervisions,
-                'lecturerSemesters' => $lecturerSemesters,
-                'units' => $units,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error in exam supervision', [
-                'user_id' => $user ? $user->id : 'null',
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return Inertia::render('Lecturer/ExamSupervision', [
-                'error' => 'An error occurred while loading supervision assignments. Please try again later.',
-                'supervisions' => [],
-                'lecturerSemesters' => [],
-                'units' => [],
-            ]);
-        }
+        return Inertia::render('Lecturer/ExamSupervision', [
+            'error' => 'User profile is incomplete. Please contact an administrator.',
+            'supervisions' => [],
+            'lecturerSemesters' => [],
+            'units' => [],
+            'selectedSemesterId' => null
+        ]);
     }
+
+    try {
+        // ✅ FIX 1: Use unit_assignments table instead of enrollments
+        $lecturerSemesters = Semester::whereHas('unitAssignments', function($query) use ($user) {
+            $query->where('lecturer_code', $user->code);
+        })->orderBy('name')->get();
+
+        Log::info('Found lecturer semesters for exam supervision', [
+            'lecturer_code' => $user->code,
+            'semesters_count' => $lecturerSemesters->count(),
+            'semester_ids' => $lecturerSemesters->pluck('id')->toArray()
+        ]);
+
+        // Get selected semester from request or use first available
+        $selectedSemesterId = $request->input('semester_id');
+        if (!$selectedSemesterId && $lecturerSemesters->isNotEmpty()) {
+            $selectedSemesterId = $lecturerSemesters->first()->id;
+        }
+
+        // ✅ FIX 2: Get exam timetables where this lecturer is assigned to the unit
+        // First, get all unit IDs assigned to this lecturer
+        $assignedUnitIds = DB::table('unit_assignments')
+            ->where('lecturer_code', $user->code)
+            ->when($selectedSemesterId, function($query) use ($selectedSemesterId) {
+                return $query->where('semester_id', $selectedSemesterId);
+            })
+            ->pluck('unit_id')
+            ->unique();
+
+        Log::info('Found assigned units', [
+            'lecturer_code' => $user->code,
+            'unit_ids' => $assignedUnitIds->toArray()
+        ]);
+
+        // ✅ FIX 3: Query exam timetables for those units
+        $supervisions = ExamTimetable::whereIn('unit_id', $assignedUnitIds)
+            ->when($selectedSemesterId, function($query) use ($selectedSemesterId) {
+                return $query->where('semester_id', $selectedSemesterId);
+            })
+            ->with(['unit', 'semester'])
+            ->orderBy('date')
+            ->orderBy('start_time')
+            ->get();
+
+        Log::info('Found exam supervisions', [
+            'lecturer_code' => $user->code,
+            'supervisions_count' => $supervisions->count()
+        ]);
+
+        // Format the supervisions for the view
+        $formattedSupervisions = $supervisions->map(function ($exam) {
+            return [
+                'id' => $exam->id,
+                'unit_code' => $exam->unit->code ?? '',
+                'unit_name' => $exam->unit->name ?? '',
+                'venue' => $exam->venue,
+                'location' => $exam->location,
+                'day' => $exam->day,
+                'date' => $exam->date,
+                'start_time' => $exam->start_time,
+                'end_time' => $exam->end_time,
+                'no' => $exam->no,
+                'semester_name' => $exam->semester->name ?? '',
+                'chief_invigilator' => $exam->chief_invigilator,
+            ];
+        });
+
+        // Get all units assigned to the lecturer for filtering
+        $units = Unit::whereIn('id', $assignedUnitIds)
+            ->select('id', 'code', 'name')
+            ->get();
+
+        return Inertia::render('Lecturer/ExamSupervision', [
+            'supervisions' => $formattedSupervisions,
+            'lecturerSemesters' => $lecturerSemesters,
+            'units' => $units,
+            'selectedSemesterId' => $selectedSemesterId,
+            'totalDuties' => $formattedSupervisions->count(),
+            'totalUnits' => $units->count(),
+            'examDays' => $formattedSupervisions->pluck('date')->unique()->count()
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Error in exam supervision', [
+            'lecturer_code' => $user->code ?? 'NO CODE',
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return Inertia::render('Lecturer/ExamSupervision', [
+            'error' => 'An error occurred while loading supervision assignments. Please try again later.',
+            'supervisions' => [],
+            'lecturerSemesters' => [],
+            'units' => [],
+            'selectedSemesterId' => null
+        ]);
+    }
+}
 
     /**
      * Display the lecturer's profile

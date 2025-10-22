@@ -103,6 +103,13 @@ interface Unit {
   student_count: number
   lecturer_code: string | null
   lecturer_name: string | null
+  classes_taking_unit?: number  //
+  class_list?: Array<{           // 
+    id: number
+    name: string
+    code: string
+    student_count: number
+  }>
 }
 
 interface PageProps {
@@ -351,6 +358,18 @@ const ExamCard: React.FC<ExamCardProps> = ({
             </div>
           </div>
         </div>
+
+        
+{exam.classes_taking_unit > 1 && (
+  <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
+    <div className="flex items-center text-xs">
+      <Layers className="w-4 h-4 text-purple-600 mr-2" />
+      <span className="font-semibold text-purple-800">
+        Cross-Class Exam: {exam.classes_taking_unit} classes combined
+      </span>
+    </div>
+  </div>
+)}
 
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2 p-3 bg-green-50 border border-green-200 rounded-lg">
@@ -1139,35 +1158,104 @@ const ExamModal: React.FC<ExamModalProps> = ({
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Unit <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={data.unit_id}
-                  onChange={(e) => setData('unit_id', e.target.value)}
-                  className={`w-full px-4 py-2 border rounded-lg ${theme.filterFocus} ${
-                    errors.unit_id ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  disabled={!data.class_id || loadingUnits}
-                  required
-                >
-                  <option value="">
-                    {loadingUnits 
-                      ? 'Loading units...' 
-                      : !data.class_id 
-                      ? 'Select class first' 
-                      : 'Select Unit'}
-                  </option>
-                  {units.map((unit) => (
-                    <option key={unit.id} value={unit.id}>
-                      {unit.code} - {unit.name} ({unit.student_count} students)
-                    </option>
-                  ))}
-                </select>
-                {errors.unit_id && (
-                  <p className="mt-1 text-sm text-red-600">{errors.unit_id}</p>
-                )}
-              </div>
+  <label className="block text-sm font-semibold text-gray-700 mb-2">
+    Unit <span className="text-red-500">*</span>
+  </label>
+  <select
+    value={data.unit_id}
+    onChange={(e) => setData('unit_id', e.target.value)}
+    className={`w-full px-4 py-2 border rounded-lg ${theme.filterFocus} ${
+      errors.unit_id ? 'border-red-500' : 'border-gray-300'
+    }`}
+    disabled={!data.class_id || loadingUnits}
+    required
+  >
+    <option value="">
+      {loadingUnits 
+        ? 'Loading units...' 
+        : !data.class_id 
+        ? 'Select class first' 
+        : 'Select Unit'}
+    </option>
+    {units.map((unit) => (
+      <option key={unit.id} value={unit.id}>
+        {unit.code} - {unit.name} 
+        ({unit.student_count} students
+        {unit.classes_taking_unit > 1 && ` across ${unit.classes_taking_unit} classes`})
+      </option>
+    ))}
+  </select>
+  {errors.unit_id && (
+    <p className="mt-1 text-sm text-red-600">{errors.unit_id}</p>
+  )}
+  
+  {/* ✅ ADD THIS SECTION HERE - Cross-Class Exam Breakdown */}
+
+{data.unit_id && units.length > 0 && (() => {
+  const selectedUnit = units.find(u => u.id === parseInt(data.unit_id as string))
+  if (selectedUnit && selectedUnit.class_list && selectedUnit.class_list.length > 1) {
+    return (
+      <div className="mt-2 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg shadow-sm">
+        <div className="flex items-start">
+          <Info className="w-5 h-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="font-bold text-blue-900 text-sm mb-2">
+              📊 Cross-Class Exam - Multiple Groups Combined
+            </p>
+            <div className="bg-white/70 rounded p-3 mb-2">
+              <p className="text-sm text-blue-900">
+                This exam will accommodate{' '}
+                <span className="font-bold text-lg text-indigo-600">
+                  {selectedUnit.student_count} students
+                </span>{' '}
+                from{' '}
+                <span className="font-bold text-indigo-600">
+                  {selectedUnit.class_list.length} different classes
+                </span>
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-blue-800 mb-1">Class Breakdown:</p>
+              {selectedUnit.class_list.map((cls: any, index: number) => (
+                <div key={index} className="flex items-center justify-between bg-white/50 rounded px-2 py-1">
+                  <div className="flex items-center text-xs">
+                    <School className="w-3 h-3 text-indigo-600 mr-1" />
+                    <span className="font-medium text-gray-900">{cls.name}</span>
+                    <span className="text-gray-600 ml-1">({cls.code})</span>
+                  </div>
+                  <div className="flex items-center text-xs">
+                    <Users className="w-3 h-3 text-purple-600 mr-1" />
+                    <span className="font-bold text-purple-700">{cls.student_count} students</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs">
+              <p className="font-medium text-green-800">
+                💡 Venue Assignment: The system will automatically assign a venue with capacity 
+                for <span className="font-bold">{selectedUnit.student_count} students</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  } else if (selectedUnit && selectedUnit.student_count > 0) {
+    // Single class exam
+    return (
+      <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="flex items-center text-xs text-gray-700">
+          <Users className="w-4 h-4 text-gray-600 mr-2" />
+          <span>
+            Single class exam: <span className="font-bold">{selectedUnit.student_count} students</span>
+          </span>
+        </div>
+      </div>
+    )
+  }
+  return null
+})()}
+  </div>
 
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
