@@ -1803,8 +1803,7 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
     ]);
 
     $validated = $request->validate([
-        'class_ids' => 'required|array|min:1',
-        'class_ids.*' => 'required|integer|exists:classes,id',
+        'selected_class_units' => 'required|array|min:1',
         'start_date' => 'required|date|after_or_equal:today',
         'end_date' => 'required|date|after:start_date',
         'exam_duration_hours' => 'required|integer|min:1|max:4',
@@ -1823,22 +1822,41 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
         $conflicts = [];
         $warnings = [];
         
-        // Define university time slots
-        $timeSlots = [
-            ['start' => '09:00', 'end' => '11:00', 'label' => 'Morning Session'],
-            ['start' => '11:30', 'end' => '13:30', 'label' => 'Afternoon Session']
+        // Build time slots from frontend
+        $timeSlotMap = [];
+        foreach ($validated['selected_class_units'] as $unit) {
+            if (isset($unit['assigned_start_time']) && isset($unit['assigned_end_time'])) {
+                $key = $unit['assigned_start_time'] . '-' . $unit['assigned_end_time'];
+                if (!isset($timeSlotMap[$key])) {
+                    $timeSlotMap[$key] = [
+                        'start' => $unit['assigned_start_time'],
+                        'end' => $unit['assigned_end_time'],
+                        'label' => 'Slot ' . (count($timeSlotMap) + 1)
+                    ];
+                }
+            }
+        }
+        $timeSlots = !empty($timeSlotMap) ? array_values($timeSlotMap) : [
+            ['start' => '09:00', 'end' => '11:00', 'label' => 'Slot 1'],
+            ['start' => '11:30', 'end' => '13:30', 'label' => 'Slot 2']
         ];
-        
+
         // Get all existing exams for conflict checking
         $existingExams = ExamTimetable::whereBetween('date', [
             $validated['start_date'], 
             $validated['end_date']
         ])->get();
 
+        // Extract class IDs from selected_class_units
+        $classIds = collect($validated['selected_class_units'])
+            ->pluck('class_id')
+            ->unique()
+            ->toArray();
+
         // Get unique units across all selected classes
         $unitsData = DB::table('unit_assignments')
             ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
-            ->whereIn('unit_assignments.class_id', $validated['class_ids'])
+            ->whereIn('unit_assignments.class_id', $classIds)
             ->where('units.program_id', $program->id)
             ->select(
                 'units.id as unit_id',
@@ -1849,7 +1867,6 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                 'unit_assignments.semester_id'
             )
             ->get();
-
         // Group units manually
         $unitsByClass = [];
         foreach ($unitsData as $unitRecord) {
@@ -2004,17 +2021,21 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
 
                 $dayAttempted = false;
 
-                // Try each time slot
-                foreach ($timeSlots as $timeSlot) {
-                    $dayAttempted = true;
-                    
-                    // Initialize time slot counter
-                    if (!isset($dailySchedule[$examDate][$timeSlot['start']])) {
-                        $dailySchedule[$examDate][$timeSlot['start']] = 0;
-                    }
+            // Use assigned time from frontend (already randomized)
+                $assignedStart = $firstUnit['assigned_start_time'];
+                $assignedEnd = $firstUnit['assigned_end_time'];
+                
+                $dayAttempted = true;
+                
+                // Initialize time slot counter
+                if (!isset($dailySchedule[$examDate][$assignedStart])) {
+                    $dailySchedule[$examDate][$assignedStart] = 0;
+                }
 
-                    $examStartTime = Carbon::parse($examDate . ' ' . $timeSlot['start']);
-                    $examEndTime = Carbon::parse($examDate . ' ' . $timeSlot['end']);
+                $examStartTime = Carbon::parse($examDate . ' ' . $assignedStart);
+                $examEndTime = Carbon::parse($examDate . ' ' . $assignedEnd);
+
+
 
                     // ✅ FIX: Smart venue assignment with room sharing
                     $roomAvailability = $this->getVenueCapacity(
@@ -2131,7 +2152,7 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                     }
                     
                     // Track this exam in daily schedule
-                    $dailySchedule[$examDate][$timeSlot['start']]++;
+                    $dailySchedule[$examDate][$assignedStart]++;
                     
                     $classNames = ClassModel::whereIn('id', $selectedClassIds)->pluck('name')->toArray();
                     
@@ -2155,14 +2176,14 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                         'classes' => $classNames,
                         'students' => $totalStudents,
                         'date' => $examDate,
-                        'time_slot' => $timeSlot['label'],
+                        'time_slot' => $assignedStart . '-' . $assignedEnd,
                         'venue' => $venueResult['venue'],
                         'lecturer' => $chiefInvigilator,
                         'attempts_taken' => $attempts
                     ]);
                     
-                    break; // Break out of time slot loop
-                }
+                 
+                
                 
                 if (!$scheduled && $dayAttempted) {
                     $attemptDate->addDay();
