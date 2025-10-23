@@ -2708,7 +2708,7 @@ useEffect(() => {
               <div className="mt-1.5 flex items-center gap-4 text-xs">
                 <div className="flex items-center text-purple-600">
                   <Users className="w-3 h-3 mr-1" />
-                  <span className="font-semibold">{unitData.total_students} students</span>
+                  <span className="font-semibold">{unitData.total_enrolled} students</span>
                   <span className="text-gray-500 ml-1">across {unitData.class_count} class{unitData.class_count > 1 ? 'es' : ''}</span>
                 </div>
                 {unitData.lecturer_name && (
