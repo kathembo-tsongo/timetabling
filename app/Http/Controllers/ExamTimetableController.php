@@ -507,18 +507,19 @@ public function getUnitsByClassAndSemesterForExam(Request $request)
             ->orderBy('capacity', 'asc')
             ->get();
 
-        if ($suitableVenues->isEmpty()) {
-            $suitableVenues = \App\Models\Examroom::orderBy('capacity', 'desc')->get();
-            
-            if ($suitableVenues->isEmpty()) {
-                return [
-                    'success' => false,
-                    'message' => 'No exam rooms available',
-                    'venue' => 'TBD',
-                    'location' => 'TBD'
-                ];
-            }
-        }
+        if ($availableVenues->isEmpty()) {
+    return [
+        'success' => false,
+        'message' => 'All suitable exam rooms are at full capacity',
+        'venue' => 'TBD',
+        'location' => 'TBD',
+        'reason' => 'capacity_exceeded', // ✅ ADD THIS
+        'details' => [
+            'required_capacity' => $studentCount,
+            'checked_rooms' => $suitableVenues->count()
+        ]
+    ];
+}
 
         // Get all conflicting exams at the same time
         $conflictingExams = \App\Models\ExamTimetable::where('date', $date)
@@ -2169,27 +2170,32 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
             }
 
             if (!$scheduled) {
-                $classNames = ClassModel::whereIn('id', $selectedClassIds)->pluck('name')->toArray();
-                
-                \Log::error("❌ Failed to schedule exam", [
-                    'unit' => $firstUnit['unit_code'],
-                    'unit_name' => $firstUnit['unit_name'],
-                    'classes' => $classNames,
-                    'attempts' => $attempts,
-                    'earliest_allowed_date' => $earliestAllowedDate->format('Y-m-d'),
-                    'end_date' => $endDate->format('Y-m-d'),
-                    'failure_reasons_sample' => array_slice($failureReasons, -10)
-                ]);
-                
-                $conflicts[] = [
-                    'unit_code' => $firstUnit['unit_code'],
-                    'unit_name' => $firstUnit['unit_name'],
-                    'classes' => $classNames,
-                    'reason' => count($failureReasons) > 0 
-                        ? "Multiple conflicts detected. Last: " . end($failureReasons)
-                        : "Could not find suitable slot within date range after {$attempts} attempts"
-                ];
-            }
+    $reason = 'Could not find suitable slot within date range';
+    
+    // ✅ FIX: Check BOTH conflictReasons AND failureReasons for capacity issues
+    $allReasons = implode(' ', array_merge($conflictReasons ?? [], $failureReasons ?? []));
+    
+    if (str_contains($allReasons, 'insufficient capacity') || 
+        str_contains($allReasons, 'No venue with capacity') ||
+        str_contains(strtolower($allReasons), 'capacity')) {
+        $reason = 'Insufficient venue capacity - all exam rooms are full';
+    } else if (!empty($failureReasons)) {
+        $reason = implode('; ', $failureReasons);
+    } else if (!empty($conflictReasons)) {
+        $reason = implode('; ', $conflictReasons);
+    }
+    
+    $conflicts[] = [
+        'unit_code' => $unit->code,
+        'unit_name' => $unit->name,
+        'class_name' => $class->name,
+        'reason' => $reason,
+        'all_failure_reasons' => $failureReasons ?? [],
+        'conflict_details' => $conflictReasons ?? []
+    ];
+}
+
+
         }
 
         DB::commit();

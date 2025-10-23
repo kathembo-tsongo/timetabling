@@ -1930,105 +1930,159 @@ useEffect(() => {
 }, [bulkFormState.semester_id])
   
   
-  // ✅ HANDLER: Bulk Schedule
   const handleBulkSchedule = useCallback(async () => {
-  console.log('🚀 Starting bulk schedule with state:', {
-    semester_id: bulkFormState.semester_id,
-    school_id: bulkFormState.school_id,
-    program_id: bulkFormState.program_id,
-    selected_units: bulkFormState.selected_class_units.length,
-    start_date: bulkFormState.start_date,
-    end_date: bulkFormState.end_date,
-    selected_rooms: bulkFormState.selected_examrooms.length
-  })
-
   if (!bulkFormState.semester_id || !bulkFormState.school_id || !bulkFormState.program_id) {
-    console.error('❌ Missing required fields')
     toast.error('Please select semester, school, and program')
     return
   }
-    if (bulkFormState.selected_class_units.length === 0) {
-      toast.error('Please select at least one class/unit combination')
-      return
-    }
 
-    if (!bulkFormState.start_date || !bulkFormState.end_date) {
-      toast.error('Please select start and end dates')
-      return
-    }
+  if (bulkFormState.selected_class_units.length === 0) {
+    toast.error('Please select at least one class/unit combination')
+    return
+  }
 
-    if (bulkFormState.selected_examrooms.length === 0) {
-      toast.error('Please select at least one exam room')
-      return
-    }
+  if (!bulkFormState.start_date || !bulkFormState.end_date) {
+    toast.error('Please select start and end dates')
+    return
+  }
 
-    if (!confirm(
-      `Schedule ${bulkFormState.selected_class_units.length} exams from ${bulkFormState.start_date} to ${bulkFormState.end_date}?`
-    )) {
-      return
-    }
+  if (bulkFormState.selected_examrooms.length === 0) {
+    toast.error('Please select at least one exam room')
+    return
+  }
 
-    setIsBulkSubmitting(true)
+  if (!confirm(
+    `Schedule ${bulkFormState.selected_class_units.length} exams from ${bulkFormState.start_date} to ${bulkFormState.end_date}?`
+  )) {
+    return
+  }
 
-    try {
-      const response = await axios.post(
-        route('schools.' + schoolCode.toLowerCase() + '.programs.exam-timetables.bulk-schedule', program.id),
-        {
-          class_ids: [...new Set(bulkFormState.selected_class_units.map(cu => cu.class_id))],
-          start_date: bulkFormState.start_date,
-          end_date: bulkFormState.end_date,
-          exam_duration_hours: bulkFormState.exam_duration_hours,
-          gap_between_exams_days: bulkFormState.gap_between_exams_days,
-          start_time: bulkFormState.start_time,
-          excluded_days: bulkFormState.excluded_days,
-          max_exams_per_day: bulkFormState.max_exams_per_day,
-          selected_examrooms: bulkFormState.selected_examrooms
-        }
+  setIsBulkSubmitting(true)
+
+  try {
+    const response = await axios.post(
+      route('schools.' + schoolCode.toLowerCase() + '.programs.exam-timetables.bulk-schedule', program.id),
+      {
+        class_ids: [...new Set(bulkFormState.selected_class_units.map(cu => cu.class_id))],
+        start_date: bulkFormState.start_date,
+        end_date: bulkFormState.end_date,
+        exam_duration_hours: bulkFormState.exam_duration_hours,
+        gap_between_exams_days: bulkFormState.gap_between_exams_days,
+        start_time: bulkFormState.start_time,
+        excluded_days: bulkFormState.excluded_days,
+        max_exams_per_day: bulkFormState.max_exams_per_day,
+        selected_examrooms: bulkFormState.selected_examrooms
+      }
+    )
+
+    if (response.data.success) {
+      const { summary, scheduled, conflicts, warnings } = response.data
+
+      // ✅ Success toast
+      toast.success(
+        `✅ Successfully scheduled ${summary.total_scheduled} exam${summary.total_scheduled !== 1 ? 's' : ''}!`,
+        { duration: 6000 }
       )
 
-      if (response.data.success) {
-        const { summary, scheduled, conflicts, warnings } = response.data
+      // ✅ Check for capacity-related conflicts
+      const capacityConflicts = conflicts.filter((c: any) => 
+        c.reason?.toLowerCase().includes('capacity') || 
+        c.reason?.toLowerCase().includes('insufficient') ||
+        c.reason?.toLowerCase().includes('full')
+      )
 
-        toast.success(
-          `✅ Bulk scheduling complete! ${summary.total_scheduled} exams scheduled`,
-          { duration: 6000 }
-        )
+      const otherConflicts = conflicts.filter((c: any) => 
+        !capacityConflicts.includes(c)
+      )
 
-        if (conflicts.length > 0) {
-          setTimeout(() => {
-            toast.warning(`⚠️ ${conflicts.length} exam(s) could not be scheduled due to conflicts`, 
-              { duration: 5000 }
-            )
-          }, 1000)
-        }
-
-        setIsBulkModalOpen(false)
-        setBulkFormState({
-          semester_id: 0,
-          school_id: null,
-          program_id: null,
-          selected_class_units: [],
-          start_date: '',
-          end_date: '',
-          exam_duration_hours: 2,
-          gap_between_exams_days: 1,
-          start_time: '09:00',
-          excluded_days: [],
-          max_exams_per_day: 4,
-          selected_examrooms: []
-        })
-
+      // ✅ Show capacity-specific toast
+      if (capacityConflicts.length > 0) {
         setTimeout(() => {
-          router.reload({ only: ['examTimetables'] })
-        }, 2000)
+          toast.error(
+            `🏫 No space available! ${capacityConflicts.length} exam${capacityConflicts.length !== 1 ? 's' : ''} couldn't be scheduled - all exam rooms are at full capacity.\n\n` +
+            `Affected: ${capacityConflicts.map((c: any) => c.unit_code).join(', ')}`,
+            { 
+              duration: 8000,
+              style: {
+                minWidth: '400px'
+              }
+            }
+          )
+        }, 1000)
       }
-    } catch (error: any) {
-      console.error('Bulk schedule error:', error)
-      toast.error(error.response?.data?.message || 'Failed to create bulk schedule')
-    } finally {
-      setIsBulkSubmitting(false)
+
+      // ✅ Show other conflicts
+      if (otherConflicts.length > 0) {
+        setTimeout(() => {
+          toast.warning(
+            `⚠️ ${otherConflicts.length} exam${otherConflicts.length !== 1 ? 's' : ''} couldn't be scheduled due to other conflicts:\n` +
+            otherConflicts.map((c: any) => `${c.unit_code}: ${c.reason}`).slice(0, 3).join('\n'),
+            { 
+              duration: 7000,
+              style: {
+                minWidth: '400px'
+              }
+            }
+          )
+        }, 2500)
+      }
+
+      // ✅ Show warnings if any
+      if (warnings && warnings.length > 0) {
+        setTimeout(() => {
+          toast.info(
+            `ℹ️ ${warnings.length} warning${warnings.length !== 1 ? 's' : ''}: ${warnings.slice(0, 2).join(', ')}`,
+            { duration: 5000 }
+          )
+        }, 4000)
+      }
+
+      setIsBulkModalOpen(false)
+      setBulkFormState({
+        semester_id: 0,
+        school_id: null,
+        program_id: null,
+        selected_class_units: [],
+        start_date: '',
+        end_date: '',
+        exam_duration_hours: 2,
+        gap_between_exams_days: 1,
+        start_time: '09:00',
+        excluded_days: [],
+        max_exams_per_day: 4,
+        selected_examrooms: []
+      })
+
+      setTimeout(() => {
+        router.reload({ only: ['examTimetables'] })
+      }, 2000)
     }
-  }, [bulkFormState, schoolCode, program])
+  } catch (error: any) {
+    console.error('Bulk schedule error:', error)
+    const errorMessage = error.response?.data?.message || 'Failed to create bulk schedule'
+    
+    // ✅ Check if error is related to capacity
+    if (errorMessage.toLowerCase().includes('capacity') || 
+        errorMessage.toLowerCase().includes('no space') ||
+        errorMessage.toLowerCase().includes('full')) {
+      toast.error(
+        `🏫 ${errorMessage}\n\nTip: Try selecting more exam rooms or spreading exams over more dates.`,
+        { 
+          duration: 8000,
+          style: {
+            minWidth: '400px'
+          }
+        }
+      )
+    } else {
+      toast.error(errorMessage, { duration: 5000 })
+    }
+  } finally {
+    setIsBulkSubmitting(false)
+  }
+}, [bulkFormState, schoolCode, program])
+
+
 
   const checkConflicts = (exam: ExamTimetable): Conflict[] => {
     const conflicts: Conflict[] = []
@@ -2152,6 +2206,46 @@ useEffect(() => {
     setSelectedExam(exam)
     setIsViewModalOpen(true)
   }
+
+  const calculateTotalCapacity = () => {
+  const selectedRooms = classrooms.filter(r => 
+    bulkFormState.selected_examrooms.includes(r.id)
+  )
+  return selectedRooms.reduce((sum, room) => sum + room.capacity, 0)
+}
+
+const calculateRequiredCapacity = () => {
+  return bulkFormState.selected_class_units.reduce((sum, cu) => 
+    sum + cu.student_count, 0
+  )
+}
+
+// Then in your bulk modal UI, add a capacity warning section:
+
+{bulkFormState.selected_examrooms.length > 0 && 
+ bulkFormState.selected_class_units.length > 0 && (
+  <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+    <div className="flex items-start gap-3">
+      <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+      <div className="flex-1">
+        <h4 className="font-semibold text-blue-900 mb-1">Capacity Check</h4>
+        <div className="text-sm text-blue-700 space-y-1">
+          <div>Total venue capacity: <span className="font-semibold">{calculateTotalCapacity()} students</span></div>
+          <div>Required capacity: <span className="font-semibold">{calculateRequiredCapacity()} students</span></div>
+          {calculateRequiredCapacity() > calculateTotalCapacity() && (
+            <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
+              <span className="text-red-800 font-semibold">⚠️ Warning: Not enough venue capacity!</span>
+              <p className="text-xs text-red-700 mt-1">
+                You need {calculateRequiredCapacity() - calculateTotalCapacity()} more seats. 
+                Please select additional exam rooms.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
   // ✅ HANDLE BULK SCHEDULE BUTTON CLICK
   const handleBulkScheduleClick = async () => {
