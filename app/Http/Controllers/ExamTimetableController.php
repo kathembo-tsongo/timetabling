@@ -485,97 +485,106 @@ public function getUnitsByClassAndSemesterForExam(Request $request)
     }
 }
 
-    /**
-     * ✅ FIXED: Smart venue assignment
-     */
-    private function assignSmartVenue(
-        int $studentCount,
-        string $date,
-        string $startTime,
-        string $endTime,
-        ?int $excludeExamId = null
-    )
-    {
-        try {
-            \Log::info('Starting smart venue assignment', [
-                'student_count' => $studentCount,
-                'date' => $date,
-                'start_time' => $startTime,
-                'end_time' => $endTime,
-            ]);
+   private function assignSmartVenue(
+    int $studentCount,
+    string $date,
+    string $startTime,
+    string $endTime,
+    ?int $excludeExamId = null
+)
+{
+    try {
+        \Log::info('Starting smart venue assignment', [
+            'student_count' => $studentCount,
+            'date' => $date,
+            'start_time' => $startTime,
+            'end_time' => $endTime,
+        ]);
 
-            $suitableVenues = \App\Models\Examroom::where('capacity', '>=', $studentCount)
-                ->where('is_active', true)
-                ->orderBy('capacity', 'asc')
-                ->get();
+        // Get all suitable venues by capacity
+        $suitableVenues = \App\Models\Examroom::where('capacity', '>=', $studentCount)
+            ->where('is_active', true)
+            ->orderBy('capacity', 'asc')
+            ->get();
 
+        if ($suitableVenues->isEmpty()) {
+            $suitableVenues = \App\Models\Examroom::orderBy('capacity', 'desc')->get();
+            
             if ($suitableVenues->isEmpty()) {
-                $suitableVenues = \App\Models\Examroom::orderBy('capacity', 'desc')->get();
-                
-                if ($suitableVenues->isEmpty()) {
-                    return [
-                        'success' => false,
-                        'message' => 'No exam rooms available',
-                        'venue' => 'TBD',
-                        'location' => 'TBD'
-                    ];
-                }
-            }
-
-            $conflictingExams = \App\Models\ExamTimetable::where('date', $date)
-                ->where(function ($query) use ($startTime, $endTime) {
-                    $query->whereBetween('start_time', [$startTime, $endTime])
-                        ->orWhereBetween('end_time', [$startTime, $endTime])
-                        ->orWhere(function ($q) use ($startTime, $endTime) {
-                            $q->where('start_time', '<=', $startTime)
-                              ->where('end_time', '>=', $endTime);
-                        });
-                });
-
-            if ($excludeExamId) {
-                $conflictingExams->where('id', '!=', $excludeExamId);
-            }
-
-            $conflictingVenues = $conflictingExams->pluck('venue')->toArray();
-
-            $availableVenues = $suitableVenues->filter(function ($room) use ($conflictingVenues) {
-                return !in_array($room->name, $conflictingVenues);
-            });
-
-            if ($availableVenues->isEmpty()) {
                 return [
                     'success' => false,
-                    'message' => 'All suitable exam rooms are booked',
+                    'message' => 'No exam rooms available',
                     'venue' => 'TBD',
                     'location' => 'TBD'
                 ];
             }
-
-            $selectedRoom = $availableVenues->first();
-
-            return [
-                'success' => true,
-                'message' => "Venue assigned: {$selectedRoom->name}",
-                'venue' => $selectedRoom->name,
-                'location' => $selectedRoom->location ?? 'Main Campus',
-                'capacity' => $selectedRoom->capacity,
-            ];
-
-        } catch (\Exception $e) {
-            \Log::error('Error in smart venue assignment', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return [
-                'success' => false,
-                'message' => 'Failed to assign venue: ' . $e->getMessage(),
-                'venue' => 'TBD',
-                'location' => 'TBD'
-            ];
         }
-    }
 
+        // Get all conflicting exams at the same time
+        $conflictingExams = \App\Models\ExamTimetable::where('date', $date)
+            ->where(function ($query) use ($startTime, $endTime) {
+                $query->whereBetween('start_time', [$startTime, $endTime])
+                    ->orWhereBetween('end_time', [$startTime, $endTime])
+                    ->orWhere(function ($q) use ($startTime, $endTime) {
+                        $q->where('start_time', '<=', $startTime)
+                          ->where('end_time', '>=', $endTime);
+                    });
+            });
+
+        if ($excludeExamId) {
+            $conflictingExams->where('id', '!=', $excludeExamId);
+        }
+
+        $conflictingExams = $conflictingExams->get();
+
+        // Calculate used capacity per venue
+        $venueUsage = [];
+        foreach ($conflictingExams as $exam) {
+            if (!isset($venueUsage[$exam->venue])) {
+                $venueUsage[$exam->venue] = 0;
+            }
+            $venueUsage[$exam->venue] += $exam->no; // 'no' is student count
+        }
+
+        // Find venue with enough remaining capacity
+        foreach ($suitableVenues as $room) {
+            $usedCapacity = $venueUsage[$room->name] ?? 0;
+            $remainingCapacity = $room->capacity - $usedCapacity;
+
+            if ($remainingCapacity >= $studentCount) {
+                return [
+                    'success' => true,
+                    'message' => "Venue assigned: {$room->name} (Remaining: {$remainingCapacity}/{$room->capacity})",
+                    'venue' => $room->name,
+                    'location' => $room->location ?? 'Main Campus',
+                    'capacity' => $room->capacity,
+                    'used_capacity' => $usedCapacity,
+                    'remaining_capacity' => $remainingCapacity,
+                ];
+            }
+        }
+
+        return [
+            'success' => false,
+            'message' => 'All suitable exam rooms have insufficient remaining capacity',
+            'venue' => 'TBD',
+            'location' => 'TBD'
+        ];
+
+    } catch (\Exception $e) {
+        \Log::error('Error in smart venue assignment', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return [
+            'success' => false,
+            'message' => 'Failed to assign venue: ' . $e->getMessage(),
+            'venue' => 'TBD',
+            'location' => 'TBD'
+        ];
+    }
+}
         /**
      * Store a newly created resource in storage.
      */
@@ -1312,24 +1321,34 @@ public function storeProgramExamTimetable(Program $program, Request $request, $s
                 $validatedData['end_time']
             );
 
-            if ($venueResult['success']) {
-                $validatedData['venue'] = $venueResult['venue'];
-                $validatedData['location'] = $venueResult['location'] ?? 'Main Campus';
-                
-                \Log::info('✅ Venue assigned successfully', [
-                    'venue' => $venueResult['venue'],
-                    'capacity' => $venueResult['capacity'] ?? 'N/A',
-                    'student_count' => $studentCount
-                ]);
-            } else {
-                $validatedData['venue'] = 'TBD';
-                $validatedData['location'] = 'TBD';
-                
-                \Log::warning('⚠️ Venue assignment failed', [
-                    'reason' => $venueResult['message'],
-                    'student_count' => $studentCount
-                ]);
+            
+if ($venueResult['success']) {
+    // Get the venue's total capacity
+    $venue = \App\Models\Examroom::where('name', $venueResult['venue'])->first();
+    
+    if ($venue) {
+        // Calculate total students already scheduled at this venue during this time
+        $venueOccupancy = $existingExams->filter(function($exam) use ($examDate, $examStartTime, $examEndTime, $venueResult) {
+            if ($exam->date !== $examDate || $exam->venue !== $venueResult['venue']) {
+                return false;
             }
+            
+            $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
+            $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
+            
+            return $existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime);
+        })->sum('no'); // Sum of all students ('no' field)
+
+        $remainingCapacity = $venue->capacity - $venueOccupancy;
+
+        // Check if adding this exam would exceed capacity
+        if ($enrollmentCount > $remainingCapacity) {
+            $hasConflict = true;
+            $conflictReasons[] = "Venue {$venueResult['venue']} has insufficient capacity (Need: {$enrollmentCount}, Available: {$remainingCapacity}/{$venue->capacity})";
+        }
+    }
+}
+
         }
 
         // Set default location if still empty
@@ -2212,5 +2231,57 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
             'message' => 'Bulk scheduling failed: ' . $e->getMessage()
         ], 500);
     }
+}
+
+/**
+ * ✅ HELPER METHOD 1: Find venue with sufficient REMAINING capacity
+ * Allows multiple exams to share the same venue
+ * 
+ * ADD THIS METHOD to your controller class
+ */
+private function findVenueWithCapacity($examrooms, $requiredCapacity, $examDate, $examStartTime, $examEndTime, &$venueCapacityUsage)
+{
+    $timeKey = $examStartTime->format('Y-m-d H:i') . '-' . $examEndTime->format('H:i');
+    
+    foreach ($examrooms as $room) {
+        // Calculate how much capacity is already used
+        $usedCapacity = $venueCapacityUsage[$room->name][$timeKey] ?? 0;
+        $remainingCapacity = $room->capacity - $usedCapacity;
+        
+        // Check if there's enough remaining capacity
+        if ($remainingCapacity >= $requiredCapacity) {
+            return [
+                'success' => true,
+                'venue' => $room->name,
+                'location' => $room->location,
+                'total_capacity' => $room->capacity,
+                'capacity_used' => $usedCapacity + $requiredCapacity,
+                'remaining_capacity' => $remainingCapacity - $requiredCapacity
+            ];
+        }
+    }
+    
+    return [
+        'success' => false,
+        'message' => 'No venue with sufficient remaining capacity'
+    ];
+}
+
+/**
+ * ✅ HELPER METHOD 2: Update venue capacity usage tracker
+ * 
+ * ADD THIS METHOD to your controller class
+ */
+private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $timeKey, $studentCount)
+{
+    if (!isset($venueCapacityUsage[$venueName])) {
+        $venueCapacityUsage[$venueName] = [];
+    }
+    
+    if (!isset($venueCapacityUsage[$venueName][$timeKey])) {
+        $venueCapacityUsage[$venueName][$timeKey] = 0;
+    }
+    
+    $venueCapacityUsage[$venueName][$timeKey] += $studentCount;
 }
 }

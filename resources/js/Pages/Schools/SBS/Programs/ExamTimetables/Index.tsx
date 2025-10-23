@@ -450,10 +450,6 @@ const ExamCard: React.FC<ExamCardProps> = ({
     </div>
   )
 }
-
-// ============================================
-// EXAM TABLE VIEW COMPONENT
-// ============================================
 const ExamTableView: React.FC<{
   exams: ExamTimetable[]
   theme: any
@@ -463,7 +459,8 @@ const ExamTableView: React.FC<{
   canEdit: boolean
   canDelete: boolean
   allExams: ExamTimetable[]
-}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete, allExams }) => {
+  classrooms: ClassroomType[]  // ✅ ADD THIS
+}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete, allExams, classrooms }) => {  
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-US', {
       month: 'short',
@@ -509,13 +506,38 @@ const ExamTableView: React.FC<{
         }
 
         if (otherExam.venue === exam.venue) {
-          conflicts.push({
-            type: 'venue',
-            severity: 'error',
-            message: `${exam.venue} is already occupied by ${otherExam.unit_code} from ${formatTime(otherExam.start_time)} to ${formatTime(otherExam.end_time)}`,
-            conflictingExam: otherExam
-          })
-        }
+  const classroom = classrooms.find(c => c.name === exam.venue)
+  
+  if (classroom) {
+    const totalStudents = allExams
+      .filter(e => {
+        if (e.date !== exam.date || e.venue !== exam.venue) return false
+        
+        const eStart = e.start_time
+        const eEnd = e.end_time
+        const examStart = exam.start_time
+        const examEnd = exam.end_time
+        
+        return (
+          (eStart <= examStart && examStart < eEnd) ||
+          (eStart < examEnd && examEnd <= eEnd) ||
+          (examStart <= eStart && eEnd <= examEnd)
+        )
+      })
+      .reduce((sum, e) => sum + (e.no || 0), 0)
+    
+    const remainingCapacity = classroom.capacity - totalStudents
+    
+    if (remainingCapacity < 0) {
+      conflicts.push({
+        type: 'venue',
+        severity: 'error',
+        message: `${exam.venue} capacity exceeded (${totalStudents}/${classroom.capacity})`,
+        conflictingExam: otherExam
+      })
+    }
+  }
+}
       }
     })
 
@@ -2039,12 +2061,37 @@ useEffect(() => {
         }
 
         if (otherExam.venue === exam.venue) {
-          conflicts.push({
-            type: 'venue',
-            severity: 'error',
-            message: `${exam.venue} is occupied by ${otherExam.unit_code} at this time`
-          })
-        }
+  const classroom = classrooms.find(c => c.name === exam.venue)
+  
+  if (classroom) {
+    const totalStudents = examTimetables.data
+      .filter(e => {
+        if (e.date !== exam.date || e.venue !== exam.venue) return false
+        
+        const eStart = e.start_time
+        const eEnd = e.end_time
+        const examStart = exam.start_time
+        const examEnd = exam.end_time
+        
+        return (
+          (eStart <= examStart && examStart < eEnd) ||
+          (eStart < examEnd && examEnd <= eEnd) ||
+          (examStart <= eStart && eEnd <= examEnd)
+        )
+      })
+      .reduce((sum, e) => sum + (e.no || 0), 0)
+    
+    const remainingCapacity = classroom.capacity - totalStudents
+    
+    if (remainingCapacity < 0) {
+      conflicts.push({
+        type: 'venue',
+        severity: 'error',
+        message: `${exam.venue} capacity exceeded (${totalStudents}/${classroom.capacity})`
+      })
+    }
+  }
+}
       }
     })
 
@@ -2293,15 +2340,16 @@ useEffect(() => {
               ) : (
                 <div className="mb-8">
                   <ExamTableView
-                    exams={examTimetables.data}
-                    theme={theme}
-                    onView={handleView}
-                    onEdit={handleEdit}
-                    onDelete={handleDeleteClick}
-                    canEdit={can.edit}
-                    canDelete={can.delete}
-                    allExams={examTimetables.data}
-                  />
+  exams={examTimetables.data}
+  theme={theme}
+  onView={handleView}
+  onEdit={handleEdit}
+  onDelete={handleDeleteClick}
+  canEdit={can.edit}
+  canDelete={can.delete}
+  allExams={examTimetables.data}
+  classrooms={classrooms}  // ✅ ADD THIS LINE
+/>
                 </div>
               )}
             </>
