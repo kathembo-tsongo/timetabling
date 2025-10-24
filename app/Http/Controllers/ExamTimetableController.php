@@ -9,6 +9,7 @@ use App\Models\Semester;
 use App\Models\SemesterUnit;
 use App\Models\Enrollment;
 use App\Models\TimeSlot;
+use App\Models\ExamTimeSlot;
 use App\Models\Examroom;
 use App\Models\Program;
 use App\Models\ClassModel;
@@ -84,6 +85,7 @@ class ExamTimetableController extends Controller
         $semesters = Semester::all();
         $examrooms = Examroom::all();
         $timeSlots = TimeSlot::all();
+        $examTimeSlots = ExamTimeSlot::where('is_active', 1)->get();
         $classes = ClassModel::all();
 
         $hierarchicalData = $this->buildHierarchicalData();
@@ -119,6 +121,7 @@ class ExamTimetableController extends Controller
             'classes' => $classes,
             'examrooms' => $examrooms,
             'timeSlots' => $timeSlots,
+            'examTimeSlots' => $examTimeSlots,
             'hierarchicalData' => $hierarchicalData,
             'classesBySemester' => $classesBySemester,
             'unitsByClass' => $unitsByClass,
@@ -134,464 +137,332 @@ class ExamTimetableController extends Controller
     }
 
     /**
- * REPLACE YOUR buildHierarchicalData() method with this
- * This fixes the 160 vs 40 student count issue in the modal
- */
-private function buildHierarchicalData()
-{
-    $semesters = Semester::all();
-    $hierarchicalData = [];
-    
-    foreach ($semesters as $semester) {
-        $semesterData = [
-            'id' => $semester->id,
-            'name' => $semester->name,
-            'classes' => []
-        ];
+     * Build hierarchical data structure
+     */
+    private function buildHierarchicalData()
+    {
+        $semesters = Semester::all();
+        $hierarchicalData = [];
         
-        $classIds = DB::table('semester_unit')
-            ->where('semester_id', $semester->id)
-            ->distinct()
-            ->pluck('class_id');
-
-        if ($classIds->isNotEmpty()) {
-            $classesInSemester = ClassModel::whereIn('id', $classIds)->get();
-        } else {
-            $classesInSemester = ClassModel::where('semester_id', $semester->id)->get();
-        }
-    
-        foreach ($classesInSemester as $class) {
-            $columns = \Schema::getColumnListing('classes');
-            $hasCodeColumn = in_array('code', $columns);
-            
-            $classData = [
-                'id' => $class->id,
-                'code' => $hasCodeColumn ? ($class->code ?? 'CLASS-' . $class->id) : 'CLASS-' . $class->id,
-                'name' => $class->name,
-                'semester_id' => $semester->id,
-                'units' => []
+        foreach ($semesters as $semester) {
+            $semesterData = [
+                'id' => $semester->id,
+                'name' => $semester->name,
+                'classes' => []
             ];
             
-            $unitIds = DB::table('semester_unit')
+            $classIds = DB::table('semester_unit')
                 ->where('semester_id', $semester->id)
-                ->where('class_id', $class->id)
-                ->pluck('unit_id');
+                ->distinct()
+                ->pluck('class_id');
 
-            if ($unitIds->isNotEmpty()) {
-                $unitsInClass = Unit::whereIn('id', $unitIds)->get();
+            if ($classIds->isNotEmpty()) {
+                $classesInSemester = ClassModel::whereIn('id', $classIds)->get();
             } else {
-                $unitsInClass = Unit::where('class_id', $class->id)->get();
+                $classesInSemester = ClassModel::where('semester_id', $semester->id)->get();
             }
-            
-            foreach ($unitsInClass as $unit) {
-                // ✅ FIX: Get all classes taking this unit in this semester
-                $allClassesTakingUnit = DB::table('semester_unit')
-                    ->where('semester_id', $semester->id)
-                    ->where('unit_id', $unit->id)
-                    ->distinct()
-                    ->pluck('class_id');
-
-                // ✅ FIX: Count TOTAL unique students across ALL classes
-                $totalStudentCount = DB::table('enrollments')
-                    ->where('unit_id', $unit->id)
-                    ->where('semester_id', $semester->id)
-                    ->whereIn('class_id', $allClassesTakingUnit)
-                    ->where('status', 'enrolled')
-                    ->distinct()
-                    ->count('student_code');
-
-                // Get enrollment breakdown by class
-                $enrollmentsByClass = [];
-                $classList = [];
+        
+            foreach ($classesInSemester as $class) {
+                $columns = \Schema::getColumnListing('classes');
+                $hasCodeColumn = in_array('code', $columns);
                 
-                foreach ($allClassesTakingUnit as $classId) {
-                    $classStudentCount = DB::table('enrollments')
+                $classData = [
+                    'id' => $class->id,
+                    'code' => $hasCodeColumn ? ($class->code ?? 'CLASS-' . $class->id) : 'CLASS-' . $class->id,
+                    'name' => $class->name,
+                    'semester_id' => $semester->id,
+                    'units' => []
+                ];
+                
+                $unitIds = DB::table('semester_unit')
+                    ->where('semester_id', $semester->id)
+                    ->where('class_id', $class->id)
+                    ->pluck('unit_id');
+
+                if ($unitIds->isNotEmpty()) {
+                    $unitsInClass = Unit::whereIn('id', $unitIds)->get();
+                } else {
+                    $unitsInClass = Unit::where('class_id', $class->id)->get();
+                }
+                
+                foreach ($unitsInClass as $unit) {
+                    $allClassesTakingUnit = DB::table('semester_unit')
+                        ->where('semester_id', $semester->id)
+                        ->where('unit_id', $unit->id)
+                        ->distinct()
+                        ->pluck('class_id');
+
+                    $totalStudentCount = DB::table('enrollments')
                         ->where('unit_id', $unit->id)
                         ->where('semester_id', $semester->id)
-                        ->where('class_id', $classId)
+                        ->whereIn('class_id', $allClassesTakingUnit)
                         ->where('status', 'enrolled')
                         ->distinct()
                         ->count('student_code');
+
+                    $enrollmentsByClass = [];
+                    $classList = [];
                     
-                    if ($classStudentCount > 0) {
-                        $enrollmentClass = ClassModel::find($classId);
-                        if ($enrollmentClass) {
-                            $classList[] = [
-                                'id' => $enrollmentClass->id,
-                                'name' => $enrollmentClass->name,
-                                'code' => $hasCodeColumn ? ($enrollmentClass->code ?? 'CLASS-' . $enrollmentClass->id) : 'CLASS-' . $enrollmentClass->id,
-                                'student_count' => $classStudentCount
-                            ];
+                    foreach ($allClassesTakingUnit as $classId) {
+                        $classStudentCount = DB::table('enrollments')
+                            ->where('unit_id', $unit->id)
+                            ->where('semester_id', $semester->id)
+                            ->where('class_id', $classId)
+                            ->where('status', 'enrolled')
+                            ->distinct()
+                            ->count('student_code');
+                        
+                        if ($classStudentCount > 0) {
+                            $enrollmentClass = ClassModel::find($classId);
+                            if ($enrollmentClass) {
+                                $enrollmentsByClass[] = [
+                                    'class_id' => $classId,
+                                    'class_name' => $enrollmentClass->name,
+                                    'student_count' => $classStudentCount
+                                ];
+                            }
                         }
                     }
-                }
-                
-                // Skip units with no enrollments
-                if ($totalStudentCount === 0) {
-                    continue;
-                }
-                
-                $lecturerAssignment = DB::table('unit_assignments')
-                    ->where('unit_id', $unit->id)
-                    ->where('class_id', $class->id)
-                    ->first();
 
-                $lecturerCode = $lecturerAssignment->lecturer_code ?? null;
-                $lecturerName = null;
+                    // Get lecturer info
+                    $lecturerCode = DB::table('unit_assignments')
+                        ->where('unit_id', $unit->id)
+                        ->where('semester_id', $semester->id)
+                        ->where('class_id', $class->id)
+                        ->value('lecturer_code');
 
-                if ($lecturerCode) {
-                    $lecturer = User::where('code', $lecturerCode)->first();
-                    if ($lecturer) {
-                        $lecturerName = "{$lecturer->first_name} {$lecturer->last_name}";
+                    $lecturerName = 'No lecturer assigned';
+                    if ($lecturerCode) {
+                        $lecturer = User::where('code', $lecturerCode)->first();
+                        if ($lecturer) {
+                            $lecturerName = trim("{$lecturer->first_name} {$lecturer->last_name}");
+                        }
                     }
+
+                    foreach ($allClassesTakingUnit as $classId) {
+                        $classList[] = ClassModel::find($classId);
+                    }
+                    $classList = collect($classList)->filter()->values();
+                    
+                    $classData['units'][] = [
+                        'id' => $unit->id,
+                        'code' => $unit->code,
+                        'name' => $unit->name,
+                        'class_id' => $class->id,
+                        'semester_id' => $semester->id,
+                        'student_count' => $totalStudentCount,
+                        'lecturer_code' => $lecturerCode,
+                        'lecturer_name' => $lecturerName,
+                        'classes_taking_unit' => count($classList),
+                        'class_list' => $classList
+                    ];
                 }
                 
-                $classData['units'][] = [
-                    'id' => $unit->id,
-                    'code' => $unit->code,
-                    'name' => $unit->name,
-                    'class_id' => $class->id,
-                    'semester_id' => $semester->id,
-                    'student_count' => $totalStudentCount,  // ✅ Total across all classes
-                    'lecturer_code' => $lecturerCode,
-                    'lecturer_name' => $lecturerName,
-                    'classes_taking_unit' => count($classList),
-                    'class_list' => $classList  // ✅ Breakdown by class
-                ];
+                if (!empty($classData['units'])) {
+                    $semesterData['classes'][] = $classData;
+                }
             }
             
-            if (!empty($classData['units'])) {
-                $semesterData['classes'][] = $classData;
+            if (!empty($semesterData['classes'])) {
+                $hierarchicalData[] = $semesterData;
             }
         }
         
-        if (!empty($semesterData['classes'])) {
-            $hierarchicalData[] = $semesterData;
-        }
+        return $hierarchicalData;
     }
-    
-    return $hierarchicalData;
-}
 
     /**
      * Get classes for a specific semester (API endpoint)
      */
     public function getClassesBySemester(Request $request, $semesterId)
-{
-    try {
-        $programId = $request->input('program_id');
-        
-        Log::info('Getting classes for semester and program', [
-            'semester_id' => $semesterId,
-            'program_id' => $programId
-        ]);
-
-        // ✅ Filter by BOTH semester_id AND program_id
-        $classIds = DB::table('semester_unit')
-            ->join('units', 'semester_unit.unit_id', '=', 'units.id')
-            ->where('semester_unit.semester_id', $semesterId)
-            ->where('units.program_id', $programId)
-            ->distinct()
-            ->pluck('semester_unit.class_id');
-
-        if ($classIds->isNotEmpty()) {
-            $columns = \Schema::getColumnListing('classes');
-            $hasCodeColumn = in_array('code', $columns);
+    {
+        try {
+            $programId = $request->input('program_id');
             
-            if ($hasCodeColumn) {
-                $classes = ClassModel::whereIn('id', $classIds)
-                    ->where('program_id', $programId) // ✅ Additional safety check
-                    ->select('id', 'name', 'code', 'semester_id', 'program_id')
-                    ->get();
+            Log::info('Getting classes for semester and program', [
+                'semester_id' => $semesterId,
+                'program_id' => $programId
+            ]);
+
+            $classIds = DB::table('semester_unit')
+                ->join('units', 'semester_unit.unit_id', '=', 'units.id')
+                ->where('semester_unit.semester_id', $semesterId)
+                ->where('units.program_id', $programId)
+                ->distinct()
+                ->pluck('semester_unit.class_id');
+
+            if ($classIds->isNotEmpty()) {
+                $columns = \Schema::getColumnListing('classes');
+                $hasCodeColumn = in_array('code', $columns);
+                
+                if ($hasCodeColumn) {
+                    $classes = ClassModel::whereIn('id', $classIds)
+                        ->where('program_id', $programId)
+                        ->select('id', 'name', 'code', 'semester_id', 'program_id')
+                        ->get();
+                } else {
+                    $classes = ClassModel::whereIn('id', $classIds)
+                        ->where('program_id', $programId)
+                        ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
+                        ->get();
+                }
             } else {
-                $classes = ClassModel::whereIn('id', $classIds)
-                    ->where('program_id', $programId) // ✅ Additional safety check
-                    ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
-                    ->get();
+                $columns = \Schema::getColumnListing('classes');
+                $hasCodeColumn = in_array('code', $columns);
+                
+                if ($hasCodeColumn) {
+                    $classes = ClassModel::where('semester_id', $semesterId)
+                        ->where('program_id', $programId)
+                        ->select('id', 'name', 'code', 'semester_id', 'program_id')
+                        ->get();
+                } else {
+                    $classes = ClassModel::where('semester_id', $semesterId)
+                        ->where('program_id', $programId)
+                        ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
+                        ->get();
+                }
             }
-        } else {
-            // Fallback: get classes directly from ClassModel
-            $columns = \Schema::getColumnListing('classes');
-            $hasCodeColumn = in_array('code', $columns);
-            
-            if ($hasCodeColumn) {
-                $classes = ClassModel::where('semester_id', $semesterId)
-                    ->where('program_id', $programId) // ✅ Filter by program
-                    ->select('id', 'name', 'code', 'semester_id', 'program_id')
-                    ->get();
-            } else {
-                $classes = ClassModel::where('semester_id', $semesterId)
-                    ->where('program_id', $programId) // ✅ Filter by program
-                    ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
-                    ->get();
-            }
-        }
 
-        Log::info('Found classes for semester and program', [
-            'semester_id' => $semesterId,
-            'program_id' => $programId,
-            'classes_count' => $classes->count()
-        ]);
+            Log::info('Found classes for semester and program', [
+                'semester_id' => $semesterId,
+                'program_id' => $programId,
+                'classes_count' => $classes->count()
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'classes' => $classes
-        ]);
-    } catch (\Exception $e) {
-        Log::error('Failed to get classes for semester: ' . $e->getMessage());
-        return response()->json([
-            'success' => false, 
-            'message' => 'Failed to get classes: ' . $e->getMessage()
-        ], 500);
-    }
-}
-/**
- * ✅ FIXED: Get units with TOTAL student count across ALL classes taking the unit
- * Handles missing 'code' column in classes table
- */
-public function getUnitsByClassAndSemesterForExam(Request $request)
-{
-    try {
-        $classId = $request->input('class_id');
-        $semesterId = $request->input('semester_id');
-        $programId = $request->input('program_id');
-
-        if (!$classId || !$semesterId) {
             return response()->json([
-                'error' => 'Class ID and Semester ID are required.'
-            ], 400);
+                'success' => true,
+                'classes' => $classes
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to get classes for semester: ' . $e->getMessage());
+            return response()->json([
+                'success' => false, 
+                'message' => 'Failed to get classes: ' . $e->getMessage()
+            ], 500);
         }
+    }
 
-        \Log::info('Fetching units with cross-class student counts', [
-            'class_id' => $classId,
-            'semester_id' => $semesterId,
-            'program_id' => $programId
-        ]);
+    /**
+     * Get units with TOTAL student count across ALL classes taking the unit
+     */
+    public function getUnitsByClassAndSemesterForExam(Request $request)
+    {
+        try {
+            $classId = $request->input('class_id');
+            $semesterId = $request->input('semester_id');
+            $programId = $request->input('program_id');
 
-        // ✅ Check if 'code' column exists in classes table
-        $hasCodeColumn = \Schema::hasColumn('classes', 'code');
+            if (!$classId || !$semesterId) {
+                return response()->json([
+                    'error' => 'Class ID and Semester ID are required.'
+                ], 400);
+            }
 
-        // Get units for this specific class
-        $units = DB::table('unit_assignments')
-            ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
-            ->leftJoin('users', 'users.code', '=', 'unit_assignments.lecturer_code')
-            ->where('unit_assignments.semester_id', $semesterId)
-            ->where('unit_assignments.class_id', $classId)
-            ->when($programId, function($query) use ($programId) {
-                return $query->where('units.program_id', $programId);
-            })
-            ->select(
-                'units.id',
-                'units.code',
-                'units.name',
-                'units.credit_hours',
-                'units.program_id',
-                'unit_assignments.lecturer_code',
-                DB::raw("CASE 
-                    WHEN users.id IS NOT NULL 
-                    THEN CONCAT(users.first_name, ' ', users.last_name) 
-                    ELSE unit_assignments.lecturer_code 
-                    END as lecturer_name")
-            )
-            ->distinct()
-            ->get();
+            $hasCodeColumn = \Schema::hasColumn('classes', 'code');
 
-        if ($units->isEmpty()) {
-            return response()->json([]);
-        }
-
-        // ✅ For each unit, calculate TOTAL students across ALL classes in this program
-        $enhancedUnits = $units->map(function ($unit) use ($semesterId, $programId, $hasCodeColumn) {
-            // Get all classes taking this unit in this semester and program
-            $classesQuery = DB::table('enrollments')
-                ->join('classes', 'enrollments.class_id', '=', 'classes.id')
-                ->where('enrollments.unit_id', $unit->id)
-                ->where('enrollments.semester_id', $semesterId)
+            $units = DB::table('unit_assignments')
+                ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
+                ->leftJoin('users', 'users.code', '=', 'unit_assignments.lecturer_code')
+                ->where('unit_assignments.semester_id', $semesterId)
+                ->where('unit_assignments.class_id', $classId)
                 ->when($programId, function($query) use ($programId) {
-                    return $query->where('classes.program_id', $programId);
+                    return $query->where('units.program_id', $programId);
                 })
                 ->select(
-                    'classes.id as class_id',
-                    'classes.name as class_name',
-                    // ✅ Conditionally select 'code' column
-                    $hasCodeColumn 
-                        ? DB::raw('classes.code as class_code')
-                        : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
-                    DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
+                    'units.id',
+                    'units.code',
+                    'units.name',
+                    'units.credit_hours',
+                    'units.program_id',
+                    'unit_assignments.lecturer_code',
+                    DB::raw("CASE 
+                        WHEN users.id IS NOT NULL 
+                        THEN CONCAT(users.first_name, ' ', users.last_name) 
+                        ELSE unit_assignments.lecturer_code 
+                        END as lecturer_name")
                 )
-                ->groupBy('classes.id', 'classes.name');
-            
-            // ✅ Only add 'classes.code' to GROUP BY if column exists
-            if ($hasCodeColumn) {
-                $classesQuery->groupBy('classes.code');
+                ->distinct()
+                ->get();
+
+            if ($units->isEmpty()) {
+                return response()->json([]);
             }
-            
-            $classesWithStudents = $classesQuery->get();
 
-            // Calculate total students across all classes
-           // ✅ Get unique students across all sections (avoid double counting)
-            $totalStudents = DB::table('enrollments')
-                ->join('classes', 'enrollments.class_id', '=', 'classes.id')
-                ->where('enrollments.unit_id', $unit->id)
-                ->where('enrollments.semester_id', $semesterId)
-                ->when($programId, function($query) use ($programId) {
-                    return $query->where('classes.program_id', $programId);
-            })
-                ->distinct('enrollments.student_code')
-                ->count('enrollments.student_code');
+            $enhancedUnits = $units->map(function ($unit) use ($semesterId, $programId, $hasCodeColumn) {
+                $classesQuery = DB::table('enrollments')
+                    ->join('classes', 'enrollments.class_id', '=', 'classes.id')
+                    ->where('enrollments.unit_id', $unit->id)
+                    ->where('enrollments.semester_id', $semesterId)
+                    ->when($programId, function($query) use ($programId) {
+                        return $query->where('classes.program_id', $programId);
+                    })
+                    ->select(
+                        'classes.id as class_id',
+                        'classes.name as class_name',
+                        $hasCodeColumn 
+                            ? DB::raw('classes.code as class_code')
+                            : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+                        DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
+                    )
+                    ->groupBy('classes.id', 'classes.name');
+                
+                if ($hasCodeColumn) {
+                    $classesQuery->groupBy('classes.code');
+                }
+                
+                $classesWithStudents = $classesQuery->get();
 
+                $totalStudents = DB::table('enrollments')
+                    ->join('classes', 'enrollments.class_id', '=', 'classes.id')
+                    ->where('enrollments.unit_id', $unit->id)
+                    ->where('enrollments.semester_id', $semesterId)
+                    ->when($programId, function($query) use ($programId) {
+                        return $query->where('classes.program_id', $programId);
+                    })
+                    ->distinct('enrollments.student_code')
+                    ->count('enrollments.student_code');
 
-            // Format class list with student counts
-            $classList = $classesWithStudents->map(function($class) {
+                $classList = $classesWithStudents->map(function($class) {
+                    return [
+                        'id' => $class->class_id,
+                        'name' => $class->class_name,
+                        'code' => $class->class_code,
+                        'student_count' => $class->student_count
+                    ];
+                })->toArray();
+
                 return [
-                    'id' => $class->class_id,
-                    'name' => $class->class_name,
-                    'code' => $class->class_code,
-                    'student_count' => $class->student_count
+                    'id' => $unit->id,
+                    'code' => $unit->code,
+                    'name' => $unit->name,
+                    'credit_hours' => $unit->credit_hours ?? 3,
+                    'student_count' => $totalStudents,
+                    'lecturer_name' => $unit->lecturer_name ?? 'No lecturer assigned',
+                    'lecturer_code' => $unit->lecturer_code ?? '',
+                    'classes_taking_unit' => count($classList),
+                    'class_list' => $classList,
                 ];
-            })->toArray();
-
-            return [
-    'id' => $unit->id,
-    'code' => $unit->code,
-    'name' => $unit->name,
-    'credit_hours' => $unit->credit_hours ?? 3,
-    'student_count' => $totalStudents, // ✅ Unique across all classes
-    'lecturer_name' => $unit->lecturer_name ?? 'No lecturer assigned',
-    'lecturer_code' => $unit->lecturer_code ?? '',
-    'classes_taking_unit' => count($classList),
-    'class_list' => $classList,
-];
-
-        });
-
-        \Log::info('Units retrieved with cross-class counts', [
-            'semester_id' => $semesterId,
-            'program_id' => $programId,
-            'units_count' => $enhancedUnits->count(),
-            'sample_unit' => $enhancedUnits->first()
-        ]);
-
-        return response()->json($enhancedUnits->values()->all());
-        
-    } catch (\Exception $e) {
-        \Log::error('Error fetching units with cross-class counts: ' . $e->getMessage(), [
-            'trace' => $e->getTraceAsString()
-        ]);
-        
-        return response()->json([
-            'error' => 'Failed to fetch units for exam timetable.'
-        ], 500);
-    }
-}
-
-   private function assignSmartVenue(
-    int $studentCount,
-    string $date,
-    string $startTime,
-    string $endTime,
-    ?int $excludeExamId = null
-)
-{
-    try {
-        \Log::info('Starting smart venue assignment', [
-            'student_count' => $studentCount,
-            'date' => $date,
-            'start_time' => $startTime,
-            'end_time' => $endTime,
-        ]);
-
-        // Get all suitable venues by capacity
-        $suitableVenues = \App\Models\Examroom::where('capacity', '>=', $studentCount)
-            ->where('is_active', true)
-            ->orderBy('capacity', 'asc')
-            ->get();
-
-        if ($availableVenues->isEmpty()) {
-    return [
-        'success' => false,
-        'message' => 'All suitable exam rooms are at full capacity',
-        'venue' => 'TBD',
-        'location' => 'TBD',
-        'reason' => 'capacity_exceeded', // ✅ ADD THIS
-        'details' => [
-            'required_capacity' => $studentCount,
-            'checked_rooms' => $suitableVenues->count()
-        ]
-    ];
-}
-
-        // Get all conflicting exams at the same time
-        $conflictingExams = \App\Models\ExamTimetable::where('date', $date)
-            ->where(function ($query) use ($startTime, $endTime) {
-                $query->whereBetween('start_time', [$startTime, $endTime])
-                    ->orWhereBetween('end_time', [$startTime, $endTime])
-                    ->orWhere(function ($q) use ($startTime, $endTime) {
-                        $q->where('start_time', '<=', $startTime)
-                          ->where('end_time', '>=', $endTime);
-                    });
             });
 
-        if ($excludeExamId) {
-            $conflictingExams->where('id', '!=', $excludeExamId);
+            return response()->json($enhancedUnits->values()->all());
+            
+        } catch (\Exception $e) {
+            \Log::error('Error fetching units with cross-class counts: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to fetch units for exam timetable.'
+            ], 500);
         }
-
-        $conflictingExams = $conflictingExams->get();
-
-        // Calculate used capacity per venue
-        $venueUsage = [];
-        foreach ($conflictingExams as $exam) {
-            if (!isset($venueUsage[$exam->venue])) {
-                $venueUsage[$exam->venue] = 0;
-            }
-            $venueUsage[$exam->venue] += $exam->no; // 'no' is student count
-        }
-
-        // Find venue with enough remaining capacity
-        foreach ($suitableVenues as $room) {
-            $usedCapacity = $venueUsage[$room->name] ?? 0;
-            $remainingCapacity = $room->capacity - $usedCapacity;
-
-            if ($remainingCapacity >= $studentCount) {
-                return [
-                    'success' => true,
-                    'message' => "Venue assigned: {$room->name} (Remaining: {$remainingCapacity}/{$room->capacity})",
-                    'venue' => $room->name,
-                    'location' => $room->location ?? 'Main Campus',
-                    'capacity' => $room->capacity,
-                    'used_capacity' => $usedCapacity,
-                    'remaining_capacity' => $remainingCapacity,
-                ];
-            }
-        }
-
-        return [
-            'success' => false,
-            'message' => 'All suitable exam rooms have insufficient remaining capacity',
-            'venue' => 'TBD',
-            'location' => 'TBD'
-        ];
-
-    } catch (\Exception $e) {
-        \Log::error('Error in smart venue assignment', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
-        ]);
-
-        return [
-            'success' => false,
-            'message' => 'Failed to assign venue: ' . $e->getMessage(),
-            'venue' => 'TBD',
-            'location' => 'TBD'
-        ];
     }
-}
-        /**
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'day' => 'required|string',
             'date' => 'required|date',
             'unit_id' => 'required|exists:units,id',
@@ -601,39 +472,50 @@ public function getUnitsByClassAndSemesterForExam(Request $request)
             'chief_invigilator' => 'required|string',
             'start_time' => 'required|string',
             'end_time' => 'required|string',
+            'venue' => 'nullable|string',
+            'location' => 'nullable|string',
         ]);
 
         try {
-            $venueAssignment = $this->assignSmartVenue(
-                $request->no,
-                $request->date,
-                $request->start_time,
-                $request->end_time
-            );
+            $class = ClassModel::findOrFail($validated['class_id']);
+            $program = Program::find($class->program_id);
 
-            if (!$venueAssignment['success']) {
-                return redirect()->back()->withErrors([
-                    'venue' => $venueAssignment['message']
-                ])->withInput();
+            $venueAssignment = null;
+            if (!isset($validated['venue'])) {
+                $venueAssignment = $this->assignSmartVenue(
+                    $validated['no'],
+                    $validated['date'],
+                    $validated['start_time'],
+                    $validated['end_time']
+                );
+
+                if (!$venueAssignment['success']) {
+                    return redirect()->back()->withErrors([
+                        'venue' => $venueAssignment['message']
+                    ])->withInput();
+                }
             }
 
-           // ✅ Create exam timetable with all required fields INCLUDING program_id and school_id
-$examTimetable = ExamTimetable::create([
-    'unit_id' => $validatedData['unit_id'],
-    'semester_id' => $validatedData['semester_id'],
-    'class_id' => $validatedData['class_id'],
-    'program_id' => $program->id,  // ✅ ADD THIS
-    'school_id' => $program->school_id,  // ✅ ADD THIS
-    'date' => $validatedData['date'],
-    'day' => $validatedData['day'],
-    'start_time' => $validatedData['start_time'],
-    'end_time' => $validatedData['end_time'],
-    'venue' => $validatedData['venue'],
-    'location' => $validatedData['location'],
-    'no' => $validatedData['no'],
-    'chief_invigilator' => $validatedData['chief_invigilator'],
-]);
-            $successMessage = 'Exam timetable created successfully. ' . $venueAssignment['message'];
+            $examTimetable = ExamTimetable::create([
+                'unit_id' => $validated['unit_id'],
+                'semester_id' => $validated['semester_id'],
+                'class_id' => $validated['class_id'],
+                'program_id' => $program ? $program->id : null,
+                'school_id' => $program ? $program->school_id : null,
+                'date' => $validated['date'],
+                'day' => $validated['day'],
+                'start_time' => $validated['start_time'],
+                'end_time' => $validated['end_time'],
+                'venue' => $validated['venue'] ?? $venueAssignment['venue'],
+                'location' => $validated['location'] ?? ($venueAssignment['location'] ?? 'Main Campus'),
+                'no' => $validated['no'],
+                'chief_invigilator' => $validated['chief_invigilator'],
+            ]);
+
+            $successMessage = 'Exam timetable created successfully.';
+            if ($venueAssignment) {
+                $successMessage .= ' ' . $venueAssignment['message'];
+            }
             
             return redirect()->back()->with('success', $successMessage);
         } catch (\Exception $e) {
@@ -647,7 +529,7 @@ $examTimetable = ExamTimetable::create([
      */
     public function update(Request $request, $id)
     {
-        $request->validate([
+        $validated = $request->validate([
             'day' => 'required|string',
             'date' => 'required|date',
             'unit_id' => 'required|exists:units,id',
@@ -657,42 +539,52 @@ $examTimetable = ExamTimetable::create([
             'chief_invigilator' => 'required|string',
             'start_time' => 'required|string',
             'end_time' => 'required|string',
+            'venue' => 'nullable|string',
+            'location' => 'nullable|string',
         ]);
 
         try {
             $examTimetable = ExamTimetable::findOrFail($id);
+            $class = ClassModel::findOrFail($validated['class_id']);
+            $program = Program::find($class->program_id);
 
-            $venueAssignment = $this->assignSmartVenue(
-                $request->no,
-                $request->date,
-                $request->start_time,
-                $request->end_time,
-                $id
-            );
+            $venueAssignment = null;
+            if (!isset($validated['venue'])) {
+                $venueAssignment = $this->assignSmartVenue(
+                    $validated['no'],
+                    $validated['date'],
+                    $validated['start_time'],
+                    $validated['end_time'],
+                    $id
+                );
 
-            if (!$venueAssignment['success']) {
-                return redirect()->back()->withErrors([
-                    'venue' => $venueAssignment['message']
-                ])->withInput();
+                if (!$venueAssignment['success']) {
+                    return redirect()->back()->withErrors([
+                        'venue' => $venueAssignment['message']
+                    ])->withInput();
+                }
             }
 
             $examTimetable->update([
-    'unit_id' => $validatedData['unit_id'],
-    'semester_id' => $validatedData['semester_id'],
-    'class_id' => $validatedData['class_id'],
-    'program_id' => $program->id,  // ✅ ADD THIS
-    'school_id' => $program->school_id,  // ✅ ADD THIS
-    'date' => $validatedData['date'],
-    'day' => $validatedData['day'],
-    'start_time' => $validatedData['start_time'],
-    'end_time' => $validatedData['end_time'],
-    'venue' => $validatedData['venue'],
-    'location' => $validatedData['location'],
-    'no' => $validatedData['no'],
-    'chief_invigilator' => $validatedData['chief_invigilator'],
-]);
+                'unit_id' => $validated['unit_id'],
+                'semester_id' => $validated['semester_id'],
+                'class_id' => $validated['class_id'],
+                'program_id' => $program ? $program->id : null,
+                'school_id' => $program ? $program->school_id : null,
+                'date' => $validated['date'],
+                'day' => $validated['day'],
+                'start_time' => $validated['start_time'],
+                'end_time' => $validated['end_time'],
+                'venue' => $validated['venue'] ?? $venueAssignment['venue'],
+                'location' => $validated['location'] ?? ($venueAssignment['location'] ?? 'Main Campus'),
+                'no' => $validated['no'],
+                'chief_invigilator' => $validated['chief_invigilator'],
+            ]);
 
-            $successMessage = 'Exam timetable updated successfully. ' . $venueAssignment['message'];
+            $successMessage = 'Exam timetable updated successfully.';
+            if ($venueAssignment) {
+                $successMessage .= ' ' . $venueAssignment['message'];
+            }
 
             return redirect()->back()->with('success', $successMessage);
         } catch (\Exception $e) {
@@ -716,7 +608,7 @@ $examTimetable = ExamTimetable::create([
         }
     }
 
-/**
+    /**
      * Process exam timetables
      */
     public function process(Request $request)
@@ -981,12 +873,6 @@ $examTimetable = ExamTimetable::create([
 
             $examTimetables = $query->get();
 
-            Log::info('Found exam timetables for PDF', [
-                'user_id' => $user->id,
-                'count' => $examTimetables->count(),
-                'semester' => $selectedSemester->name ?? 'Unknown'
-            ]);
-
             if (!view()->exists('examtimetables.student')) {
                 Log::error('Blade template not found: examtimetables.student');
                 return redirect()->back()->with('error', 'PDF template not found. Please contact the administrator.');
@@ -1016,11 +902,6 @@ $examTimetable = ExamTimetable::create([
 
             $studentId = $user->student_id ?? $user->code ?? $user->id;
             $filename = "exam-timetable-{$studentId}-" . now()->format('Y-m-d') . ".pdf";
-            
-            Log::info('PDF generated successfully', [
-                'user_id' => $user->id,
-                'filename' => $filename
-            ]);
 
             return $pdf->download($filename);
             
@@ -1102,45 +983,59 @@ $examTimetable = ExamTimetable::create([
                         ? 'classes.code as class_code'
                         : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
                     'semesters.name as semester_name'
-                );
+                )
+                ->orderBy('exam_timetables.date')
+                ->orderBy('exam_timetables.start_time');
 
             if ($selectedSemesterId) {
                 $query->where('exam_timetables.semester_id', $selectedSemesterId);
             }
 
-            $examTimetables = $query->orderBy('exam_timetables.date')
-                ->orderBy('exam_timetables.start_time')
-                ->get();
-
-            Log::info('Student exam timetable loaded', [
-                'user_id' => $user->id,
-                'enrollments_count' => $enrollments->count(),
-                'semesters_count' => $semesters->count(),
-                'exams_count' => $examTimetables->count(),
-                'selected_semester_id' => $selectedSemesterId
-            ]);
+            $examTimetables = $query->get();
 
             return Inertia::render('Student/ExamTimetable', [
                 'examTimetables' => $examTimetables,
                 'semesters' => $semesters,
-                'selectedSemesterId' => $selectedSemesterId,
-                'enrollments' => $enrollments,
-                'student' => $user
+                'selectedSemesterId' => $selectedSemesterId
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Error loading student exam timetable', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'error' => $e->getMessage()
             ]);
-            
+
             return Inertia::render('Student/ExamTimetable', [
                 'examTimetables' => collect([]),
                 'semesters' => collect([]),
                 'selectedSemesterId' => null,
-                'message' => 'Error loading exam timetable. Please try again or contact support.'
+                'error' => 'Failed to load exam timetable. Please try again.'
             ]);
+        }
+    }
+
+    /**
+     * Delete program exam timetable
+     */
+    public function destroyProgramExamTimetable(Program $program, $timetable, $schoolCode)
+    {
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        try {
+            $examTimetable = ExamTimetable::leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+                ->where('exam_timetables.id', $timetable)
+                ->where('units.program_id', $program->id)
+                ->select('exam_timetables.*')
+                ->firstOrFail();
+            
+            $examTimetable->delete();
+            
+            return redirect()->back()->with('success', 'Exam timetable deleted successfully!');
+        } catch (\Exception $e) {
+            Log::error('Error deleting program exam timetable: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Error deleting exam timetable. Please try again.');
         }
     }
 
@@ -1594,32 +1489,7 @@ public function updateProgramExamTimetable(Program $program, $timetable, Request
     }
 }
 
-    /**
-     * Delete program exam timetable
-     */
-    public function destroyProgramExamTimetable(Program $program, $timetable, $schoolCode)
-    {
-        if ($program->school->code !== $schoolCode) {
-            abort(404, 'Program not found in this school.');
-        }
-
-        try {
-            $examTimetable = ExamTimetable::leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
-                ->where('exam_timetables.id', $timetable)
-                ->where('units.program_id', $program->id)
-                ->select('exam_timetables.*')
-                ->firstOrFail();
-            
-            $examTimetable->delete();
-            
-            return redirect()->back()->with('success', 'Exam timetable deleted successfully!');
-        } catch (\Exception $e) {
-            Log::error('Error deleting program exam timetable: ' . $e->getMessage());
-            return redirect()->back()->with('error', 'Error deleting exam timetable. Please try again.');
-        }
-    }
-
-    /**
+       /**
      * Download program exam timetable as PDF
      */
     public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
@@ -1665,420 +1535,347 @@ public function updateProgramExamTimetable(Program $program, $timetable, Request
             return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
         }
     }
+    /**
+     * Get classes with their units for bulk scheduling
+     */
+    public function getClassesWithUnits(Program $program, $schoolCode)
+    {
+        try {
+            $classes = ClassModel::where('program_id', $program->id)
+                ->get()
+                ->map(function($class) use ($program) {
+                    $unitCount = DB::table('units')
+                        ->where('class_id', $class->id)
+                        ->where('program_id', $program->id)
+                        ->count();
+                    
+                    $studentCount = DB::table('enrollments')
+                        ->where('class_id', $class->id)
+                        ->distinct('student_code')
+                        ->count();
+                    
+                    $columns = \Schema::getColumnListing('classes');
+                    $hasCodeColumn = in_array('code', $columns);
+                    
+                    return [
+                        'id' => $class->id,
+                        'name' => $class->name,
+                        'code' => $hasCodeColumn ? ($class->code ?? 'CLASS-' . $class->id) : 'CLASS-' . $class->id,
+                        'semester_id' => $class->semester_id,
+                        'program_id' => $class->program_id,
+                        'unit_count' => $unitCount,
+                        'student_count' => $studentCount,
+                    ];
+                })
+                ->filter(function($class) {
+                    return $class['unit_count'] > 0;
+                })
+                ->values();
+
+            return response()->json([
+                'success' => true,
+                'classes' => $classes
+            ]);
+            
+        } catch (\Exception $e) {
+            \Log::error('Failed to get classes with units', [
+                'program_id' => $program->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch classes: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 
     /**
- * Get classes with their units for bulk scheduling
- */
-public function getClassesWithUnits(Program $program, $schoolCode)
-{
-    try {
-        \Log::info('Getting classes with units for bulk scheduling', [
+     * Get venue capacity for a specific date and time slot
+     */
+    private function getVenueCapacity(
+        string $examDate,
+        string $startTime,
+        string $endTime,
+        $availableRooms,
+        $existingExams = null
+    ): array
+    {
+        if (!$existingExams) {
+            $existingExams = ExamTimetable::where('date', $examDate)->get();
+        }
+
+        $roomCapacityData = [];
+
+        foreach ($availableRooms as $room) {
+            $roomCapacityData[$room->name] = [
+                'name' => $room->name,
+                'location' => $room->location,
+                'capacity' => $room->capacity,
+                'used' => 0,
+                'available' => $room->capacity,
+            ];
+        }
+
+        $conflictingExams = $existingExams->filter(function($exam) use ($examDate, $startTime, $endTime) {
+            if ($exam->date !== $examDate) {
+                return false;
+            }
+            
+            $slotStart = Carbon::parse($examDate . ' ' . $startTime);
+            $slotEnd = Carbon::parse($examDate . ' ' . $endTime);
+            $examStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
+            $examEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
+
+            return $examStart->lt($slotEnd) && $examEnd->gt($slotStart);
+        });
+
+        foreach ($conflictingExams as $exam) {
+            $venueName = $exam->venue;
+            
+            if (isset($roomCapacityData[$venueName])) {
+                $roomCapacityData[$venueName]['used'] += $exam->no;
+                $roomCapacityData[$venueName]['available'] = $roomCapacityData[$venueName]['capacity'] - $roomCapacityData[$venueName]['used'];
+            }
+        }
+
+        return collect(array_values($roomCapacityData))->sortByDesc('available')->toArray();
+    }
+
+    /**
+     * ✅ FIXED: Bulk schedule exams - Reads time slots from frontend
+     */
+    public function bulkScheduleExams(Program $program, Request $request, $schoolCode)
+    {
+        \Log::info('=== BULK EXAM SCHEDULING STARTED ===', [
             'program_id' => $program->id,
             'program_name' => $program->name,
-            'school_code' => $schoolCode
+            'request_data' => $request->all()
         ]);
 
-        $classes = ClassModel::where('program_id', $program->id)
-            ->get()
-            ->map(function($class) use ($program) {
-                // Get unit count for this class
-                $unitCount = DB::table('units')
-                    ->where('class_id', $class->id)
-                    ->where('program_id', $program->id)
-                    ->count();
-                
-                // Get student count
-                $studentCount = DB::table('enrollments')
-                    ->where('class_id', $class->id)
-                    ->distinct('student_code')
-                    ->count();
-                
-                // Check if code column exists
-                $columns = \Schema::getColumnListing('classes');
-                $hasCodeColumn = in_array('code', $columns);
-                
-                return [
-                    'id' => $class->id,
-                    'name' => $class->name,
-                    'code' => $hasCodeColumn ? ($class->code ?? 'CLASS-' . $class->id) : 'CLASS-' . $class->id,
-                    'semester_id' => $class->semester_id,
-                    'program_id' => $class->program_id,
-                    'unit_count' => $unitCount,
-                    'student_count' => $studentCount,
-                ];
-            })
-            ->filter(function($class) {
-                // Only include classes that have units
-                return $class['unit_count'] > 0;
-            })
-            ->values();
-
-        \Log::info('Classes with units retrieved', [
-            'program_id' => $program->id,
-            'classes_count' => $classes->count(),
-            'total_units' => $classes->sum('unit_count')
+        $validated = $request->validate([
+            'selected_class_units' => 'required|array|min:1',
+            'selected_class_units.*.unit_id' => 'required|exists:units,id',
+            'selected_class_units.*.class_id' => 'required',
+            'selected_class_units.*.assigned_start_time' => 'required|date_format:H:i',  // ✅ NEW
+            'selected_class_units.*.assigned_end_time' => 'required|date_format:H:i',    // ✅ NEW
+            'selected_class_units.*.slot_number' => 'nullable|integer',                  // ✅ NEW
+            'start_date' => 'required|date|after_or_equal:today',
+            'end_date' => 'required|date|after:start_date',
+            'exam_duration_hours' => 'required|integer|min:1|max:4',
+            'gap_between_exams_days' => 'required|integer|min:0|max:7',
+            'start_time' => 'required|date_format:H:i',
+            'excluded_days' => 'nullable|array',
+            'excluded_days.*' => 'string|in:Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday',
+            'max_exams_per_day' => 'required|integer|min:1|max:10',
+            'selected_examrooms' => 'nullable|array',
+            'break_minutes' => 'nullable|integer|min:0',                                 // ✅ NEW
         ]);
 
-        return response()->json([
-            'success' => true,
-            'classes' => $classes
-        ]);
-        
-    } catch (\Exception $e) {
-        \Log::error('Failed to get classes with units', [
-            'program_id' => $program->id,
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-        
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to fetch classes: ' . $e->getMessage()
-        ], 500);
-    }
-}
-/**
- * HELPER METHOD - Add this after your assignSmartVenue() method
- */
-private function getVenueCapacity($date, $startTime, $endTime, $availableRooms)
-{
-    // Get exams already scheduled for this time slot
-    $scheduledExams = ExamTimetable::where('date', $date)
-        ->where(function($query) use ($startTime, $endTime) {
-            $query->where(function($q) use ($startTime, $endTime) {
-                $q->where('start_time', '<=', $startTime)
-                  ->where('end_time', '>', $startTime);
-            })
-            ->orWhere(function($q) use ($startTime, $endTime) {
-                $q->where('start_time', '<', $endTime)
-                  ->where('end_time', '>=', $endTime);
-            })
-            ->orWhere(function($q) use ($startTime, $endTime) {
-                $q->where('start_time', '>=', $startTime)
-                  ->where('end_time', '<=', $endTime);
-            });
-        })
-        ->get();
+        try {
+            DB::beginTransaction();
 
-    // Calculate used capacity per room
-    $roomUsage = [];
-    foreach ($scheduledExams as $exam) {
-        if (!isset($roomUsage[$exam->venue])) {
-            $roomUsage[$exam->venue] = 0;
-        }
-        $roomUsage[$exam->venue] += $exam->no;
-    }
+            $scheduledExams = [];
+            $conflicts = [];
+            $warnings = [];
 
-    // Create room availability map
-    $roomAvailability = [];
-    foreach ($availableRooms as $room) {
-        $used = $roomUsage[$room->name] ?? 0;
-        $roomAvailability[] = [
-            'name' => $room->name,
-            'location' => $room->location,
-            'capacity' => $room->capacity,
-            'used' => $used,
-            'available' => $room->capacity - $used
-        ];
-    }
+            // Get all existing exams for conflict checking
+            $existingExams = ExamTimetable::whereBetween('date', [
+                $validated['start_date'], 
+                $validated['end_date']
+            ])->get();
 
-    // Sort by available capacity (largest first)
-    usort($roomAvailability, function($a, $b) {
-        return $b['available'] - $a['available'];
-    });
+            // Extract class IDs from selected_class_units
+            $classIds = collect($validated['selected_class_units'])
+                ->pluck('class_id')
+                ->unique()
+                ->toArray();
 
-    return $roomAvailability;
-}
+            // Get unique units across all selected classes
+            $unitsData = DB::table('unit_assignments')
+                ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
+                ->whereIn('unit_assignments.class_id', $classIds)
+                ->where('units.program_id', $program->id)
+                ->select(
+                    'units.id as unit_id',
+                    'units.code as unit_code',
+                    'units.name as unit_name',
+                    'unit_assignments.class_id',
+                    'unit_assignments.lecturer_code',
+                    'unit_assignments.semester_id'
+                )
+                ->get();
 
-
-/**
- * COMPLETE FIXED METHOD - Replace your entire bulkScheduleExams method with this
- */
-public function bulkScheduleExams(Program $program, Request $request, $schoolCode)
-{
-    \Log::info('=== BULK EXAM SCHEDULING STARTED ===', [
-        'program_id' => $program->id,
-        'program_name' => $program->name,
-        'request_data' => $request->all()
-    ]);
-
-    $validated = $request->validate([
-        'selected_class_units' => 'required|array|min:1',
-        'start_date' => 'required|date|after_or_equal:today',
-        'end_date' => 'required|date|after:start_date',
-        'exam_duration_hours' => 'required|integer|min:1|max:4',
-        'gap_between_exams_days' => 'required|integer|min:0|max:7',
-        'start_time' => 'required|date_format:H:i',
-        'excluded_days' => 'nullable|array',
-        'excluded_days.*' => 'string|in:Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday',
-        'max_exams_per_day' => 'required|integer|min:1|max:10',
-        'selected_examrooms' => 'nullable|array'
-    ]);
-
-    try {
-        DB::beginTransaction();
-
-        $scheduledExams = [];
-        $conflicts = [];
-        $warnings = [];
-        
-        // Build time slots from frontend
-        $timeSlotMap = [];
-        foreach ($validated['selected_class_units'] as $unit) {
-            if (isset($unit['assigned_start_time']) && isset($unit['assigned_end_time'])) {
-                $key = $unit['assigned_start_time'] . '-' . $unit['assigned_end_time'];
-                if (!isset($timeSlotMap[$key])) {
-                    $timeSlotMap[$key] = [
-                        'start' => $unit['assigned_start_time'],
-                        'end' => $unit['assigned_end_time'],
-                        'label' => 'Slot ' . (count($timeSlotMap) + 1)
-                    ];
+            // Group units manually
+            $unitsByClass = [];
+            foreach ($unitsData as $unitRecord) {
+                $unitId = $unitRecord->unit_id;
+                if (!isset($unitsByClass[$unitId])) {
+                    $unitsByClass[$unitId] = [];
                 }
+                $unitsByClass[$unitId][] = (array) $unitRecord;
             }
-        }
-        $timeSlots = !empty($timeSlotMap) ? array_values($timeSlotMap) : [
-            ['start' => '09:00', 'end' => '11:00', 'label' => 'Slot 1'],
-            ['start' => '11:30', 'end' => '13:30', 'label' => 'Slot 2']
-        ];
 
-        // Get all existing exams for conflict checking
-        $existingExams = ExamTimetable::whereBetween('date', [
-            $validated['start_date'], 
-            $validated['end_date']
-        ])->get();
-
-        // Extract class IDs from selected_class_units
-        $classIds = collect($validated['selected_class_units'])
-            ->pluck('class_id')
-            ->unique()
-            ->toArray();
-
-        // Get unique units across all selected classes
-        $unitsData = DB::table('unit_assignments')
-            ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
-            ->whereIn('unit_assignments.class_id', $classIds)
-            ->where('units.program_id', $program->id)
-            ->select(
-                'units.id as unit_id',
-                'units.code as unit_code',
-                'units.name as unit_name',
-                'unit_assignments.class_id',
-                'unit_assignments.lecturer_code',
-                'unit_assignments.semester_id'
-            )
-            ->get();
-        // Group units manually
-        $unitsByClass = [];
-        foreach ($unitsData as $unitRecord) {
-            $unitId = $unitRecord->unit_id;
-            if (!isset($unitsByClass[$unitId])) {
-                $unitsByClass[$unitId] = [];
+            if (empty($unitsByClass)) {
+                throw new \Exception('No units found for the selected classes');
             }
-            $unitsByClass[$unitId][] = (array) $unitRecord;
-        }
 
-        if (empty($unitsByClass)) {
-            throw new \Exception('No units found for the selected classes');
-        }
-
-        \Log::info('Units grouped for bulk scheduling', [
-            'total_units' => count($unitsByClass),
-            'units' => array_keys($unitsByClass),
-            'exam_period' => "{$validated['start_date']} to {$validated['end_date']}"
-        ]);
-
-        // Calculate gap
-        $examPeriodDays = Carbon::parse($validated['start_date'])->diffInDays(Carbon::parse($validated['end_date']));
-        $totalUnits = count($unitsByClass);
-        
-        if ($validated['gap_between_exams_days'] == 0 && $totalUnits > 0) {
-            $recommendedGap = max(1, floor($examPeriodDays / $totalUnits));
-            $gapDays = min($recommendedGap, 3);
-            \Log::info("Auto-calculated gap: {$gapDays} days", [
-                'exam_period_days' => $examPeriodDays,
-                'total_units' => $totalUnits
-            ]);
-        } else {
             $gapDays = $validated['gap_between_exams_days'];
-        }
+            $excludedDays = $validated['excluded_days'] ?? [];
+            $maxExamsPerDay = $validated['max_exams_per_day'];
 
-        $excludedDays = $validated['excluded_days'] ?? [];
-        $maxExamsPerDay = $validated['max_exams_per_day'];
+            // Load selected exam rooms
+            $availableRooms = Examroom::where('is_active', true)
+                ->whereIn('id', $validated['selected_examrooms'] ?? [])
+                ->orderBy('capacity', 'desc')
+                ->get();
 
-        // ✅ FIX: Load selected exam rooms
-        $availableRooms = Examroom::where('is_active', true)
-            ->whereIn('id', $validated['selected_examrooms'] ?? [])
-            ->orderBy('capacity', 'desc')
-            ->get();
-
-        if ($availableRooms->isEmpty()) {
-            throw new \Exception('No exam rooms selected or available');
-        }
-
-        // Track last exam date PER CLASS
-        $classLastExamDate = [];
-        
-        // Track exams scheduled per day per time slot
-        $dailySchedule = [];
-        
-        $currentDate = Carbon::parse($validated['start_date']);
-
-        // Loop through units
-        foreach ($unitsByClass as $unitId => $unitRecords) {
-            $firstUnit = $unitRecords[0];
-            
-            // Get all class IDs studying this unit (from selected classes only)
-            $selectedClassIds = array_unique(array_column($unitRecords, 'class_id'));
-            
-            // ✅ FIX: Get ALL classes taking this unit (not just selected ones)
-            $allClassesTakingUnit = DB::table('unit_assignments')
-                ->where('unit_id', $unitId)
-                ->distinct()
-                ->pluck('class_id');
-            
-            // ✅ FIX: Count students across ALL classes taking this unit
-            $totalStudents = DB::table('enrollments')
-                ->where('unit_id', $unitId)
-                ->whereIn('class_id', $allClassesTakingUnit)  // ✅ All classes, not just selected
-                ->where('status', 'enrolled')
-                ->distinct('student_code')
-                ->count('student_code');
-            
-            if ($totalStudents === 0) {
-                $warnings[] = "Skipped {$firstUnit['unit_code']} - No students enrolled across selected classes";
-                continue;
+            if ($availableRooms->isEmpty()) {
+                throw new \Exception('No exam rooms selected or available');
             }
-            
-            // Get lecturer
-            $lecturerCodes = array_filter(array_column($unitRecords, 'lecturer_code'));
-            $lecturerCode = null;
-            
-            if (!empty($lecturerCodes)) {
-                $lecturerCounts = array_count_values($lecturerCodes);
-                arsort($lecturerCounts);
-                $lecturerCode = array_key_first($lecturerCounts);
-            }
-            
-            $lecturer = $lecturerCode ? User::where('code', $lecturerCode)->first() : null;
-            $chiefInvigilator = $lecturer 
-                ? trim("{$lecturer->first_name} {$lecturer->last_name}")
-                : 'No lecturer assigned';
-            
-            \Log::info("Processing unit for scheduling", [
-                'unit_code' => $firstUnit['unit_code'],
-                'unit_name' => $firstUnit['unit_name'],
-                'selected_class_count' => count($selectedClassIds),
-                'all_classes_count' => count($allClassesTakingUnit),
-                'total_students' => $totalStudents,
-                'lecturer_code' => $lecturerCode,
-                'chief_invigilator' => $chiefInvigilator,
-                'selected_classes' => $selectedClassIds,
-                'all_classes' => $allClassesTakingUnit->toArray()
-            ]);
 
-            // Find earliest allowed date considering gap for selected classes only
-            $earliestAllowedDate = clone $currentDate;
+            // Track last exam date PER CLASS
+            $classLastExamDate = [];
             
-            foreach ($selectedClassIds as $classId) {
-                if (isset($classLastExamDate[$classId])) {
-                    $classMinDate = $classLastExamDate[$classId]->copy()->addDays($gapDays + 1);
-                    if ($classMinDate->gt($earliestAllowedDate)) {
-                        $earliestAllowedDate = $classMinDate;
-                    }
-                }
-            }
+            // ✅ FIXED: Track venue capacity in 3D structure (venue -> date -> time_slot)
+            $venueCapacityUsage = [];
             
-            \Log::info("Earliest allowed date for unit", [
-                'unit_code' => $firstUnit['unit_code'],
-                'earliest_date' => $earliestAllowedDate->format('Y-m-d'),
-                'reason' => 'Respecting gap between exams for classes'
-            ]);
-
-            // Find next available slot
-            $scheduled = false;
-            $attempts = 0;
-            $maxAttempts = 300;
-            $attemptDate = clone $earliestAllowedDate;
+            $currentDate = Carbon::parse($validated['start_date']);
             $endDate = Carbon::parse($validated['end_date']);
-            $failureReasons = [];
 
-            while (!$scheduled && $attempts < $maxAttempts && $attemptDate->lte($endDate)) {
-                $attempts++;
+            // Map selected_class_units by unit_id for easy lookup
+            $selectedUnitsMap = [];
+            foreach ($validated['selected_class_units'] as $unitData) {
+                $selectedUnitsMap[$unitData['unit_id']] = $unitData;
+            }
 
-                // Skip excluded days
-                if (in_array($attemptDate->format('l'), $excludedDays)) {
-                    $attemptDate->addDay();
+            // Loop through units
+            foreach ($unitsByClass as $unitId => $unitRecords) {
+                // ✅ Get the assigned time slot from frontend
+                if (!isset($selectedUnitsMap[$unitId])) {
+                    \Log::warning("Unit {$unitId} not found in selected units map");
                     continue;
                 }
 
-                $examDate = $attemptDate->format('Y-m-d');
-                $examDay = $attemptDate->format('l');
+                $unitSelection = $selectedUnitsMap[$unitId];
+                $assignedStartTime = $unitSelection['assigned_start_time'];  // ✅ From frontend
+                $assignedEndTime = $unitSelection['assigned_end_time'];      // ✅ From frontend
+                $slotNumber = $unitSelection['slot_number'] ?? null;
+
+                $firstUnit = $unitRecords[0];
+                $selectedClassIds = array_unique(array_column($unitRecords, 'class_id'));
                 
-                // Initialize daily schedule for this date
-                if (!isset($dailySchedule[$examDate])) {
-                    $dailySchedule[$examDate] = [];
+                // Get ALL classes taking this unit
+                $allClassesTakingUnit = DB::table('unit_assignments')
+                    ->where('unit_id', $unitId)
+                    ->distinct()
+                    ->pluck('class_id');
+                
+                // Count students across ALL classes taking this unit
+                $totalStudents = DB::table('enrollments')
+                    ->where('unit_id', $unitId)
+                    ->whereIn('class_id', $allClassesTakingUnit)
+                    ->where('status', 'enrolled')
+                    ->distinct('student_code')
+                    ->count('student_code');
+                
+                if ($totalStudents === 0) {
+                    $warnings[] = "Skipped {$firstUnit['unit_code']} - No students enrolled";
+                    continue;
                 }
-
-                $dayAttempted = false;
-
-            // Use assigned time from frontend (already randomized)
-                $assignedStart = $firstUnit['assigned_start_time'];
-                $assignedEnd = $firstUnit['assigned_end_time'];
                 
-                $dayAttempted = true;
+                // Get lecturer
+                $lecturerCodes = array_filter(array_column($unitRecords, 'lecturer_code'));
+                $lecturerCode = null;
                 
-                // Initialize time slot counter
-                if (!isset($dailySchedule[$examDate][$assignedStart])) {
-                    $dailySchedule[$examDate][$assignedStart] = 0;
+                if (!empty($lecturerCodes)) {
+                    $lecturerCounts = array_count_values($lecturerCodes);
+                    arsort($lecturerCounts);
+                    $lecturerCode = array_key_first($lecturerCounts);
                 }
+                
+                $lecturer = $lecturerCode ? User::where('code', $lecturerCode)->first() : null;
+                $chiefInvigilator = $lecturer 
+                    ? trim("{$lecturer->first_name} {$lecturer->last_name}")
+                    : 'No lecturer assigned';
+                
+                \Log::info("Processing unit for scheduling", [
+                    'unit_code' => $firstUnit['unit_code'],
+                    'unit_name' => $firstUnit['unit_name'],
+                    'assigned_time_slot' => "{$assignedStartTime} - {$assignedEndTime}",  // ✅ Log assigned slot
+                    'slot_number' => $slotNumber,
+                    'total_students' => $totalStudents,
+                    'lecturer' => $chiefInvigilator
+                ]);
 
-                $examStartTime = Carbon::parse($examDate . ' ' . $assignedStart);
-                $examEndTime = Carbon::parse($examDate . ' ' . $assignedEnd);
-
-
-
-                    // ✅ FIX: Smart venue assignment with room sharing
-                    $roomAvailability = $this->getVenueCapacity(
-                        $examDate,
-                        $examStartTime->format('H:i'),
-                        $examEndTime->format('H:i'),
-                        $availableRooms
-                    );
-
-                    $venueResult = ['success' => false];
-                    foreach ($roomAvailability as $room) {
-                        if ($room['available'] >= $totalStudents) {
-                            $venueResult = [
-                                'success' => true,
-                                'venue' => $room['name'],
-                                'location' => $room['location'],
-                                'capacity' => $room['capacity'],
-                                'used_before' => $room['used'],
-                                'available_before' => $room['available']
-                            ];
-                            
-                            \Log::info("📍 Room allocated", [
-                                'venue' => $room['name'],
-                                'unit' => $firstUnit['unit_code'],
-                                'students' => $totalStudents,
-                                'was_used' => $room['used'],
-                                'now_used' => $room['used'] + $totalStudents,
-                                'utilization' => round((($room['used'] + $totalStudents) / $room['capacity']) * 100, 1) . '%'
-                            ]);
-                            break;
+                // Find earliest allowed date considering gap
+                $earliestAllowedDate = $currentDate->copy();
+                
+                foreach ($selectedClassIds as $classId) {
+                    if (isset($classLastExamDate[$classId])) {
+                        $classMinDate = $classLastExamDate[$classId]->copy()->addDays($gapDays + 1);
+                        if ($classMinDate->gt($earliestAllowedDate)) {
+                            $earliestAllowedDate = $classMinDate;
                         }
                     }
+                }
+                
+                // Find next available slot
+                $scheduled = false;
+                $attempts = 0;
+                $maxAttempts = 300;
+                $attemptDate = clone $earliestAllowedDate;
+                $failureReasons = [];
 
-                    if (!$venueResult['success']) {
-                        $failureReasons[] = "Date {$examDate} {$timeSlot['label']}: No venue with capacity for {$totalStudents} students";
+                while (!$scheduled && $attempts < $maxAttempts && $attemptDate->lte($endDate)) {
+                    $attempts++;
+
+                    // Skip excluded days
+                    if (in_array($attemptDate->format('l'), $excludedDays)) {
+                        $attemptDate->addDay();
                         continue;
                     }
 
-                    // Check conflicts for selected classes only
+                    $examDate = $attemptDate->format('Y-m-d');
+                    $examDay = $attemptDate->format('l');
+                    
+                    // ✅ Use the assigned time slot (NOT a loop through multiple slots)
+                    $examStartTime = Carbon::parse($examDate . ' ' . $assignedStartTime);
+                    $examEndTime = Carbon::parse($examDate . ' ' . $assignedEndTime);
+                    $timeSlotKey = "{$assignedStartTime}-{$assignedEndTime}";  // ✅ Key for tracking
+
+                    // Check Max Exams Per Day
+                    $examsTodayCount = $existingExams->where('date', $examDate)
+                        ->where('program_id', $program->id)
+                        ->count();
+                    
+                    if ($examsTodayCount >= $maxExamsPerDay) {
+                        $failureReasons[] = "Date {$examDate}: Max exams per day ({$maxExamsPerDay}) reached";
+                        $attemptDate->addDay();
+                        continue;
+                    }
+
+                    // ✅ FIXED: Check venue capacity with 3D tracking
+                    $venueResult = $this->findVenueWithRemainingCapacity(
+                        $availableRooms,
+                        $totalStudents,
+                        $examDate,
+                        $timeSlotKey,  // ✅ Pass time slot key
+                        $venueCapacityUsage
+                    );
+
+                    if (!$venueResult['success']) {
+                        $failureReasons[] = "Date {$examDate} Slot {$slotNumber}: {$venueResult['message']}";
+                        $attemptDate->addDay();
+                        continue;
+                    }
+
+                    // Check conflicts
                     $hasConflict = false;
                     $conflictReasons = [];
 
-                    // Check class conflicts (for selected classes)
+                    // Check class conflicts
                     foreach ($selectedClassIds as $classId) {
                         $classConflict = $existingExams->first(function($exam) use ($examDate, $examStartTime, $examEndTime, $classId) {
                             if ($exam->date !== $examDate || $exam->class_id !== $classId) {
@@ -2093,7 +1890,7 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
 
                         if ($classConflict) {
                             $hasConflict = true;
-                            $conflictReasons[] = "Class {$classId} has exam for {$classConflict->unit_code}";
+                            $conflictReasons[] = "Class already has exam ({$classConflict->unit_code}) at this time";
                             break;
                         }
                     }
@@ -2113,12 +1910,13 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
 
                         if ($lecturerConflict) {
                             $hasConflict = true;
-                            $conflictReasons[] = "Lecturer {$chiefInvigilator} invigilating {$lecturerConflict->unit_code}";
+                            $conflictReasons[] = "Lecturer {$chiefInvigilator} already assigned";
                         }
                     }
 
                     if ($hasConflict) {
-                        $failureReasons[] = "Date {$examDate} {$timeSlot['label']}: " . implode(', ', $conflictReasons);
+                        $failureReasons[] = "Date {$examDate} Slot {$slotNumber}: " . implode(', ', $conflictReasons);
+                        $attemptDate->addDay();
                         continue;
                     }
 
@@ -2134,11 +1932,11 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                         'school_id' => $program->school_id,
                         'date' => $examDate,
                         'day' => $examDay,
-                        'start_time' => $examStartTime->format('H:i'),
-                        'end_time' => $examEndTime->format('H:i'),
+                        'start_time' => $examStartTime->format('H:i'),  // ✅ Assigned time
+                        'end_time' => $examEndTime->format('H:i'),      // ✅ Assigned time
                         'venue' => $venueResult['venue'],
                         'location' => $venueResult['location'] ?? 'Main Campus',
-                        'no' => $totalStudents,  // ✅ Total across ALL classes
+                        'no' => $totalStudents,
                         'chief_invigilator' => $chiefInvigilator,
                     ];
 
@@ -2146,13 +1944,18 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                     $existingExams->push($createdExam);
                     
                     // Update last exam date for selected classes
-                    $examDateCarbon = Carbon::parse($examDate);
                     foreach ($selectedClassIds as $classId) {
-                        $classLastExamDate[$classId] = clone $examDateCarbon;
+                        $classLastExamDate[$classId] = clone $attemptDate;
                     }
                     
-                    // Track this exam in daily schedule
-                    $dailySchedule[$examDate][$assignedStart]++;
+                    // ✅ FIXED: Update venue capacity usage with 3D tracking
+                    $this->updateVenueCapacityUsage(
+                        $venueCapacityUsage,
+                        $venueResult['venue'],
+                        $examDate,
+                        $timeSlotKey,  // ✅ Pass time slot key
+                        $totalStudents
+                    );
                     
                     $classNames = ClassModel::whereIn('id', $selectedClassIds)->pluck('name')->toArray();
                     
@@ -2162,153 +1965,224 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                         'unit_name' => $firstUnit['unit_name'],
                         'classes' => $classNames,
                         'class_count' => count($selectedClassIds),
-                        'total_students' => $totalStudents,  // ✅ Total across all classes
+                        'total_students' => $totalStudents,
                         'date' => $examDate,
                         'time' => "{$examStartTime->format('H:i')} - {$examEndTime->format('H:i')}",
+                        'slot_number' => $slotNumber,
                         'venue' => $venueResult['venue'],
                         'lecturer' => $chiefInvigilator
                     ];
 
                     $scheduled = true;
 
-                    \Log::info("✅ Scheduled exam successfully", [
+                    \Log::info("✅ Exam scheduled successfully", [
                         'unit' => $firstUnit['unit_code'],
                         'classes' => $classNames,
                         'students' => $totalStudents,
                         'date' => $examDate,
-                        'time_slot' => $assignedStart . '-' . $assignedEnd,
+                        'time_slot' => $timeSlotKey,
+                        'slot_number' => $slotNumber,
                         'venue' => $venueResult['venue'],
-                        'lecturer' => $chiefInvigilator,
                         'attempts_taken' => $attempts
                     ]);
+                }
+
+                if (!$scheduled) {
+                    $reason = !empty($failureReasons) 
+                        ? implode('; ', $failureReasons)
+                        : 'Could not find suitable slot within date range';
                     
-                 
-                
-                
-                if (!$scheduled && $dayAttempted) {
-                    $attemptDate->addDay();
+                    $conflicts[] = [
+                        'unit_code' => $firstUnit['unit_code'],
+                        'unit_name' => $firstUnit['unit_name'],
+                        'reason' => $reason,
+                        'assigned_slot' => "Slot {$slotNumber}: {$assignedStartTime} - {$assignedEndTime}"
+                    ];
                 }
             }
 
-            if (!$scheduled) {
-    $reason = 'Could not find suitable slot within date range';
-    
-    // ✅ FIX: Check BOTH conflictReasons AND failureReasons for capacity issues
-    $allReasons = implode(' ', array_merge($conflictReasons ?? [], $failureReasons ?? []));
-    
-    if (str_contains($allReasons, 'insufficient capacity') || 
-        str_contains($allReasons, 'No venue with capacity') ||
-        str_contains(strtolower($allReasons), 'capacity')) {
-        $reason = 'Insufficient venue capacity - all exam rooms are full';
-    } else if (!empty($failureReasons)) {
-        $reason = implode('; ', $failureReasons);
-    } else if (!empty($conflictReasons)) {
-        $reason = implode('; ', $conflictReasons);
-    }
-    
-    $conflicts[] = [
-        'unit_code' => $unit->code,
-        'unit_name' => $unit->name,
-        'class_name' => $class->name,
-        'reason' => $reason,
-        'all_failure_reasons' => $failureReasons ?? [],
-        'conflict_details' => $conflictReasons ?? []
-    ];
-}
+            DB::commit();
 
+            \Log::info('=== BULK SCHEDULING COMPLETED ===', [
+                'scheduled_count' => count($scheduledExams),
+                'conflicts_count' => count($conflicts),
+                'warnings_count' => count($warnings),
+                'gap_days_used' => $gapDays
+            ]);
 
+            return response()->json([
+                'success' => true,
+                'scheduled' => $scheduledExams,
+                'conflicts' => $conflicts,
+                'warnings' => $warnings,
+                'summary' => [
+                    'total_scheduled' => count($scheduledExams),
+                    'total_conflicts' => count($conflicts),
+                    'total_warnings' => count($warnings),
+                    'gap_days_used' => $gapDays
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            \Log::error('Bulk scheduling failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Bulk scheduling failed: ' . $e->getMessage()
+            ], 500);
         }
-
-        DB::commit();
-
-        \Log::info('=== BULK SCHEDULING COMPLETED ===', [
-            'scheduled_count' => count($scheduledExams),
-            'conflicts_count' => count($conflicts),
-            'warnings_count' => count($warnings),
-            'gap_days_used' => $gapDays,
-            'date_distribution' => array_map(function($slots) {
-                return array_sum($slots);
-            }, $dailySchedule)
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'scheduled' => $scheduledExams,
-            'conflicts' => $conflicts,
-            'warnings' => $warnings,
-            'summary' => [
-                'total_scheduled' => count($scheduledExams),
-                'total_conflicts' => count($conflicts),
-                'total_warnings' => count($warnings),
-                'gap_days_used' => $gapDays,
-                'date_distribution' => $dailySchedule
-            ]
-        ]);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        
-        \Log::error('Bulk scheduling failed', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Bulk scheduling failed: ' . $e->getMessage()
-        ], 500);
     }
-}
 
-/**
- * ✅ HELPER METHOD 1: Find venue with sufficient REMAINING capacity
- * Allows multiple exams to share the same venue
- * 
- * ADD THIS METHOD to your controller class
- */
-private function findVenueWithCapacity($examrooms, $requiredCapacity, $examDate, $examStartTime, $examEndTime, &$venueCapacityUsage)
-{
-    $timeKey = $examStartTime->format('Y-m-d H:i') . '-' . $examEndTime->format('H:i');
-    
-    foreach ($examrooms as $room) {
-        // Calculate how much capacity is already used
-        $usedCapacity = $venueCapacityUsage[$room->name][$timeKey] ?? 0;
-        $remainingCapacity = $room->capacity - $usedCapacity;
+    /**
+     * ✅ FIXED: Find venue with remaining capacity (3D tracking: venue -> date -> time_slot)
+     */
+    private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $examDate, $timeSlotKey, &$venueCapacityUsage)
+    {
+        foreach ($examrooms as $room) {
+            // ✅ Check capacity for specific venue, date, AND time slot
+            $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
+            $remainingCapacity = $room->capacity - $usedCapacity;
+            
+            if ($remainingCapacity >= $requiredCapacity) {
+                return [
+                    'success' => true,
+                    'venue' => $room->name,
+                    'location' => $room->location,
+                    'total_capacity' => $room->capacity,
+                    'capacity_used' => $usedCapacity + $requiredCapacity,
+                    'remaining_capacity' => $remainingCapacity - $requiredCapacity
+                ];
+            }
+        }
         
-        // Check if there's enough remaining capacity
-        if ($remainingCapacity >= $requiredCapacity) {
+        return [
+            'success' => false,
+            'message' => "No venue with capacity for {$requiredCapacity} students"
+        ];
+    }
+
+    /**
+     * ✅ FIXED: Update venue capacity usage (3D tracking: venue -> date -> time_slot)
+     */
+    private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $examDate, $timeSlotKey, $studentCount)
+    {
+        if (!isset($venueCapacityUsage[$venueName])) {
+            $venueCapacityUsage[$venueName] = [];
+        }
+        
+        if (!isset($venueCapacityUsage[$venueName][$examDate])) {
+            $venueCapacityUsage[$venueName][$examDate] = [];
+        }
+        
+        if (!isset($venueCapacityUsage[$venueName][$examDate][$timeSlotKey])) {
+            $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] = 0;
+        }
+        
+        $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] += $studentCount;
+    }
+
+    /**
+     * Assign time slot from database (kept for backward compatibility)
+     */
+    private function assignTimeSlot($date, $excludedSlotIds = [])
+    {
+        try {
+            $timeSlot = ExamTimeSlot::where('is_active', 1)
+                ->whereNotIn('id', $excludedSlotIds)
+                ->orderBy('start_time')
+                ->first();
+
+            if (!$timeSlot) {
+                return [
+                    'success' => false,
+                    'message' => 'No available time slots in database'
+                ];
+            }
+
+            $isOccupied = ExamTimetable::where('date', $date)
+                ->where('start_time', $timeSlot->start_time)
+                ->where('end_time', $timeSlot->end_time)
+                ->exists();
+
+            if ($isOccupied) {
+                return $this->assignTimeSlot($date, array_merge($excludedSlotIds, [$timeSlot->id]));
+            }
+
             return [
                 'success' => true,
-                'venue' => $room->name,
-                'location' => $room->location,
-                'total_capacity' => $room->capacity,
-                'capacity_used' => $usedCapacity + $requiredCapacity,
-                'remaining_capacity' => $remainingCapacity - $requiredCapacity
+                'slot_id' => $timeSlot->id,
+                'start_time' => $timeSlot->start_time,
+                'end_time' => $timeSlot->end_time,
+                'capacity' => $timeSlot->capacity
+            ];
+
+        } catch (\Exception $e) {
+            \Log::error('Time slot assignment failed', [
+                'error' => $e->getMessage(),
+                'date' => $date
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error assigning time slot: ' . $e->getMessage()
             ];
         }
     }
-    
-    return [
-        'success' => false,
-        'message' => 'No venue with sufficient remaining capacity'
-    ];
-}
 
-/**
- * ✅ HELPER METHOD 2: Update venue capacity usage tracker
- * 
- * ADD THIS METHOD to your controller class
- */
-private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $timeKey, $studentCount)
-{
-    if (!isset($venueCapacityUsage[$venueName])) {
-        $venueCapacityUsage[$venueName] = [];
+    /**
+     * Assign smart venue with capacity matching (kept for backward compatibility)
+     */
+    private function assignSmartVenue($studentCount, $date, $startTime, $endTime, $excludeId = null)
+    {
+        try {
+            $examrooms = Examroom::where('capacity', '>=', $studentCount)
+                ->orderBy('capacity')
+                ->get();
+
+            foreach ($examrooms as $room) {
+                $isOccupied = ExamTimetable::where('date', $date)
+                    ->where('venue', $room->name)
+                    ->when($excludeId, function($query) use ($excludeId) {
+                        return $query->where('id', '!=', $excludeId);
+                    })
+                    ->where(function($query) use ($startTime, $endTime) {
+                        $query->where(function($q) use ($startTime, $endTime) {
+                            $q->where('start_time', '<', $endTime)
+                              ->where('end_time', '>', $startTime);
+                        });
+                    })
+                    ->exists();
+
+                if (!$isOccupied) {
+                    return [
+                        'success' => true,
+                        'venue' => $room->name,
+                        'location' => $room->location ?? 'Main Campus',
+                        'capacity' => $room->capacity,
+                        'message' => "Assigned venue: {$room->name} (Capacity: {$room->capacity})"
+                    ];
+                }
+            }
+
+            return [
+                'success' => false,
+                'message' => 'No available venues for ' . $studentCount . ' students at this time'
+            ];
+
+        } catch (\Exception $e) {
+            \Log::error('Venue assignment failed', [
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error assigning venue'
+            ];
+        }
     }
-    
-    if (!isset($venueCapacityUsage[$venueName][$timeKey])) {
-        $venueCapacityUsage[$venueName][$timeKey] = 0;
-    }
-    
-    $venueCapacityUsage[$venueName][$timeKey] += $studentCount;
-}
 }

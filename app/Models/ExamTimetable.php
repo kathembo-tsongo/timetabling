@@ -9,26 +9,25 @@ class ExamTimetable extends Model
 {
     use HasFactory;
 
-   protected $fillable = [
-    'unit_id',
-    'semester_id',
-    'class_id',
-    'program_id',  // ✅ ADD THIS
-    'school_id',   // ✅ ADD THIS
-    'date',
-    'day',
-    'start_time',
-    'end_time',
-    'venue',
-    'location',
-    'no',
-    'chief_invigilator',
-];
+    protected $fillable = [
+        'unit_id',
+        'semester_id',
+        'class_id',
+        'program_id',
+        'school_id',
+        'date',
+        'day',
+        'start_time',
+        'end_time',
+        'venue',
+        'location',
+        'no',
+        'chief_invigilator',
+    ];
 
     protected $casts = [
-        'exam_date' => 'date',
-        'start_time' => 'datetime',
-        'end_time' => 'datetime',
+        'date' => 'date',
+        // Removed start_time and end_time datetime casts to prevent timezone conversion
     ];
 
     /**
@@ -103,10 +102,10 @@ class ExamTimetable extends Model
         return $this->hasManyThrough(
             User::class,
             Enrollment::class,
-            'unit_id',     // Foreign key on enrollments table
-            'id',          // Foreign key on users table
-            'unit_id',     // Local key on exam_timetables table
-            'student_id'   // Local key on enrollments table
+            'unit_id',      // Foreign key on enrollments table
+            'id',           // Foreign key on users table
+            'unit_id',      // Local key on exam_timetables table
+            'student_id'    // Local key on enrollments table
         )->where('enrollments.semester_id', $this->semester_id);
     }
 
@@ -126,6 +125,6 @@ class ExamTimetable extends Model
     public function scopeForLecturer($query, $lecturerId)
     {
         return $query->where('lecturer_id', $lecturerId)
-                    ->orWhere('invigilator_id', $lecturerId);
+            ->orWhere('invigilator_id', $lecturerId);
     }
 }

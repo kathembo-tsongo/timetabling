@@ -231,6 +231,14 @@ const ExamCard: React.FC<ExamCardProps> = ({
   canDelete,
   conflicts = []
 }) => {
+  // ADD THESE DEBUG LOGS
+  console.log('=== EXAM CARD DEBUG ===')
+  console.log('Full exam object:', exam)
+  console.log('start_time value:', exam.start_time)
+  console.log('end_time value:', exam.end_time)
+  console.log('start_time type:', typeof exam.start_time)
+  console.log('=======================')
+
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-US', {
       weekday: 'long',
@@ -241,6 +249,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
   }
 
   const formatTime = (time: string) => {
+    console.log('formatTime received:', time) // ADD THIS TOO
     const parts = time.split(':')
     const hours = parseInt(parts[0])
     const minutes = parts[1]
@@ -248,7 +257,8 @@ const ExamCard: React.FC<ExamCardProps> = ({
     const displayHours = hours % 12 || 12
     return `${displayHours}:${minutes} ${ampm}`
   }
-
+  
+  // ... rest of your code
   const hasConflicts = conflicts.length > 0
   const errorConflicts = conflicts.filter(c => c.severity === 'error')
   const warningConflicts = conflicts.filter(c => c.severity === 'warning')
@@ -1762,7 +1772,7 @@ const [bulkFormState, setBulkFormState] = useState<{
   end_date: '',
   exam_duration_hours: 2,
   gap_between_exams_days: 1,
-  start_time: '09:00', // DEFAULT value - admin can change via time picker ✅
+  start_time: '', // DEFAULT value - admin can change via time picker ✅
   excluded_days: [],
   max_exams_per_day: 4,
   selected_examrooms: [],
@@ -2039,44 +2049,50 @@ const handleBulkSchedule = useCallback(async () => {
     })
 
     if (response.data.success) {
-      const scheduled = response.data.scheduled || []
-      const conflicts = response.data.conflicts || []
-      
-      toast.success(
-        `Successfully scheduled ${scheduled.length} exam${scheduled.length !== 1 ? 's' : ''}!`,
-        { duration: 5000 }
-      )
-
-      if (conflicts.length > 0) {
-        toast.error(
-          `Warning: ${conflicts.length} exam${conflicts.length !== 1 ? 's' : ''} could not be scheduled`,
-          { duration: 7000 }
-        )
-      }
-
-      setIsBulkModalOpen(false)
-      router.reload()
-
-      // Reset form
-      setBulkFormState({
-        semester_id: 0,
-        school_id: null,
-        program_id: null,
-        selected_class_units: [],
-        start_date: '',
-        end_date: '',
-        exam_duration_hours: 2,
-        gap_between_exams_days: 1,
-        start_time: '09:00',
-        excluded_days: [],
-        max_exams_per_day: 4,
-        selected_examrooms: [],
-        break_minutes: 30
-      })
-    } else {
-      toast.error(response.data.message || 'Failed to schedule exams')
-    }
-  } catch (error: any) {
+  const scheduled = response.data.scheduled || []
+  const conflicts = response.data.conflicts || []
+  
+  toast.success(
+    `Successfully scheduled ${scheduled.length} exam${scheduled.length !== 1 ? 's' : ''}!`,
+    { duration: 5000 }
+  )
+  
+  if (conflicts.length > 0) {
+    toast.error(
+      `Warning: ${conflicts.length} exam${conflicts.length !== 1 ? 's' : ''} could not be scheduled`,
+      { duration: 7000 }
+    )
+  }
+  
+  // Reset form first
+  setBulkFormState({
+    semester_id: 0,
+    school_id: null,
+    program_id: null,
+    selected_class_units: [],
+    start_date: '',
+    end_date: '',
+    exam_duration_hours: 2,
+    gap_between_exams_days: 1,
+    start_time: '',
+    excluded_days: [],
+    max_exams_per_day: 4,
+    selected_examrooms: [],
+    break_minutes: 30
+  })
+  
+  // Close modal
+  setIsBulkModalOpen(false)
+  
+  // ✅ FIX: Force refresh with fresh data
+  router.reload({ 
+    only: ['examTimetables'],
+    preserveScroll: true
+  })
+  
+} else {
+  toast.error(response.data.message || 'Failed to schedule exams')
+}  } catch (error: any) {
     console.error('Bulk schedule error:', error)
     toast.error(
       error.response?.data?.message || 'An error occurred while scheduling exams'
@@ -2603,7 +2619,7 @@ const calculateRequiredCapacity = () => {
                     end_date: '',
                     exam_duration_hours: 2,
                     gap_between_exams_days: 1,
-                    start_time: '09:00',
+                    start_time: '',
                     excluded_days: [],
                     max_exams_per_day: 4,
                     selected_examrooms: []
@@ -3233,7 +3249,7 @@ const calculateRequiredCapacity = () => {
   end_date: '',
   exam_duration_hours: 2,
   gap_between_exams_days: 1,
-  start_time: '09:00',
+  start_time: '',
   excluded_days: [],
   max_exams_per_day: 4,
   selected_examrooms: [],
