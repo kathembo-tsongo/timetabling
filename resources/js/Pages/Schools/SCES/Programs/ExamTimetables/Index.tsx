@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Head, usePage, router, useForm } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { Link } from "@inertiajs/react"
@@ -231,6 +231,14 @@ const ExamCard: React.FC<ExamCardProps> = ({
   canDelete,
   conflicts = []
 }) => {
+  // ADD THESE DEBUG LOGS
+  console.log('=== EXAM CARD DEBUG ===')
+  console.log('Full exam object:', exam)
+  console.log('start_time value:', exam.start_time)
+  console.log('end_time value:', exam.end_time)
+  console.log('start_time type:', typeof exam.start_time)
+  console.log('=======================')
+
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-US', {
       weekday: 'long',
@@ -241,6 +249,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
   }
 
   const formatTime = (time: string) => {
+    console.log('formatTime received:', time) // ADD THIS TOO
     const parts = time.split(':')
     const hours = parseInt(parts[0])
     const minutes = parts[1]
@@ -248,7 +257,8 @@ const ExamCard: React.FC<ExamCardProps> = ({
     const displayHours = hours % 12 || 12
     return `${displayHours}:${minutes} ${ampm}`
   }
-
+  
+  // ... rest of your code
   const hasConflicts = conflicts.length > 0
   const errorConflicts = conflicts.filter(c => c.severity === 'error')
   const warningConflicts = conflicts.filter(c => c.severity === 'warning')
@@ -451,9 +461,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
   )
 }
 
-// ============================================
-// EXAM TABLE VIEW COMPONENT
-// ============================================
+
 const ExamTableView: React.FC<{
   exams: ExamTimetable[]
   theme: any
@@ -463,7 +471,8 @@ const ExamTableView: React.FC<{
   canEdit: boolean
   canDelete: boolean
   allExams: ExamTimetable[]
-}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete, allExams }) => {
+  classrooms: ClassroomType[]  // ✅ ADD THIS
+}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete, allExams, classrooms }) => {  
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-US', {
       month: 'short',
@@ -509,13 +518,38 @@ const ExamTableView: React.FC<{
         }
 
         if (otherExam.venue === exam.venue) {
-          conflicts.push({
-            type: 'venue',
-            severity: 'error',
-            message: `${exam.venue} is already occupied by ${otherExam.unit_code} from ${formatTime(otherExam.start_time)} to ${formatTime(otherExam.end_time)}`,
-            conflictingExam: otherExam
-          })
-        }
+  const classroom = classrooms.find(c => c.name === exam.venue)
+  
+  if (classroom) {
+    const totalStudents = allExams
+      .filter(e => {
+        if (e.date !== exam.date || e.venue !== exam.venue) return false
+        
+        const eStart = e.start_time
+        const eEnd = e.end_time
+        const examStart = exam.start_time
+        const examEnd = exam.end_time
+        
+        return (
+          (eStart <= examStart && examStart < eEnd) ||
+          (eStart < examEnd && examEnd <= eEnd) ||
+          (examStart <= eStart && eEnd <= examEnd)
+        )
+      })
+      .reduce((sum, e) => sum + (e.no || 0), 0)
+    
+    const remainingCapacity = classroom.capacity - totalStudents
+    
+    if (remainingCapacity < 0) {
+      conflicts.push({
+        type: 'venue',
+        severity: 'error',
+        message: `${exam.venue} capacity exceeded (${totalStudents}/${classroom.capacity})`,
+        conflictingExam: otherExam
+      })
+    }
+  }
+}
       }
     })
 
@@ -723,6 +757,8 @@ const ExamModal: React.FC<ExamModalProps> = ({
   const [loadingUnits, setLoadingUnits] = useState(false)
   const [conflicts, setConflicts] = useState<Conflict[]>([])
   const [checkingConflicts, setCheckingConflicts] = useState(false)
+  const [conflictsModalOpen, setConflictsModalOpen] = useState(false)
+  const [schedulingConflicts, setSchedulingConflicts] = useState([])
 
   const { data, setData, post, put, processing, errors, reset } = useForm({
     semester_id: exam?.semester_id || '',
@@ -1627,11 +1663,50 @@ const ViewModal: React.FC<ViewModalProps> = ({ isOpen, onClose, exam, theme }) =
     </div>
   )
 }
+const formatTime = (time: string) => {
+  const [h, m] = time.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const displayH = h > 12 ? h - 12 : h === 0 ? 12 : h
+  return `${displayH}:${String(m).padStart(2, '0')} ${period}`
+}
 
 // ============================================
-// MAIN COMPONENT
+// TIME SLOT HELPERS (ADD BEFORE COMPONENT)
 // ============================================
-const ExamTimetablesIndex: React.FC = () => {
+const generateTimeSlots = (
+  startTime: string,
+  examDurationHours: number,
+  breakMinutes: number,
+  maxSlotsPerDay: number = 4
+) => {
+  const slots = []
+  const [hours, minutes] = startTime.split(':').map(Number)
+  let currentMinutes = hours * 60 + minutes
+  
+  for (let i = 0; i < maxSlotsPerDay; i++) {
+    const startH = Math.floor(currentMinutes / 60)
+    const startM = currentMinutes % 60
+    const start = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`
+    
+    const endMinutes = currentMinutes + (examDurationHours * 60)
+    const endH = Math.floor(endMinutes / 60)
+    const endM = endMinutes % 60
+    const end = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`
+    
+    slots.push({ 
+      slot_number: i + 1, 
+      start_time: start, 
+      end_time: end 
+    })
+    
+    currentMinutes = endMinutes + breakMinutes
+  }
+  
+  return slots
+}
+
+const ExamTimetablesIndex = () => {
+
   const { examTimetables, program, semesters, schoolCode, filters, can, flash } =
     usePage<PageProps>().props
 
@@ -1662,43 +1737,59 @@ const ExamTimetablesIndex: React.FC = () => {
   const [bulkFilteredPrograms, setBulkFilteredPrograms] = useState<Program[]>([])
   const [classrooms, setClassrooms] = useState<ClassroomType[]>([])
   
-  const [bulkFormState, setBulkFormState] = useState<{
-    semester_id: number
-    school_id: number | null
-    program_id: number | null
-    selected_class_units: Array<{
-      class_id: number
-      class_name: string
-      class_code: string
-      unit_id: number
-      unit_code: string
-      unit_name: string
-      student_count: number
-      lecturer: string
-    }>
-    start_date: string
-    end_date: string
-    exam_duration_hours: number
-    gap_between_exams_days: number
-    start_time: string
-    excluded_days: string[]
-    max_exams_per_day: number
-    selected_examrooms: number[]
-  }>({
-    semester_id: 0,
-    school_id: null,
-    program_id: null,
-    selected_class_units: [],
-    start_date: '',
-    end_date: '',
-    exam_duration_hours: 2,
-    gap_between_exams_days: 1,
-    start_time: '09:00',
-    excluded_days: [],
-    max_exams_per_day: 4,
-    selected_examrooms: []
-  })
+  // ============================================
+// CORRECTED bulkFormState
+// ============================================
 
+const [bulkFormState, setBulkFormState] = useState<{
+  semester_id: number
+  school_id: number | null
+  program_id: number | null
+  selected_class_units: Array<{
+    class_id: number
+    class_name: string
+    class_code: string
+    unit_id: number
+    unit_code: string
+    unit_name: string
+    student_count: number
+    lecturer: string
+  }>
+  start_date: string
+  end_date: string
+  exam_duration_hours: number
+  gap_between_exams_days: number
+  start_time: string
+  excluded_days: string[]
+  max_exams_per_day: number
+  selected_examrooms: number[]
+  // NEW FIELDS AT ROOT LEVEL (not inside selected_class_units!)
+  break_minutes: number
+}>({
+  semester_id: 0,
+  school_id: null,
+  program_id: null,
+  selected_class_units: [],
+  start_date: '',
+  end_date: '',
+  exam_duration_hours: 2,
+  gap_between_exams_days: 1,
+  start_time: '', // DEFAULT value - admin can change via time picker ✅
+  excluded_days: [],
+  max_exams_per_day: 4,
+  selected_examrooms: [],
+  break_minutes: 30 // ADD THIS
+})
+
+// This is correct now ✅
+const timeSlots = useMemo(() => {
+  return generateTimeSlots(
+    bulkFormState.start_time,
+    bulkFormState.exam_duration_hours,
+    bulkFormState.break_minutes,
+    4
+  )
+}, [bulkFormState.start_time, bulkFormState.exam_duration_hours, bulkFormState.break_minutes])
   // ✅ LOAD SCHOOLS ON MOUNT
 useEffect(() => {
   const fetchSchools = async () => {
@@ -1907,106 +1998,120 @@ useEffect(() => {
   }
 }, [bulkFormState.semester_id])
   
-  
-  // ✅ HANDLER: Bulk Schedule
-  const handleBulkSchedule = useCallback(async () => {
-  console.log('🚀 Starting bulk schedule with state:', {
-    semester_id: bulkFormState.semester_id,
-    school_id: bulkFormState.school_id,
-    program_id: bulkFormState.program_id,
-    selected_units: bulkFormState.selected_class_units.length,
-    start_date: bulkFormState.start_date,
-    end_date: bulkFormState.end_date,
-    selected_rooms: bulkFormState.selected_examrooms.length
-  })
-
+const handleBulkSchedule = useCallback(async () => {
   if (!bulkFormState.semester_id || !bulkFormState.school_id || !bulkFormState.program_id) {
-    console.error('❌ Missing required fields')
     toast.error('Please select semester, school, and program')
     return
   }
-    if (bulkFormState.selected_class_units.length === 0) {
-      toast.error('Please select at least one class/unit combination')
-      return
-    }
 
-    if (!bulkFormState.start_date || !bulkFormState.end_date) {
-      toast.error('Please select start and end dates')
-      return
-    }
+  if (bulkFormState.selected_class_units.length === 0) {
+    toast.error('Please select at least one exam to schedule')
+    return
+  }
 
-    if (bulkFormState.selected_examrooms.length === 0) {
-      toast.error('Please select at least one exam room')
-      return
-    }
+  if (!bulkFormState.start_date || !bulkFormState.end_date) {
+    toast.error('Please select start and end dates')
+    return
+  }
 
-    if (!confirm(
-      `Schedule ${bulkFormState.selected_class_units.length} exams from ${bulkFormState.start_date} to ${bulkFormState.end_date}?`
-    )) {
-      return
-    }
+  if (bulkFormState.selected_examrooms.length === 0) {
+    toast.error('Please select at least one exam room')
+    return
+  }
 
-    setIsBulkSubmitting(true)
+  setIsBulkSubmitting(true)
 
-    try {
-      const response = await axios.post(
-        route('schools.' + schoolCode.toLowerCase() + '.programs.exam-timetables.bulk-schedule', program.id),
-        {
-          class_ids: [...new Set(bulkFormState.selected_class_units.map(cu => cu.class_id))],
-          start_date: bulkFormState.start_date,
-          end_date: bulkFormState.end_date,
-          exam_duration_hours: bulkFormState.exam_duration_hours,
-          gap_between_exams_days: bulkFormState.gap_between_exams_days,
-          start_time: bulkFormState.start_time,
-          excluded_days: bulkFormState.excluded_days,
-          max_exams_per_day: bulkFormState.max_exams_per_day,
-          selected_examrooms: bulkFormState.selected_examrooms
-        }
+  try {
+    // ✅ FIXED: Evenly distribute exams across all time slots (round-robin)
+    const examsWithTimeSlots = bulkFormState.selected_class_units.map((item, index) => {
+      // Cycle through slots: 0, 1, 2, 3, 0, 1, 2, 3, ...
+      const slotIndex = index % timeSlots.length
+      const assignedSlot = timeSlots[slotIndex]
+      
+      return {
+        ...item,
+        assigned_start_time: assignedSlot.start_time,
+        assigned_end_time: assignedSlot.end_time,
+        slot_number: assignedSlot.slot_number
+      }
+    })
+
+    console.log('📊 Time slot distribution:', {
+      total_exams: examsWithTimeSlots.length,
+      slot_distribution: timeSlots.map((slot, idx) => ({
+        slot: `${slot.start_time}-${slot.end_time}`,
+        count: examsWithTimeSlots.filter((_, i) => i % timeSlots.length === idx).length
+      }))
+    })
+
+    const response = await axios.post('/api/exams/bulk-schedule', {
+      semester_id: bulkFormState.semester_id,
+      school_id: bulkFormState.school_id,
+      program_id: bulkFormState.program_id,
+      selected_class_units: examsWithTimeSlots, // With evenly distributed times
+      start_date: bulkFormState.start_date,
+      end_date: bulkFormState.end_date,
+      exam_duration_hours: bulkFormState.exam_duration_hours,
+      gap_between_exams_days: bulkFormState.gap_between_exams_days,
+      start_time: bulkFormState.start_time,
+      excluded_days: bulkFormState.excluded_days,
+      max_exams_per_day: bulkFormState.max_exams_per_day,
+      selected_examrooms: bulkFormState.selected_examrooms
+    })
+
+    if (response.data.success) {
+      const scheduled = response.data.scheduled || []
+      const conflicts = response.data.conflicts || []
+
+      toast.success(
+        `Successfully scheduled ${scheduled.length} exam${scheduled.length !== 1 ? 's' : ''}!`,
+        { duration: 5000 }
       )
 
-      if (response.data.success) {
-        const { summary, scheduled, conflicts, warnings } = response.data
-
-        toast.success(
-          `✅ Bulk scheduling complete! ${summary.total_scheduled} exams scheduled`,
-          { duration: 6000 }
+      if (conflicts.length > 0) {
+        toast.error(
+          `Warning: ${conflicts.length} exam${conflicts.length !== 1 ? 's' : ''} could not be scheduled`,
+          { duration: 7000 }
         )
-
-        if (conflicts.length > 0) {
-          setTimeout(() => {
-            toast.warning(`⚠️ ${conflicts.length} exam(s) could not be scheduled due to conflicts`, 
-              { duration: 5000 }
-            )
-          }, 1000)
-        }
-
-        setIsBulkModalOpen(false)
-        setBulkFormState({
-          semester_id: 0,
-          school_id: null,
-          program_id: null,
-          selected_class_units: [],
-          start_date: '',
-          end_date: '',
-          exam_duration_hours: 2,
-          gap_between_exams_days: 1,
-          start_time: '09:00',
-          excluded_days: [],
-          max_exams_per_day: 4,
-          selected_examrooms: []
-        })
-
-        setTimeout(() => {
-          router.reload({ only: ['examTimetables'] })
-        }, 2000)
       }
-    } catch (error: any) {
-      console.error('Bulk schedule error:', error)
-      toast.error(error.response?.data?.message || 'Failed to create bulk schedule')
-    } finally {
-      setIsBulkSubmitting(false)
+
+      // Reset form first
+      setBulkFormState({
+        semester_id: 0,
+        school_id: null,
+        program_id: null,
+        selected_class_units: [],
+        start_date: '',
+        end_date: '',
+        exam_duration_hours: 2,
+        gap_between_exams_days: 1,
+        start_time: '',
+        excluded_days: [],
+        max_exams_per_day: 4,
+        selected_examrooms: [],
+        break_minutes: 30
+      })
+
+      // Close modal
+      setIsBulkModalOpen(false)
+
+      // ✅ FIX: Force refresh with fresh data
+      router.reload({
+        only: ['examTimetables'],
+        preserveScroll: true
+      })
+    } else {
+      toast.error(response.data.message || 'Failed to schedule exams')
     }
-  }, [bulkFormState, schoolCode, program])
+  } catch (error: any) {
+    console.error('Bulk schedule error:', error)
+    toast.error(
+      error.response?.data?.message || 'An error occurred while scheduling exams'
+    )
+  } finally {
+    setIsBulkSubmitting(false)
+  }
+}, [bulkFormState, router, timeSlots])
 
   const checkConflicts = (exam: ExamTimetable): Conflict[] => {
     const conflicts: Conflict[] = []
@@ -2039,12 +2144,37 @@ useEffect(() => {
         }
 
         if (otherExam.venue === exam.venue) {
-          conflicts.push({
-            type: 'venue',
-            severity: 'error',
-            message: `${exam.venue} is occupied by ${otherExam.unit_code} at this time`
-          })
-        }
+  const classroom = classrooms.find(c => c.name === exam.venue)
+  
+  if (classroom) {
+    const totalStudents = examTimetables.data
+      .filter(e => {
+        if (e.date !== exam.date || e.venue !== exam.venue) return false
+        
+        const eStart = e.start_time
+        const eEnd = e.end_time
+        const examStart = exam.start_time
+        const examEnd = exam.end_time
+        
+        return (
+          (eStart <= examStart && examStart < eEnd) ||
+          (eStart < examEnd && examEnd <= eEnd) ||
+          (examStart <= eStart && eEnd <= examEnd)
+        )
+      })
+      .reduce((sum, e) => sum + (e.no || 0), 0)
+    
+    const remainingCapacity = classroom.capacity - totalStudents
+    
+    if (remainingCapacity < 0) {
+      conflicts.push({
+        type: 'venue',
+        severity: 'error',
+        message: `${exam.venue} capacity exceeded (${totalStudents}/${classroom.capacity})`
+      })
+    }
+  }
+}
       }
     })
 
@@ -2105,6 +2235,46 @@ useEffect(() => {
     setSelectedExam(exam)
     setIsViewModalOpen(true)
   }
+
+  const calculateTotalCapacity = () => {
+  const selectedRooms = classrooms.filter(r => 
+    bulkFormState.selected_examrooms.includes(r.id)
+  )
+  return selectedRooms.reduce((sum, room) => sum + room.capacity, 0)
+}
+
+const calculateRequiredCapacity = () => {
+  return bulkFormState.selected_class_units.reduce((sum, cu) => 
+    sum + cu.student_count, 0
+  )
+}
+
+// Then in your bulk modal UI, add a capacity warning section:
+
+{bulkFormState.selected_examrooms.length > 0 && 
+ bulkFormState.selected_class_units.length > 0 && (
+  <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+    <div className="flex items-start gap-3">
+      <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+      <div className="flex-1">
+        <h4 className="font-semibold text-blue-900 mb-1">Capacity Check</h4>
+        <div className="text-sm text-blue-700 space-y-1">
+          <div>Total venue capacity: <span className="font-semibold">{calculateTotalCapacity()} students</span></div>
+          <div>Required capacity: <span className="font-semibold">{calculateRequiredCapacity()} students</span></div>
+          {calculateRequiredCapacity() > calculateTotalCapacity() && (
+            <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
+              <span className="text-red-800 font-semibold">⚠️ Warning: Not enough venue capacity!</span>
+              <p className="text-xs text-red-700 mt-1">
+                You need {calculateRequiredCapacity() - calculateTotalCapacity()} more seats. 
+                Please select additional exam rooms.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
   // ✅ HANDLE BULK SCHEDULE BUTTON CLICK
   const handleBulkScheduleClick = async () => {
@@ -2293,15 +2463,16 @@ useEffect(() => {
               ) : (
                 <div className="mb-8">
                   <ExamTableView
-                    exams={examTimetables.data}
-                    theme={theme}
-                    onView={handleView}
-                    onEdit={handleEdit}
-                    onDelete={handleDeleteClick}
-                    canEdit={can.edit}
-                    canDelete={can.delete}
-                    allExams={examTimetables.data}
-                  />
+  exams={examTimetables.data}
+  theme={theme}
+  onView={handleView}
+  onEdit={handleEdit}
+  onDelete={handleDeleteClick}
+  canEdit={can.edit}
+  canDelete={can.delete}
+  allExams={examTimetables.data}
+  classrooms={classrooms}  // ✅ ADD THIS LINE
+/>
                 </div>
               )}
             </>
@@ -2457,7 +2628,7 @@ useEffect(() => {
                     end_date: '',
                     exam_duration_hours: 2,
                     gap_between_exams_days: 1,
-                    start_time: '09:00',
+                    start_time: '',
                     excluded_days: [],
                     max_exams_per_day: 4,
                     selected_examrooms: []
@@ -2708,7 +2879,7 @@ useEffect(() => {
               <div className="mt-1.5 flex items-center gap-4 text-xs">
                 <div className="flex items-center text-purple-600">
                   <Users className="w-3 h-3 mr-1" />
-                  <span className="font-semibold">{unitData.total_students} students</span>
+                  <span className="font-semibold">{unitData.total_enrolled} students</span>
                   <span className="text-gray-500 ml-1">across {unitData.class_count} class{unitData.class_count > 1 ? 'es' : ''}</span>
                 </div>
                 {unitData.lecturer_name && (
@@ -2863,6 +3034,72 @@ useEffect(() => {
                     </select>
                   </div>
                 </div>
+                <div className="border-t pt-4 mt-4">
+  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-3">
+    <h4 className="text-sm font-semibold text-purple-900 mb-1 flex items-center">
+      <Clock className="w-4 h-4 mr-2" />
+      Time Slot Configuration (4 slots per day)
+    </h4>
+    <p className="text-xs text-purple-700">
+      System will randomly assign exams across these 4 time slots based on your start time.
+    </p>
+  </div>
+
+  {/* Break Time Control */}
+  <div className="mb-3">
+    <label className="block text-sm font-medium text-gray-700 mb-1">
+      Break Between Time Slots
+    </label>
+    <select
+      value={bulkFormState.break_minutes}
+      onChange={(e) => setBulkFormState(prev => ({
+        ...prev,
+        break_minutes: parseInt(e.target.value)
+      }))}
+      className="w-full border rounded p-2"
+    >
+      <option value={15}>15 minutes</option>
+      <option value={30}>30 minutes</option>
+      <option value={45}>45 minutes</option>
+      <option value={60}>1 hour</option>
+      <option value={90}>1.5 hours</option>
+    </select>
+  </div>
+
+  {/* Generated Time Slots Preview */}
+  <div className="p-3 bg-blue-50 border border-blue-200 rounded">
+    <div className="text-xs font-semibold text-blue-900 mb-2">
+      📅 Generated Time Slots (Maximum 4 per day):
+    </div>
+    <div className="grid grid-cols-2 gap-2">
+      {timeSlots.map((slot, index) => (
+        <div 
+          key={index} 
+          className="bg-white border border-blue-300 rounded px-3 py-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center mr-2">
+                {slot.slot_number}
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-blue-900">
+                  {formatTime(slot.start_time)} - {formatTime(slot.end_time)}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {bulkFormState.exam_duration_hours}h duration
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+    <div className="mt-2 text-xs text-gray-600">
+      <span className="font-medium">Note:</span> Exams will be randomly distributed across these slots
+    </div>
+  </div>
+</div>
 
                 {/* Exclude Days */}
                 <div>
@@ -3013,19 +3250,21 @@ useEffect(() => {
                 onClick={() => {
                   setIsBulkModalOpen(false)
                   setBulkFormState({
-                    semester_id: 0,
-                    school_id: null,
-                    program_id: null,
-                    selected_class_units: [],
-                    start_date: '',
-                    end_date: '',
-                    exam_duration_hours: 2,
-                    gap_between_exams_days: 1,
-                    start_time: '09:00',
-                    excluded_days: [],
-                    max_exams_per_day: 4,
-                    selected_examrooms: []
-                  })
+  semester_id: 0,
+  school_id: null,
+  program_id: null,
+  selected_class_units: [],
+  start_date: '',
+  end_date: '',
+  exam_duration_hours: 2,
+  gap_between_exams_days: 1,
+  start_time: '',
+  excluded_days: [],
+  max_exams_per_day: 4,
+  selected_examrooms: [],
+  break_minutes: 30  // ADD THIS
+})
+
                 }}
                 className="bg-gray-400 hover:bg-gray-500 text-white px-6 py-2 rounded"
               >
@@ -3057,8 +3296,9 @@ useEffect(() => {
               </button>
             </div>
           </div>
-        </div>
+        </div>        
       )}
+      
     </AuthenticatedLayout>
   )
 }

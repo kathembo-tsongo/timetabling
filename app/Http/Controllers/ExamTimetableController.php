@@ -63,9 +63,8 @@ class ExamTimetableController extends Controller
                 'units.name as unit_name',
                 'units.code as unit_code',
                 'classes.name as class_name',
-                \Schema::hasColumn('classes', 'code') 
-                    ? 'classes.code as class_code'
-                    : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+                // Generate class_code from name field since 'code' column doesn't exist
+                DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                 'semesters.name as semester_name'
             )
             ->when($request->has('search') && $request->search !== '', function ($query) use ($request) {
@@ -163,12 +162,13 @@ class ExamTimetableController extends Controller
             }
         
             foreach ($classesInSemester as $class) {
-                $columns = \Schema::getColumnListing('classes');
-                $hasCodeColumn = in_array('code', $columns);
+                // Generate class code from name field since 'code' column doesn't exist
+                // Example: "BBIT 1.1" becomes "BBIT-1.1"
+                $classCode = $class->name ? str_replace(' ', '-', $class->name) : 'CLASS-' . $class->id;
                 
                 $classData = [
                     'id' => $class->id,
-                    'code' => $hasCodeColumn ? ($class->code ?? 'CLASS-' . $class->id) : 'CLASS-' . $class->id,
+                    'code' => $classCode,
                     'name' => $class->name,
                     'semester_id' => $semester->id,
                     'units' => []
@@ -292,35 +292,19 @@ class ExamTimetableController extends Controller
                 ->pluck('semester_unit.class_id');
 
             if ($classIds->isNotEmpty()) {
-                $columns = \Schema::getColumnListing('classes');
-                $hasCodeColumn = in_array('code', $columns);
-                
-                if ($hasCodeColumn) {
-                    $classes = ClassModel::whereIn('id', $classIds)
-                        ->where('program_id', $programId)
-                        ->select('id', 'name', 'code', 'semester_id', 'program_id')
-                        ->get();
-                } else {
-                    $classes = ClassModel::whereIn('id', $classIds)
-                        ->where('program_id', $programId)
-                        ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
-                        ->get();
-                }
+                // Generate class code from name field since 'code' column doesn't exist
+                $classes = ClassModel::whereIn('id', $classIds)
+                    ->where('program_id', $programId)
+                    ->select('id', 'name', 'semester_id', 'program_id', 
+                        DB::raw('COALESCE(REPLACE(name, " ", "-"), CONCAT("CLASS-", id)) as code'))
+                    ->get();
             } else {
-                $columns = \Schema::getColumnListing('classes');
-                $hasCodeColumn = in_array('code', $columns);
-                
-                if ($hasCodeColumn) {
-                    $classes = ClassModel::where('semester_id', $semesterId)
-                        ->where('program_id', $programId)
-                        ->select('id', 'name', 'code', 'semester_id', 'program_id')
-                        ->get();
-                } else {
-                    $classes = ClassModel::where('semester_id', $semesterId)
-                        ->where('program_id', $programId)
-                        ->select('id', 'name', 'semester_id', 'program_id', DB::raw('CONCAT("CLASS-", id) as code'))
-                        ->get();
-                }
+                // Generate class code from name field since 'code' column doesn't exist
+                $classes = ClassModel::where('semester_id', $semesterId)
+                    ->where('program_id', $programId)
+                    ->select('id', 'name', 'semester_id', 'program_id', 
+                        DB::raw('COALESCE(REPLACE(name, " ", "-"), CONCAT("CLASS-", id)) as code'))
+                    ->get();
             }
 
             Log::info('Found classes for semester and program', [
@@ -358,8 +342,6 @@ class ExamTimetableController extends Controller
                 ], 400);
             }
 
-            $hasCodeColumn = \Schema::hasColumn('classes', 'code');
-
             $units = DB::table('unit_assignments')
                 ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
                 ->leftJoin('users', 'users.code', '=', 'unit_assignments.lecturer_code')
@@ -388,7 +370,7 @@ class ExamTimetableController extends Controller
                 return response()->json([]);
             }
 
-            $enhancedUnits = $units->map(function ($unit) use ($semesterId, $programId, $hasCodeColumn) {
+            $enhancedUnits = $units->map(function ($unit) use ($semesterId, $programId) {
                 $classesQuery = DB::table('enrollments')
                     ->join('classes', 'enrollments.class_id', '=', 'classes.id')
                     ->where('enrollments.unit_id', $unit->id)
@@ -399,16 +381,11 @@ class ExamTimetableController extends Controller
                     ->select(
                         'classes.id as class_id',
                         'classes.name as class_name',
-                        $hasCodeColumn 
-                            ? DB::raw('classes.code as class_code')
-                            : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+                        // Generate class code from name field since 'code' column doesn't exist
+                        DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                         DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
                     )
                     ->groupBy('classes.id', 'classes.name');
-                
-                if ($hasCodeColumn) {
-                    $classesQuery->groupBy('classes.code');
-                }
                 
                 $classesWithStudents = $classesQuery->get();
 
@@ -778,7 +755,8 @@ class ExamTimetableController extends Controller
                     'units.name as unit_name',
                     'units.code as unit_code',
                     'classes.name as class_name',
-                    'classes.code as class_code',
+                    // Generate class_code from name field since 'code' column doesn't exist
+                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                     'semesters.name as semester_name'
                 )
                 ->where('exam_timetables.id', $examtimetableId)
@@ -856,9 +834,8 @@ class ExamTimetableController extends Controller
                     'units.name as unit_name',
                     'units.code as unit_code',
                     'classes.name as class_name',
-                    \Schema::hasColumn('classes', 'code') 
-                        ? 'classes.code as class_code'
-                        : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+                    // Generate class_code from name field since 'code' column doesn't exist
+                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                     'semesters.name as semester_name'
                 )
                 ->orderBy('exam_timetables.date')
@@ -979,9 +956,8 @@ class ExamTimetableController extends Controller
                     'units.name as unit_name',
                     'units.code as unit_code',
                     'classes.name as class_name',
-                    \Schema::hasColumn('classes', 'code') 
-                        ? 'classes.code as class_code'
-                        : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+                    // Generate class_code from name field since 'code' column doesn't exist
+                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                     'semesters.name as semester_name'
                 )
                 ->orderBy('exam_timetables.date')
@@ -1077,9 +1053,8 @@ class ExamTimetableController extends Controller
                 'units.name as unit_name',
                 'units.code as unit_code',
                 'classes.name as class_name',
-                \Schema::hasColumn('classes', 'code') 
-                    ? 'classes.code as class_code'
-                    : DB::raw('CONCAT("CLASS-", classes.id) as class_code'),
+                // Generate class_code from name field since 'code' column doesn't exist
+                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                 'semesters.name as semester_name'
             )
             ->when($search, function($q) use ($search) {
@@ -1173,10 +1148,11 @@ public function storeProgramExamTimetable(Program $program, Request $request, $s
             ->select(
                 'classes.id as class_id',
                 'classes.name as class_name',
-                'classes.code as class_code',
+                // Generate class_code from name field since 'code' column doesn't exist
+                DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                 DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
             )
-            ->groupBy('classes.id', 'classes.name', 'classes.code')
+            ->groupBy('classes.id', 'classes.name')
             ->get();
 
         \Log::info('✅ Calculated student count for exam', [
@@ -1217,34 +1193,26 @@ public function storeProgramExamTimetable(Program $program, Request $request, $s
                 $validatedData['end_time']
             );
 
-            
-if ($venueResult['success']) {
-    // Get the venue's total capacity
-    $venue = \App\Models\Examroom::where('name', $venueResult['venue'])->first();
-    
-    if ($venue) {
-        // Calculate total students already scheduled at this venue during this time
-        $venueOccupancy = $existingExams->filter(function($exam) use ($examDate, $examStartTime, $examEndTime, $venueResult) {
-            if ($exam->date !== $examDate || $exam->venue !== $venueResult['venue']) {
-                return false;
+            if ($venueResult['success']) {
+                // Assign venue and location from smart assignment
+                $validatedData['venue'] = $venueResult['venue'];
+                $validatedData['location'] = $venueResult['location'];
+                
+                \Log::info('✅ Venue assigned from smart assignment', [
+                    'venue' => $venueResult['venue'],
+                    'location' => $venueResult['location'],
+                    'capacity' => $venueResult['capacity']
+                ]);
+            } else {
+                // Venue assignment failed
+                \Log::error('❌ Venue assignment failed', [
+                    'message' => $venueResult['message']
+                ]);
+                
+                return redirect()->back()->withErrors([
+                    'venue' => $venueResult['message']
+                ])->withInput();
             }
-            
-            $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
-            $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
-            
-            return $existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime);
-        })->sum('no'); // Sum of all students ('no' field)
-
-        $remainingCapacity = $venue->capacity - $venueOccupancy;
-
-        // Check if adding this exam would exceed capacity
-        if ($enrollmentCount > $remainingCapacity) {
-            $hasConflict = true;
-            $conflictReasons[] = "Venue {$venueResult['venue']} has insufficient capacity (Need: {$enrollmentCount}, Available: {$remainingCapacity}/{$venue->capacity})";
-        }
-    }
-}
-
         }
 
         // Set default location if still empty
@@ -2180,5 +2148,133 @@ private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $exa
         'students_added' => $studentCount,
         'total_used' => $venueCapacityUsage[$venueName][$examDate][$timeSlotKey]
     ]);
+}
+
+/**
+ * ✅ Smart venue assignment for single exam scheduling
+ * Finds the best available venue for a given exam slot
+ */
+private function assignSmartVenue($studentCount, $date, $startTime, $endTime)
+{
+    \Log::info('🔍 Smart venue assignment requested', [
+        'student_count' => $studentCount,
+        'date' => $date,
+        'time' => "{$startTime} - {$endTime}"
+    ]);
+
+    try {
+        // Get all available exam rooms
+        $examrooms = Examroom::all();
+        
+        if ($examrooms->isEmpty()) {
+            return [
+                'success' => false,
+                'message' => 'No exam rooms configured in the system'
+            ];
+        }
+
+        // Parse the time range
+        $examStartTime = Carbon::parse($date . ' ' . $startTime);
+        $examEndTime = Carbon::parse($date . ' ' . $endTime);
+
+        // Find venues that can accommodate the students
+        $suitableVenues = [];
+        
+        foreach ($examrooms as $room) {
+            // Skip rooms that are too small
+            if ($room->capacity < $studentCount) {
+                \Log::debug("  ⏭️ Skipping {$room->name} - Too small ({$room->capacity} < {$studentCount})");
+                continue;
+            }
+
+            // Check existing exams in this venue at this time
+            $existingExams = ExamTimetable::where('venue', $room->name)
+                ->where('date', $date)
+                ->get();
+
+            // Calculate total students already scheduled at overlapping times
+            $occupiedCapacity = 0;
+            foreach ($existingExams as $exam) {
+                $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
+                $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
+
+                // Check for time overlap
+                if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
+                    $occupiedCapacity += $exam->no;
+                }
+            }
+
+            $remainingCapacity = $room->capacity - $occupiedCapacity;
+
+            \Log::debug("  Checking venue: {$room->name}", [
+                'total_capacity' => $room->capacity,
+                'occupied' => $occupiedCapacity,
+                'remaining' => $remainingCapacity,
+                'required' => $studentCount,
+                'fits' => $remainingCapacity >= $studentCount
+            ]);
+
+            // If venue has enough remaining capacity, add it to candidates
+            if ($remainingCapacity >= $studentCount) {
+                $utilizationPercentage = ($occupiedCapacity / $room->capacity) * 100;
+                
+                $suitableVenues[] = [
+                    'room' => $room,
+                    'remaining_capacity' => $remainingCapacity,
+                    'utilization' => $utilizationPercentage,
+                    'occupied' => $occupiedCapacity
+                ];
+            }
+        }
+
+        // If no suitable venues found
+        if (empty($suitableVenues)) {
+            \Log::warning('❌ No suitable venue found', [
+                'required_capacity' => $studentCount,
+                'date' => $date,
+                'time' => "{$startTime} - {$endTime}"
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => "No exam room available with capacity for {$studentCount} students at {$startTime}-{$endTime} on {$date}"
+            ];
+        }
+
+        // Sort by utilization (prefer venues with lowest current utilization)
+        usort($suitableVenues, function($a, $b) {
+            return $a['utilization'] <=> $b['utilization'];
+        });
+
+        // Select the best venue (lowest utilization)
+        $bestVenue = $suitableVenues[0];
+
+        \Log::info('✅ Venue assigned successfully', [
+            'venue' => $bestVenue['room']->name,
+            'location' => $bestVenue['room']->location,
+            'capacity' => $bestVenue['room']->capacity,
+            'utilization' => round($bestVenue['utilization'], 2) . '%',
+            'remaining_after' => $bestVenue['remaining_capacity'] - $studentCount
+        ]);
+
+        return [
+            'success' => true,
+            'venue' => $bestVenue['room']->name,
+            'location' => $bestVenue['room']->location,
+            'capacity' => $bestVenue['room']->capacity,
+            'remaining_capacity' => $bestVenue['remaining_capacity']
+        ];
+
+    } catch (\Exception $e) {
+        \Log::error('❌ Error in smart venue assignment', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        return [
+            'success' => false,
+            'message' => 'Error assigning venue: ' . $e->getMessage()
+        ];
+    }
 }
 }

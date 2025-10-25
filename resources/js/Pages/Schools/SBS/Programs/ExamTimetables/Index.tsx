@@ -759,16 +759,33 @@ const ExamModal: React.FC<ExamModalProps> = ({
   const [checkingConflicts, setCheckingConflicts] = useState(false)
 
   const { data, setData, post, put, processing, errors, reset } = useForm({
-    semester_id: exam?.semester_id || '',
-    class_id: exam?.class_id || '',
-    unit_id: exam?.unit_id || '',
-    date: exam?.date || '',
-    day: exam?.day || '',
-    start_time: exam?.start_time || '',
-    end_time: exam?.end_time || '',
-    chief_invigilator: exam?.chief_invigilator || '',
-    no: exam?.no || ''
+    semester_id: '',
+    class_id: '',
+    unit_id: '',
+    date: '',
+    day: '',
+    start_time: '',
+    end_time: '',
+    chief_invigilator: '',
+    no: ''
   })
+
+  // ✅ FIX: Populate form when exam prop changes (for editing)
+  useEffect(() => {
+    if (exam && isOpen) {
+      setData({
+        semester_id: exam.semester_id || '',
+        class_id: exam.class_id || '',
+        unit_id: exam.unit_id || '',
+        date: exam.date || '',
+        day: exam.day || '',
+        start_time: exam.start_time || '',
+        end_time: exam.end_time || '',
+        chief_invigilator: exam.chief_invigilator || '',
+        no: exam.no || ''
+      })
+    }
+  }, [exam, isOpen])
 
   useEffect(() => {
     if (!isOpen) {
@@ -2020,33 +2037,24 @@ const handleBulkSchedule = useCallback(async () => {
   setIsBulkSubmitting(true)
 
   try {
-    // ✅ FIXED: Evenly distribute exams across all time slots (round-robin)
-    const examsWithTimeSlots = bulkFormState.selected_class_units.map((item, index) => {
-      // Cycle through slots: 0, 1, 2, 3, 0, 1, 2, 3, ...
-      const slotIndex = index % timeSlots.length
-      const assignedSlot = timeSlots[slotIndex]
+    // Assign time slots to exams (randomly distributed across 4 slots)
+    const examsWithTimeSlots = bulkFormState.selected_class_units.map((item) => {
+      // Pick random slot from the 4 available slots
+      const randomSlot = timeSlots[Math.floor(Math.random() * timeSlots.length)]
       
       return {
         ...item,
-        assigned_start_time: assignedSlot.start_time,
-        assigned_end_time: assignedSlot.end_time,
-        slot_number: assignedSlot.slot_number
+        assigned_start_time: randomSlot.start_time,
+        assigned_end_time: randomSlot.end_time,
+        slot_number: randomSlot.slot_number
       }
-    })
-
-    console.log('📊 Time slot distribution:', {
-      total_exams: examsWithTimeSlots.length,
-      slot_distribution: timeSlots.map((slot, idx) => ({
-        slot: `${slot.start_time}-${slot.end_time}`,
-        count: examsWithTimeSlots.filter((_, i) => i % timeSlots.length === idx).length
-      }))
     })
 
     const response = await axios.post('/api/exams/bulk-schedule', {
       semester_id: bulkFormState.semester_id,
       school_id: bulkFormState.school_id,
       program_id: bulkFormState.program_id,
-      selected_class_units: examsWithTimeSlots, // With evenly distributed times
+      selected_class_units: examsWithTimeSlots, // With pre-assigned times
       start_date: bulkFormState.start_date,
       end_date: bulkFormState.end_date,
       exam_duration_hours: bulkFormState.exam_duration_hours,
@@ -2058,50 +2066,50 @@ const handleBulkSchedule = useCallback(async () => {
     })
 
     if (response.data.success) {
-      const scheduled = response.data.scheduled || []
-      const conflicts = response.data.conflicts || []
-
-      toast.success(
-        `Successfully scheduled ${scheduled.length} exam${scheduled.length !== 1 ? 's' : ''}!`,
-        { duration: 5000 }
-      )
-
-      if (conflicts.length > 0) {
-        toast.error(
-          `Warning: ${conflicts.length} exam${conflicts.length !== 1 ? 's' : ''} could not be scheduled`,
-          { duration: 7000 }
-        )
-      }
-
-      // Reset form first
-      setBulkFormState({
-        semester_id: 0,
-        school_id: null,
-        program_id: null,
-        selected_class_units: [],
-        start_date: '',
-        end_date: '',
-        exam_duration_hours: 2,
-        gap_between_exams_days: 1,
-        start_time: '',
-        excluded_days: [],
-        max_exams_per_day: 4,
-        selected_examrooms: [],
-        break_minutes: 30
-      })
-
-      // Close modal
-      setIsBulkModalOpen(false)
-
-      // ✅ FIX: Force refresh with fresh data
-      router.reload({
-        only: ['examTimetables'],
-        preserveScroll: true
-      })
-    } else {
-      toast.error(response.data.message || 'Failed to schedule exams')
-    }
-  } catch (error: any) {
+  const scheduled = response.data.scheduled || []
+  const conflicts = response.data.conflicts || []
+  
+  toast.success(
+    `Successfully scheduled ${scheduled.length} exam${scheduled.length !== 1 ? 's' : ''}!`,
+    { duration: 5000 }
+  )
+  
+  if (conflicts.length > 0) {
+    toast.error(
+      `Warning: ${conflicts.length} exam${conflicts.length !== 1 ? 's' : ''} could not be scheduled`,
+      { duration: 7000 }
+    )
+  }
+  
+  // Reset form first
+  setBulkFormState({
+    semester_id: 0,
+    school_id: null,
+    program_id: null,
+    selected_class_units: [],
+    start_date: '',
+    end_date: '',
+    exam_duration_hours: 2,
+    gap_between_exams_days: 1,
+    start_time: '',
+    excluded_days: [],
+    max_exams_per_day: 4,
+    selected_examrooms: [],
+    break_minutes: 30
+  })
+  
+  // Close modal
+  setIsBulkModalOpen(false)
+  
+  // ✅ FIX: Force refresh with fresh data
+  router.reload({ 
+    only: ['examTimetables'],
+    preserveScroll: true
+  })
+  
+} else {
+  toast.error(response.data.message || 'Failed to schedule exams')
+}  } catch (error: any) {
     console.error('Bulk schedule error:', error)
     toast.error(
       error.response?.data?.message || 'An error occurred while scheduling exams'
@@ -2110,6 +2118,8 @@ const handleBulkSchedule = useCallback(async () => {
     setIsBulkSubmitting(false)
   }
 }, [bulkFormState, router, timeSlots])
+
+
 
   const checkConflicts = (exam: ExamTimetable): Conflict[] => {
     const conflicts: Conflict[] = []
