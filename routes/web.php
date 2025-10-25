@@ -96,11 +96,10 @@ Route::middleware(['auth'])->group(function () {
     })->name('dashboard');
 
    // ============================================
-// GLOBAL API ROUTES
-// ============================================
-Route::prefix('api')
-    ->middleware(['auth'])
-    ->group(function () {
+    // GLOBAL API ROUTES
+    // ============================================
+    Route::prefix('api')->middleware(['auth'])
+        ->group(function () {
         
         // ✅ ADD THIS - Schools API for bulk scheduling
         Route::get('/schools', function () {
@@ -119,9 +118,8 @@ Route::prefix('api')
             }
         })->name('api.schools');
         
-        // ✅ ADD THIS - Programs by school API for bulk scheduling  
-        // ✅ Programs by school API for bulk scheduling  
-Route::get('/programs-by-school', function(Request $request) {
+        // ✅ ADD THIS - Programs by school API for bulk scheduling
+    Route::get('/programs-by-school', function(Request $request) {
     try {
         $schoolId = $request->input('school_id');
         $semesterId = $request->input('semester_id');
@@ -165,7 +163,7 @@ Route::get('/programs-by-school', function(Request $request) {
             'message' => 'Failed to fetch programs'
         ], 500);
     }
-})->name('api.programs-by-school');
+    })->name('api.programs-by-school');
         
         // ✅ ADD THIS - Classrooms API for bulk scheduling
         Route::get('/classrooms', function() {
@@ -1174,6 +1172,39 @@ Route::put('/examrooms/{examroom}', [ExamroomController::class, 'update'])
     ->name('examrooms.update');
 Route::delete('/examrooms/{examroom}', [ExamroomController::class, 'destroy'])
     ->name('examrooms.destroy');
+
+     // View all scheduling failures
+    Route::get('/exam-scheduling-failures', [ExamTimetableController::class, 'showSchedulingFailures'])
+        ->name('exam-scheduling-failures.index')->middleware('permission:view-exam-timetables');
+
+    // Update failure status (resolve, retry, ignore)
+    Route::patch('/exam-scheduling-failures/{id}/status', [
+        ExamTimetableController::class, 
+        'updateFailureStatus'
+    ])->name('exam-scheduling-failures.update-status')
+      ->middleware('permission:edit-exam-timetables');
+
+    // Delete single failure
+    Route::delete('/exam-scheduling-failures/{id}', [
+        ExamTimetableController::class, 
+        'deleteFailure'
+    ])->name('exam-scheduling-failures.destroy')
+      ->middleware('permission:delete-exam-timetables');
+
+    // Delete all failures from a batch
+    Route::delete('/exam-scheduling-failures/batch/{batchId}', [
+        ExamTimetableController::class, 
+        'deleteBatchFailures'
+    ])->name('exam-scheduling-failures.delete-batch')
+      ->middleware('permission:delete-exam-timetables');
+
+    // Export failures to CSV
+    Route::get('/exam-scheduling-failures/export', [
+        ExamTimetableController::class, 
+        'exportFailures'
+    ])->name('exam-scheduling-failures.export')
+      ->middleware('permission:view-exam-timetables');
+
 });
     Route::prefix('classtimeslot')
         ->middleware(['auth', 'permission:view-classtimeslots'])
@@ -1192,6 +1223,38 @@ Route::delete('/examrooms/{examroom}', [ExamroomController::class, 'destroy'])
             Route::get('/{id}', [ClassTimeSlotController::class, 'show'])
                 ->name('classtimeslot.show');
         });
+
+        // View all scheduling failures
+    Route::get('/exam-scheduling-failures', [ExamTimetableController::class, 'showSchedulingFailures'])
+        ->name('exam-scheduling-failures.index')->middleware('permission:view-exam-timetables');
+
+    // Update failure status (resolve, retry, ignore)
+    Route::patch('/exam-scheduling-failures/{id}/status', [
+        ExamTimetableController::class, 
+        'updateFailureStatus'
+    ])->name('exam-scheduling-failures.update-status')
+      ->middleware('permission:edit-exam-timetables');
+
+    // Delete single failure
+    Route::delete('/exam-scheduling-failures/{id}', [
+        ExamTimetableController::class, 
+        'deleteFailure'
+    ])->name('exam-scheduling-failures.destroy')
+      ->middleware('permission:delete-exam-timetables');
+
+    // Delete all failures from a batch
+    Route::delete('/exam-scheduling-failures/batch/{batchId}', [
+        ExamTimetableController::class, 
+        'deleteBatchFailures'
+    ])->name('exam-scheduling-failures.delete-batch')
+      ->middleware('permission:delete-exam-timetables');
+
+    // Export failures to CSV
+    Route::get('/exam-scheduling-failures/export', [
+        ExamTimetableController::class, 
+        'exportFailures'
+    ])->name('exam-scheduling-failures.export')
+      ->middleware('permission:view-exam-timetables');
 
     // CATCH-ALL ROUTE
     Route::get('/{any}', function () {
