@@ -1642,7 +1642,7 @@ public function updateProgramExamTimetable(Program $program, $timetable, Request
 
         return collect(array_values($roomCapacityData))->sortByDesc('available')->toArray();
     }
-    
+
 /**
  * ✅ FULLY FIXED: Bulk schedule exams - Uses ALL selected venues properly
  */
@@ -2060,7 +2060,7 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
 }
 
 /**
- * ✅ IMPROVED: Find venue with remaining capacity (3D tracking + better logging)
+ * ✅ FIXED: Find venue with lowest utilization for better distribution
  */
 private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $examDate, $timeSlotKey, &$venueCapacityUsage)
 {
@@ -2068,14 +2068,21 @@ private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $
         'required_capacity' => $requiredCapacity,
         'date' => $examDate,
         'time_slot' => $timeSlotKey,
-        'available_rooms_count' => count($examrooms),
-        'available_rooms' => $examrooms->map(function($room) {
-            return $room->name . ' (Cap: ' . $room->capacity . ')';
-        })->toArray()
+        'available_rooms_count' => count($examrooms)
     ]);
 
+    $bestVenue = null;
+    $bestUsedCapacity = 0;
+    $bestRemainingCapacity = 0;
+    $lowestUtilization = PHP_INT_MAX;
+    
     foreach ($examrooms as $room) {
-        // ✅ Check capacity for specific venue, date, AND time slot
+        // Skip rooms that are too small
+        if ($room->capacity < $requiredCapacity) {
+            \Log::debug("  ⏭️ Skipping {$room->name} - Too small ({$room->capacity} < {$requiredCapacity})");
+            continue;
+        }
+        
         $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
         $remainingCapacity = $room->capacity - $usedCapacity;
         
@@ -2087,28 +2094,58 @@ private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $
             'fits' => $remainingCapacity >= $requiredCapacity
         ]);
         
+        // Check if this venue has enough remaining capacity
         if ($remainingCapacity >= $requiredCapacity) {
-            \Log::info('✅ Venue found!', [
-                'venue' => $room->name,
-                'capacity_allocated' => $requiredCapacity,
-                'remaining_after' => $remainingCapacity - $requiredCapacity
+            // Calculate utilization percentage
+            $utilization = ($usedCapacity / $room->capacity) * 100;
+            
+            \Log::debug("    💡 {$room->name} is viable", [
+                'utilization' => round($utilization, 2) . '%',
+                'is_better' => $utilization < $lowestUtilization ? 'YES' : 'NO'
             ]);
             
-            return [
-                'success' => true,
-                'venue' => $room->name,
-                'location' => $room->location,
-                'total_capacity' => $room->capacity,
-                'capacity_used' => $usedCapacity + $requiredCapacity,
-                'remaining_capacity' => $remainingCapacity - $requiredCapacity
-            ];
+            // Prefer venue with lowest current utilization
+            if ($utilization < $lowestUtilization) {
+                $lowestUtilization = $utilization;
+                $bestVenue = $room;
+                $bestUsedCapacity = $usedCapacity;
+                $bestRemainingCapacity = $remainingCapacity;
+            }
         }
     }
     
+    // If we found a suitable venue, return it
+    if ($bestVenue !== null) {
+        \Log::info('✅ Venue found!', [
+            'venue' => $bestVenue->name,
+            'utilization' => round($lowestUtilization, 2) . '%',
+            'capacity_allocated' => $requiredCapacity,
+            'remaining_after' => $bestRemainingCapacity - $requiredCapacity
+        ]);
+        
+        return [
+            'success' => true,
+            'venue' => $bestVenue->name,
+            'location' => $bestVenue->location,
+            'total_capacity' => $bestVenue->capacity,
+            'capacity_used' => $bestUsedCapacity + $requiredCapacity,
+            'remaining_capacity' => $bestRemainingCapacity - $requiredCapacity
+        ];
+    }
+    
+    // No suitable venue found
     \Log::warning('❌ No venue found with sufficient capacity', [
         'required_capacity' => $requiredCapacity,
         'venues_checked' => $examrooms->pluck('name')->toArray(),
-        'current_usage' => $venueCapacityUsage
+        'current_usage' => array_map(function($room) use ($venueCapacityUsage, $examDate, $timeSlotKey) {
+            $used = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
+            return [
+                'venue' => $room->name,
+                'capacity' => $room->capacity,
+                'used' => $used,
+                'remaining' => $room->capacity - $used
+            ];
+        }, $examrooms->toArray())
     ]);
     
     return [
