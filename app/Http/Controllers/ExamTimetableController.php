@@ -447,8 +447,8 @@ class ExamTimetableController extends Controller
             'class_id' => 'required|exists:classes,id',
             'no' => 'required|integer',
             'chief_invigilator' => 'required|string',
-            'start_time' => 'required|string',
-            'end_time' => 'required|string',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i',
             'venue' => 'nullable|string',
             'location' => 'nullable|string',
         ]);
@@ -514,8 +514,8 @@ class ExamTimetableController extends Controller
             'class_id' => 'required|exists:classes,id',
             'no' => 'required|integer',
             'chief_invigilator' => 'required|string',
-            'start_time' => 'required|string',
-            'end_time' => 'required|string',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i',
             'venue' => 'nullable|string',
             'location' => 'nullable|string',
         ]);
@@ -2276,5 +2276,61 @@ private function assignSmartVenue($studentCount, $date, $startTime, $endTime)
             'message' => 'Error assigning venue: ' . $e->getMessage()
         ];
     }
+}
+public function downloadAllPDF()
+{
+    $user = auth()->user();
+
+    // Allow Exam Office, School Admins, Lecturers, and Students to download
+    $allowedRoles = ['Exam Office', 'Lecturer', 'Student'];
+    $hasAllowedRole = false;
+    
+    foreach ($user->roles as $role) {
+        if (in_array($role->name, $allowedRoles) || str_starts_with($role->name, 'Faculty Admin - ')) {
+            $hasAllowedRole = true;
+            break;
+        }
+    }
+    
+    // Also check for view-exam-timetables permission (for Exam Office)
+    if (!$hasAllowedRole && !$user->can('view-exam-timetables')) {
+        abort(403, 'Unauthorized action.');
+    }
+
+    // Get all exam timetables with relationships
+    $examTimetables = ExamTimetable::with(['unit', 'class', 'semester'])
+        ->orderBy('date', 'asc')
+        ->orderBy('start_time', 'asc')
+        ->get();
+
+    // Transform data to match your PDF view expectations
+    $transformedExams = $examTimetables->map(function($exam) {
+        return (object)[
+            'date' => $exam->date,
+            'day' => $exam->day,
+            'start_time' => $exam->start_time,
+            'end_time' => $exam->end_time,
+            'unit_code' => $exam->unit->code ?? 'N/A',
+            'unit_name' => $exam->unit->name ?? 'N/A',
+            'semester_name' => $exam->semester->name ?? 'N/A',
+            'venue' => $exam->venue,
+            'location' => $exam->location,
+            'chief_invigilator' => $exam->chief_invigilator ?? 'TBA'
+        ];
+    });
+
+    // Prepare data matching your PDF view
+    $data = [
+        'title' => 'UNIVERSITY EXAMINATION TIMETABLE',  // ✅ Added
+        'generatedAt' => now()->format('F d, Y \a\t h:i A'),  // ✅ Fixed
+        'examTimetables' => $transformedExams  // ✅ Transformed
+    ];
+
+    // Generate PDF
+    $pdf = PDF::loadView('examtimetables.pdf', $data)
+        ->setPaper('A4', 'landscape');
+
+    // Download
+    return $pdf->download('All_Exam_Timetables_' . now()->format('Y-m-d') . '.pdf');
 }
 }

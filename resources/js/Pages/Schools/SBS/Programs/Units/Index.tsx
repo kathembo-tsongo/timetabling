@@ -316,16 +316,16 @@ const ProgramUnitsIndex: React.FC = () => {
                     Manage academic units and course modules for this program
                   </p>
                   <div className="flex items-center gap-4 mt-4">
-  <div className="text-sm text-slate-600">
-    Total Units: <span className="font-semibold">{stats?.total || 0}</span>
-  </div>
-  <div className="text-sm text-slate-600">
-    Active: <span className="font-semibold">{stats?.active || 0}</span>
-  </div>
-  <div className="text-sm text-slate-600">
-    Total Credits: <span className="font-semibold">{stats?.total_credits || 0}</span>
-  </div>
-</div>
+                  <div className="text-sm text-slate-600">
+                    Total Units: <span className="font-semibold">{stats?.total || 0}</span>
+                  </div>
+                  <div className="text-sm text-slate-600">
+                    Active: <span className="font-semibold">{stats?.active || 0}</span>
+                  </div>
+                  <div className="text-sm text-slate-600">
+                    Total Credits: <span className="font-semibold">{stats?.total_credits || 0}</span>
+                  </div>
+                </div>
                 </div>
                 <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end">
                   {can.create && (

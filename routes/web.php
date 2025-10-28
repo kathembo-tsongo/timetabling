@@ -673,7 +673,7 @@ Route::prefix('schools/sces')->name('schools.sces.')->middleware(['auth'])->grou
                 
                 Route::get('/download/pdf', function(Program $program) {
                     return app(ClassTimetableController::class)->downloadProgramClassTimetablePDF($program, 'SCES');
-                })->name('download');
+                })->name('download-pdf');
 
                 // Inside the class-timetables routes group
                 Route::post('/bulk-schedule', function(Program $program, Request $request) {
@@ -1003,7 +1003,7 @@ Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
     // Download PDF
     Route::get('/download/pdf', function(Program $program) {
         return app(ExamTimetableController::class)->downloadProgramExamTimetablePDF($program, 'SBS');
-    })->name('download');
+    })->name('downloadExamPDF');
 });
             
 
@@ -1021,6 +1021,7 @@ Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
         Route::get('/examtimetable', [StudentController::class, 'myExams'])->name('student.examtimetable');
         Route::get('/timetable', [StudentController::class, 'myTimetable'])->name('student.timetable');
         Route::get('/download-classtimetable', [ClassTimetableController::class, 'downloadStudentPDF'])->name('student.classtimetable.download');
+        Route::get('/download-examtimetable', [ExamTimetableController::class, 'downloadAllPDF'])->name('student.examtimetable.download');
         Route::get('/profile', [StudentController::class, 'profile'])->name('student.profile');
 
         Route::prefix('api')->group(function () {
@@ -1081,6 +1082,7 @@ Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
         Route::get('/classes/{unitId}/students', [LecturerController::class, 'classStudents'])->name('lecturer.class.students');
         Route::get('/class-timetable', [LecturerController::class, 'viewClassTimetable'])->name('lecturer.class-timetable');
         Route::get('/exam-supervision', [LecturerController::class, 'examSupervision'])->name('lecturer.exam-supervision');
+        Route::get('/download-examtimetable', [ExamTimetableController::class, 'downloadAllPDF'])->name('lecturer.examtimetable.download');
         Route::get('/profile', [LecturerController::class, 'profile'])->name('lecturer.profile');
     });
 
@@ -1110,7 +1112,7 @@ Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
         Route::delete('/manage/{timetable}', [ClassTimetableController::class, 'destroy'])
             ->name('classtimetables.destroy');
         
-        Route::get('/download/pdf', [ClassTimetableController::class, 'downloadAllPDF'])
+        Route::get('/download/pdf', [ClassTimetableController::class, 'downloadPDF'])
             ->name('classtimetables.download-pdf');
         
         Route::get('/conflicts', [ClassTimetableController::class, 'showConflicts'])
@@ -1129,6 +1131,9 @@ Route::prefix('exam-timetables')->name('exam-timetables.')->group(function () {
 Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function () {
     Route::get('/', [DashboardController::class, 'examofficeDashboard'])
         ->name('examoffice.dashboard');
+
+      Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
+        ->name('exam-timetables.pdf');
     
     // ✅ EXAM TIMETABLE ROUTES (you had these before!)
     Route::get('/manage', [ExamTimetableController::class, 'index'])
@@ -1146,12 +1151,9 @@ Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function ()
     Route::delete('/manage/{timetable}', [ExamTimetableController::class, 'destroy'])
         ->name('exam-timetables.destroy');
     
-    Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
-        ->name('exam-timetables.download-pdf');
+          // Conflict resolution routes
     Route::get('/conflicts', [ExamTimetableController::class, 'showConflicts'])
-        ->name('exam-timetables.conflicts');
-    
-    // Conflict resolution routes
+        ->name('exam-timetables.conflicts'); 
     Route::post('/resolve-conflict', [ExamTimetableController::class, 'resolveConflict'])
         ->name('exam-timetables.resolve-conflict');
     Route::post('/resolve-all-conflicts', [ExamTimetableController::class, 'resolveAllConflicts'])

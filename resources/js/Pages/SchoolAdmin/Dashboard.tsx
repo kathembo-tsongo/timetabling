@@ -103,14 +103,14 @@ export default function SchoolAdminDashboard({
                   <p className="text-slate-600 text-lg">
                     {schoolCode} School Management Portal
                   </p>
-                  {currentSemester && (
+                  {/* {currentSemester && (
                     <div className={`inline-flex items-center px-4 py-2 ${theme.cardBg} border-2 ${theme.cardBorder} rounded-lg mt-3`}>
                       <Calendar className={`w-5 h-5 ${theme.iconColor} mr-2`} />
                       <span className={`text-sm font-bold ${theme.iconColor}`}>
                         Current Semester: {currentSemester.name}
                       </span>
                     </div>
-                  )}
+                  )} */}
                 </div>
                 <button
                   onClick={() => window.location.reload()}

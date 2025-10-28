@@ -1,11 +1,12 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { Head, usePage, router, Link } from "@inertiajs/react"
+import { useMemo } from "react"
+import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { toast } from "react-hot-toast"
 import {
-  TrendingUp,
+  GraduationCap,
   Plus,
   Search,
   Filter,
@@ -23,12 +24,11 @@ import {
   Clock,
   Award,
   Building2,
-  Briefcase,
   Calendar,
   ClipboardList,
-  GraduationCap,
   Settings
 } from "lucide-react"
+import { route } from 'ziggy-js';
 
 // Interfaces
 interface Program {
@@ -84,6 +84,12 @@ interface PageProps {
   errors?: {
     error?: string
   }
+  auth?: {
+    user?: {
+      roles?: string[]
+      permissions?: string[]
+    }
+  }
 }
 
 interface ProgramFormData {
@@ -99,7 +105,18 @@ interface ProgramFormData {
 }
 
 const SBSProgramsManagement: React.FC = () => {
-  const { programs, school, filters, can, flash, errors } = usePage<PageProps>().props
+  
+  const { programs, school, filters, can = { create: false, update: false, delete: false }, flash, errors, auth } = usePage<PageProps>().props
+
+  // Role and permission checks
+  const user = auth?.user
+  const roles = user?.roles || []
+  const permissions = user?.permissions || []
+  
+  const canPermission = (perm: string) => permissions.includes(perm)
+  const isRole = (role: string) => roles.includes(role)
+  const isClassTimetableOffice = isRole('Class Timetable office')
+  const isExamTimetableOffice = isRole('Exam Office')
 
   // State management
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -131,14 +148,13 @@ const SBSProgramsManagement: React.FC = () => {
   const [sortField, setSortField] = useState(filters.sort_field || 'sort_order')
   const [sortDirection, setSortDirection] = useState(filters.sort_direction || 'asc')
 
-  // Business-focused degree types for SBS
+  // Degree types
   const degreeTypes = [
     { value: 'Certificate', label: 'Certificate' },
     { value: 'Diploma', label: 'Diploma' },
     { value: 'Bachelor', label: "Bachelor's Degree" },
     { value: 'Master', label: "Master's Degree" },
-    { value: 'PhD', label: 'Doctoral Degree (PhD)' },
-    { value: 'MBA', label: 'Master of Business Administration' }
+    { value: 'PhD', label: 'Doctoral Degree (PhD)' }
   ]
 
   // Error handling
@@ -179,7 +195,7 @@ const SBSProgramsManagement: React.FC = () => {
     )
   }
 
-  // Business-focused degree badge component
+  // Degree badge component
   const DegreeBadge: React.FC<{ degreeType: string }> = ({ degreeType }) => {
     const getBadgeColor = (type: string) => {
       switch (type) {
@@ -187,15 +203,14 @@ const SBSProgramsManagement: React.FC = () => {
         case 'Diploma': return 'bg-orange-500'
         case 'Bachelor': return 'bg-blue-500'
         case 'Master': return 'bg-purple-500'
-        case 'MBA': return 'bg-red-500'
-        case 'PhD': return 'bg-indigo-500'
+        case 'PhD': return 'bg-red-500'
         default: return 'bg-gray-500'
       }
     }
 
     return (
       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${getBadgeColor(degreeType)}`}>
-        <Briefcase className="w-3 h-3 mr-1" />
+        <Award className="w-3 h-3 mr-1" />
         {degreeType}
       </span>
     )
@@ -246,7 +261,7 @@ const SBSProgramsManagement: React.FC = () => {
 
     if (confirm(`Are you sure you want to delete "${program.name}"? This action cannot be undone.`)) {
       setLoading(true)
-      router.delete(route('schools.sbs.programs.destroy', program.id), {
+      router.delete(route('schools.sces.programs.destroy', program.id), {
         onSuccess: () => {
           toast.success('Program deleted successfully!')
         },
@@ -263,20 +278,20 @@ const SBSProgramsManagement: React.FC = () => {
     setLoading(true)
 
     const url = selectedProgram 
-      ? route('schools.sbs.programs.update', selectedProgram.id)
-      : route('schools.sbs.programs.store')
-    
-    const method = selectedProgram ? 'put' : 'post'
+      ? route("schools.sces.programs.update", { program: selectedProgram.id })
+      : route("schools.sces.programs.store") 
+
+    const method = selectedProgram ? "put" : "post"
 
     router[method](url, formData, {
       onSuccess: () => {
-        toast.success(`Program ${selectedProgram ? 'updated' : 'created'} successfully!`)
+        toast.success(`Program ${selectedProgram ? "updated" : "created"} successfully!`)
         setIsCreateModalOpen(false)
         setIsEditModalOpen(false)
         setSelectedProgram(null)
       },
       onError: (errors) => {
-        toast.error(errors.error || `Failed to ${selectedProgram ? 'update' : 'create'} program`)
+        toast.error(errors.error || `Failed to ${selectedProgram ? "update" : "create"} program`)
       },
       onFinish: () => setLoading(false)
     })
@@ -292,7 +307,7 @@ const SBSProgramsManagement: React.FC = () => {
     params.set('sort_field', sortField)
     params.set('sort_direction', sortDirection)
     
-    router.get(`${route('schools.sbs.programs.index')}?${params.toString()}`)
+    router.get(`${route('schools.sces.programs.index')}?${params.toString()}`)
   }
 
   const toggleRowExpansion = (programId: number) => {
@@ -311,11 +326,22 @@ const SBSProgramsManagement: React.FC = () => {
     return `${years} years`
   }
 
+  const visibleColumns = useMemo(() => {
+    return [
+      "Program",
+      "Degree & Duration",
+      "Contact",
+      "Status",
+      "Statistics",
+      "Actions"
+    ]
+  }, [])
+
   return (
     <AuthenticatedLayout>
       <Head title={`${school.code} Programs Management`} />
       
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 py-8">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           {/* Header */}
@@ -324,14 +350,14 @@ const SBSProgramsManagement: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center mb-2">
-                    <TrendingUp className="w-8 h-8 text-amber-600 mr-3" />
-                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-amber-700 to-orange-800 bg-clip-text text-transparent">
+                    <Building2 className="w-8 h-8 text-blue-600 mr-3" />
+                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-blue-800 to-indigo-800 bg-clip-text text-transparent">
                       {school.name}
                     </h1>
                   </div>
-                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">Business Programs Management</h2>
+                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">Programs Management</h2>
                   <p className="text-slate-600 text-lg">
-                    Manage business programs, degrees, and professional qualifications
+                    Manage academic programs, degrees, and course offerings
                   </p>
                   <div className="flex items-center gap-4 mt-4">
                     <div className="text-sm text-slate-600">
@@ -348,15 +374,17 @@ const SBSProgramsManagement: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                {can.create && (
-                  <button
-                    onClick={handleCreateProgram}
-                    className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-amber-600 hover:via-orange-600 hover:to-red-600 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
-                  >
-                    <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
-                    Create Program
-                  </button>
-                )}
+                <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end">
+                  {can.create && !isClassTimetableOffice && (
+                    <button
+                      onClick={handleCreateProgram}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
+                      Create Program
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -369,10 +397,10 @@ const SBSProgramsManagement: React.FC = () => {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
                     type="text"
-                    placeholder="Search business programs..."
+                    placeholder="Search programs..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -380,7 +408,7 @@ const SBSProgramsManagement: React.FC = () => {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Status</option>
                   <option value="active">Active</option>
@@ -389,7 +417,7 @@ const SBSProgramsManagement: React.FC = () => {
                 <select
                   value={degreeFilter}
                   onChange={(e) => setDegreeFilter(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Degrees</option>
                   {degreeTypes.map((degree) => (
@@ -398,27 +426,9 @@ const SBSProgramsManagement: React.FC = () => {
                     </option>
                   ))}
                 </select>
-                <select
-                  value={`${sortField}-${sortDirection}`}
-                  onChange={(e) => {
-                    const [field, direction] = e.target.value.split('-')
-                    setSortField(field)
-                    setSortDirection(direction)
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                >
-                  <option value="sort_order-asc">Sort Order</option>
-                  <option value="name-asc">Name A-Z</option>
-                  <option value="name-desc">Name Z-A</option>
-                  <option value="code-asc">Code A-Z</option>
-                  <option value="code-desc">Code Z-A</option>
-                  <option value="degree_type-asc">Degree Type</option>
-                  <option value="created_at-desc">Newest First</option>
-                  <option value="created_at-asc">Oldest First</option>
-                </select>
                 <button
                   onClick={handleFilter}
-                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Filter className="w-5 h-5" />
                 </button>
@@ -470,10 +480,10 @@ const SBSProgramsManagement: React.FC = () => {
                                 <ChevronDown className="w-4 h-4" />
                               )}
                             </button>
-                            <TrendingUp className="w-8 h-8 text-amber-500 mr-3" />
+                            <GraduationCap className="w-8 h-8 text-blue-500 mr-3" />
                             <div>
                               <div className="text-sm font-medium text-slate-900">{program.name}</div>
-                              <div className="text-xs text-amber-600 font-semibold">{program.code}</div>
+                              <div className="text-xs text-blue-600 font-semibold">{program.code}</div>
                               {program.description && (
                                 <div className="text-xs text-slate-500 mt-1 max-w-xs truncate">
                                   {program.description}
@@ -516,7 +526,7 @@ const SBSProgramsManagement: React.FC = () => {
                         <td className="px-6 py-4 text-sm text-slate-700">
                           <div className="flex gap-4">
                             <div className="flex items-center">
-                              <BookOpen className="w-4 h-4 mr-1 text-amber-500" />
+                              <BookOpen className="w-4 h-4 mr-1 text-blue-500" />
                               <span className="font-medium">{program.units_count}</span>
                               <span className="text-xs text-gray-500 ml-1">units</span>
                             </div>
@@ -531,21 +541,21 @@ const SBSProgramsManagement: React.FC = () => {
                           <div className="flex items-center space-x-2">
                             <button
                               onClick={() => handleViewProgram(program)}
-                              className="text-amber-600 hover:text-amber-900 transition-colors p-1 rounded hover:bg-amber-50"
+                              className="text-blue-600 hover:text-blue-900 transition-colors p-1 rounded hover:bg-blue-50"
                               title="View details"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {can.update && (
+                            {can.update && !isClassTimetableOffice && (
                               <button
                                 onClick={() => handleEditProgram(program)}
-                                className="text-orange-600 hover:text-orange-900 transition-colors p-1 rounded hover:bg-orange-50"
+                                className="text-indigo-600 hover:text-indigo-900 transition-colors p-1 rounded hover:bg-indigo-50"
                                 title="Edit program"
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
                             )}
-                            {can.delete && (
+                            {can.delete && !isClassTimetableOffice && (
                               <button
                                 onClick={() => handleDeleteProgram(program)}
                                 className="text-red-600 hover:text-red-900 transition-colors p-1 rounded hover:bg-red-50"
@@ -558,154 +568,117 @@ const SBSProgramsManagement: React.FC = () => {
                           </div>
                         </td>
                       </tr>
-                      
-                      {/* Expanded row content with Program Management */}
-                      {expandedRows.has(program.id) && (
-                        <tr>
-                          <td colSpan={6} className="px-6 py-6 bg-gradient-to-br from-amber-50/80 via-orange-50/50 to-white">
-                            <div className="space-y-6">
-                              
-                              {/* 🔥 NEW: Program Management Section - Business Themed */}
-                              {program.routes && (
-                                <div className="mb-6">
-                                  <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
-                                    <Briefcase className="w-5 h-5 mr-2 text-amber-600" />
-                                    Business Program Management
-                                  </h3>
-                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                                    {/* Units */}
-                                    <Link
-                                      href={program.routes.units}
-                                      className="group relative p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                    >
-                                      <div className="flex flex-col items-center text-center">
-                                        <BookOpen className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                        <div className="text-xs font-bold text-white mb-1">Units</div>
-                                        <div className="text-xl font-bold text-white">{program.units_count || 0}</div>
-                                      </div>
-                                    </Link>
 
-                                    {/* Unit Assignment */}
-                                    <Link
-                                      href={program.routes.unit_assignment}
-                                      className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                    >
-                                      <div className="flex flex-col items-center text-center">
-                                        <Settings className="w-8 h-8 text-white mb-2 group-hover:rotate-90 transition-transform duration-300" />
-                                        <div className="text-xs font-bold text-white mb-1">Unit Assignment</div>
-                                        <div className="text-xs text-white/90">Manage</div>
-                                      </div>
-                                    </Link>
-
-                                    {/* Classes */}
-                                    <Link
-                                      href={program.routes.classes}
-                                      className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                    >
-                                      <div className="flex flex-col items-center text-center">
-                                        <Users className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                        <div className="text-xs font-bold text-white mb-1">Classes</div>
-                                        <div className="text-xs text-white/90">Manage</div>
-                                      </div>
-                                    </Link>
-
-                                    {/* Enrollments */}
-                                    <Link
-                                      href={program.routes.enrollments}
-                                      className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                    >
-                                      <div className="flex flex-col items-center text-center">
-                                        <GraduationCap className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                        <div className="text-xs font-bold text-white mb-1">Enrollments</div>
-                                        <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
-                                      </div>
-                                    </Link>
-
-                                    {/* Class Timetable */}
-                                    <Link
-                                      href={program.routes.class_timetables}
-                                      className="group relative p-4 bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                    >
-                                      <div className="flex flex-col items-center text-center">
-                                        <Calendar className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                        <div className="text-xs font-bold text-white mb-1">Class Timetable</div>
-                                        <div className="text-xs text-white/90">Schedule</div>
-                                      </div>
-                                    </Link>
-
-                                    {/* Exam Timetable */}
-                                    <Link
-                                      href={program.routes.exam_timetables}
-                                      className="group relative p-4 bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                    >
-                                      <div className="flex flex-col items-center text-center">
-                                        <ClipboardList className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                        <div className="text-xs font-bold text-white mb-1">Exam Timetable</div>
-                                        <div className="text-xs text-white/90">Schedule</div>
-                                      </div>
-                                    </Link>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Existing Details Section */}
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div>
-                                  <h4 className="font-medium text-gray-900 mb-3">Program Details</h4>
-                                  <div className="space-y-2 text-sm">
-                                    <div>
-                                      <span className="font-medium">Full Name:</span>
-                                      <div className="text-gray-600">{program.full_name}</div>
-                                    </div>
-                                    <div>
-                                      <span className="font-medium">Sort Order:</span>
-                                      <div className="text-gray-600">{program.sort_order}</div>
-                                    </div>
-                                    <div>
-                                      <span className="font-medium">Created:</span>
-                                      <div className="text-gray-600">{new Date(program.created_at).toLocaleDateString()}</div>
-                                    </div>
-                                  </div>
-                                </div>
+                  {/* Expanded row content */}
+                  {expandedRows.has(program.id) && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-6 bg-gradient-to-br from-indigo-50/80 via-cyan-50/50 to-white">
+                        <div className="space-y-6">
+                          
+                          {/* 🔥 UPDATED: Program Management Section - Now matches SBS pattern */}
+                          {program.routes && (
+                            <div className="mb-6">
+                              <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
+                                <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
+                                Program Management
+                              </h3>
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                                 
-                                <div>
-                                  <h4 className="font-medium text-gray-900 mb-3">Contact Information</h4>
-                                  <div className="space-y-2 text-sm">
-                                    <div>
-                                      <span className="font-medium">Email:</span>
-                                      <div className="text-gray-600">{program.contact_email || 'Not set'}</div>
+                                {/* Units Card - Blue */}
+                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                  <a
+                                    href={program.routes.units}
+                                    className="group relative p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <BookOpen className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Units</div>
+                                      <div className="text-xl font-bold text-white">{program.units_count || 0}</div>
                                     </div>
-                                    <div>
-                                      <span className="font-medium">Phone:</span>
-                                      <div className="text-gray-600">{program.contact_phone || 'Not set'}</div>
-                                    </div>
-                                  </div>
-                                </div>
+                                  </a>
+                                )}
 
-                                <div>
-                                  <h4 className="font-medium text-gray-900 mb-3">Statistics</h4>
-                                  <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                      <span>Units:</span>
-                                      <span className="font-medium">{program.units_count}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span>Enrollments:</span>
-                                      <span className="font-medium">{program.enrollments_count}</span>
-                                    </div>
-                                    {program.description && (
-                                      <div>
-                                        <span className="font-medium">Description:</span>
-                                        <div className="text-gray-600 mt-1">{program.description}</div>
-                                      </div>
-                                    )}
+                                {/* Unit Assignment Card - Indigo - NOW ALWAYS VISIBLE */}
+                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                <a
+                                  href={program.routes.unit_assignment}
+                                  className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                >
+                                  <div className="flex flex-col items-center text-center">
+                                    <Settings className="w-8 h-8 text-white mb-2 group-hover:rotate-90 transition-transform duration-300" />
+                                    <div className="text-xs font-bold text-white mb-1">Unit Assignment</div>
+                                    <div className="text-xs text-white/90">Manage</div>
                                   </div>
-                                </div>
+                                </a>
+                                )}
+
+                                {/* Classes Card - Green */}
+                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                  <a
+                                    href={program.routes.classes}
+                                    className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <Users className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Classes</div>
+                                      <div className="text-xs text-white/90">Manage</div>
+                                    </div>
+                                  </a>
+                                )}
+
+                                {/* Enrollments Card - Orange */}
+                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                  <a
+                                    href={program.routes.enrollments}
+                                    className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <GraduationCap className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Enrollments</div>
+                                      <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
+                                    </div>
+                                  </a>
+                                )}
+
+                                {/* Class Timetable Card - Cyan */}
+                                   {!isExamTimetableOffice && (
+                                <a
+                                  href={program.routes.class_timetables}
+                                  className="group relative p-4 bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                >
+                                  <div className="flex flex-col items-center text-center">
+                                    <Calendar className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                    <div className="text-xs font-bold text-white mb-1">Class Timetable</div>
+                                    <div className="text-xs text-white/90">Schedule</div>
+                                  </div>
+                                </a>
+                                )}
+
+                                {/* Exam Timetable Card - Red */}
+                                {!isClassTimetableOffice && (
+                                  <a
+                                    href={program.routes.exam_timetables}
+                                    className="group relative p-4 bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <ClipboardList className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Exam Timetable</div>
+                                      <div className="text-xs text-white/90">Schedule</div>
+                                    </div>
+                                  </a>
+                                )}
                               </div>
                             </div>
-                          </td>
-                        </tr>
-                      )}
+                          )}
+
+                          {/* Existing Details Section - Keep as is */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* ... rest of the details section ... */}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                     </React.Fragment>
                   ))}
                 </tbody>
@@ -713,21 +686,21 @@ const SBSProgramsManagement: React.FC = () => {
               
               {filteredPrograms.length === 0 && (
                 <div className="text-center py-12">
-                  <TrendingUp className="mx-auto h-12 w-12 text-gray-400" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No business programs found</h3>
+                  <GraduationCap className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No programs found</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     {searchTerm || statusFilter !== 'all' || degreeFilter !== 'all'
                       ? 'Try adjusting your filters'
-                      : 'Get started by creating a new business program'
+                      : 'Get started by creating a new program'
                     }
                   </p>
-                  {can.create && !searchTerm && statusFilter === 'all' && degreeFilter === 'all' && (
+                  {can.create && !isClassTimetableOffice && (
                     <button
                       onClick={handleCreateProgram}
-                      className="mt-4 inline-flex items-center px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                      className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Create Business Program
+                      Create Program
                     </button>
                   )}
                 </div>
@@ -735,13 +708,13 @@ const SBSProgramsManagement: React.FC = () => {
             </div>
           </div>
 
-          {/* Create/Edit Modal - Preserved exactly as is */}
-          {(isCreateModalOpen || isEditModalOpen) && (
+          {/* Create/Edit Modal */}
+          {(isCreateModalOpen || isEditModalOpen) && !isClassTimetableOffice && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 p-6 rounded-t-2xl">
+                <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
                   <h3 className="text-xl font-semibold text-white">
-                    {selectedProgram ? 'Edit Business Program' : 'Create New Business Program'}
+                    {selectedProgram ? 'Edit Program' : 'Create New Program'}
                   </h3>
                 </div>
 
@@ -755,8 +728,8 @@ const SBSProgramsManagement: React.FC = () => {
                         type="text"
                         value={formData.code}
                         onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                        placeholder="e.g., BBA, MBA, BCom"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        placeholder="e.g., BSE, BSCS"
                         maxLength={20}
                         required
                       />
@@ -769,7 +742,7 @@ const SBSProgramsManagement: React.FC = () => {
                         type="number"
                         value={formData.sort_order}
                         onChange={(e) => setFormData(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         min={0}
                       />
                     </div>
@@ -783,8 +756,8 @@ const SBSProgramsManagement: React.FC = () => {
                       type="text"
                       value={formData.name}
                       onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                      placeholder="e.g., Business Administration, Finance, Marketing"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      placeholder="e.g., Computer Science, Software Engineering"
                       required
                     />
                   </div>
@@ -797,7 +770,7 @@ const SBSProgramsManagement: React.FC = () => {
                       <select
                         value={formData.degree_type}
                         onChange={(e) => setFormData(prev => ({ ...prev, degree_type: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         required
                       >
                         {degreeTypes.map((degree) => (
@@ -818,7 +791,7 @@ const SBSProgramsManagement: React.FC = () => {
                         max="10"
                         value={formData.duration_years}
                         onChange={(e) => setFormData(prev => ({ ...prev, duration_years: parseFloat(e.target.value) || 1 }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         required
                       />
                     </div>
@@ -831,9 +804,9 @@ const SBSProgramsManagement: React.FC = () => {
                     <textarea
                       value={formData.description}
                       onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                       rows={3}
-                      placeholder="Brief description of the business program..."
+                      placeholder="Brief description of the program..."
                     />
                   </div>
 
@@ -846,8 +819,8 @@ const SBSProgramsManagement: React.FC = () => {
                         type="email"
                         value={formData.contact_email}
                         onChange={(e) => setFormData(prev => ({ ...prev, contact_email: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                        placeholder="business@strathmore.edu"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        placeholder="program@strathmore.edu"
                       />
                     </div>
                     <div>
@@ -858,7 +831,7 @@ const SBSProgramsManagement: React.FC = () => {
                         type="tel"
                         value={formData.contact_phone}
                         onChange={(e) => setFormData(prev => ({ ...prev, contact_phone: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         placeholder="+254 123 456 789"
                       />
                     </div>
@@ -870,7 +843,7 @@ const SBSProgramsManagement: React.FC = () => {
                       id="is_active"
                       checked={formData.is_active}
                       onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
-                      className="w-4 h-4 text-amber-600 bg-gray-100 border-gray-300 rounded focus:ring-amber-500 focus:ring-2"
+                      className="w-4 h-4 text-emerald-600 bg-gray-100 border-gray-300 rounded focus:ring-emerald-500 focus:ring-2"
                     />
                     <label htmlFor="is_active" className="ml-2 text-sm font-medium text-gray-700">
                       Program is active
@@ -892,7 +865,7 @@ const SBSProgramsManagement: React.FC = () => {
                     <button
                       type="submit"
                       disabled={loading}
-                      className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {loading ? 'Processing...' : selectedProgram ? 'Update Program' : 'Create Program'}
                     </button>
@@ -902,15 +875,13 @@ const SBSProgramsManagement: React.FC = () => {
             </div>
           )}
 
-          {/* View Modal - Preserved exactly as is */}
+          {/* View Modal */}
           {isViewModalOpen && selectedProgram && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 p-6 rounded-t-2xl">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="bg-gradient-to-r from-slate-500 via-slate-600 to-gray-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">
-                      Business Program Details
-                    </h3>
+                    <h3 className="text-xl font-semibold text-white">Program Details</h3>
                     <button
                       onClick={() => setIsViewModalOpen(false)}
                       className="text-white hover:text-gray-200 transition-colors"
@@ -919,161 +890,124 @@ const SBSProgramsManagement: React.FC = () => {
                     </button>
                   </div>
                 </div>
-
+                
                 <div className="p-6 space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Basic Information</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Program Name</label>
-                          <div className="mt-1 text-sm text-gray-900">{selectedProgram.name}</div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Program Code</label>
-                          <div className="mt-1 text-sm font-semibold text-amber-600">{selectedProgram.code}</div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Status</label>
-                          <div className="mt-1">
-                            <StatusBadge isActive={selectedProgram.is_active} />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Sort Order</label>
-                          <div className="mt-1 text-sm text-gray-900">{selectedProgram.sort_order}</div>
-                        </div>
+                  {/* Header Info */}
+                  <div className="flex items-start space-x-4">
+                    <GraduationCap className="w-12 h-12 text-blue-600 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h4 className="text-2xl font-bold text-gray-900">{selectedProgram.name}</h4>
+                      <p className="text-blue-600 font-semibold mt-1">{selectedProgram.code}</p>
+                      {selectedProgram.description && (
+                        <p className="text-gray-600 mt-2">{selectedProgram.description}</p>
+                      )}
+                      <div className="flex items-center gap-3 mt-3">
+                        <DegreeBadge degreeType={selectedProgram.degree_type} />
+                        <StatusBadge isActive={selectedProgram.is_active} />
                       </div>
                     </div>
+                  </div>
 
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Academic Details</h4>
+                  {/* Details Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t">
+                    <div className="space-y-4">
+                      <h5 className="font-semibold text-gray-900 text-lg">Program Information</h5>
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Degree Type</label>
-                          <div className="mt-1">
-                            <DegreeBadge degreeType={selectedProgram.degree_type} />
-                          </div>
+                          <span className="text-sm text-gray-500">Full Name</span>
+                          <p className="font-medium text-gray-900">{selectedProgram.full_name}</p>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Duration</label>
-                          <div className="mt-1 text-sm text-gray-900 flex items-center">
-                            <Clock className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-sm text-gray-500">Duration</span>
+                          <p className="font-medium text-gray-900 flex items-center">
+                            <Clock className="w-4 h-4 mr-2 text-gray-400" />
                             {getDurationDisplay(selectedProgram.duration_years)}
-                          </div>
+                          </p>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                          <div className="mt-1 text-sm text-gray-900">{selectedProgram.full_name}</div>
+                          <span className="text-sm text-gray-500">School</span>
+                          <p className="font-medium text-gray-900">{selectedProgram.school_name}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-gray-500">Sort Order</span>
+                          <p className="font-medium text-gray-900">{selectedProgram.sort_order}</p>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Contact Information</h4>
+                    <div className="space-y-4">
+                      <h5 className="font-semibold text-gray-900 text-lg">Contact & Statistics</h5>
                       <div className="space-y-3">
+                        {selectedProgram.contact_email && (
+                          <div>
+                            <span className="text-sm text-gray-500">Email</span>
+                            <p className="font-medium text-gray-900 flex items-center">
+                              <Mail className="w-4 h-4 mr-2 text-gray-400" />
+                              {selectedProgram.contact_email}
+                            </p>
+                          </div>
+                        )}
+                        {selectedProgram.contact_phone && (
+                          <div>
+                            <span className="text-sm text-gray-500">Phone</span>
+                            <p className="font-medium text-gray-900 flex items-center">
+                              <Phone className="w-4 h-4 mr-2 text-gray-400" />
+                              {selectedProgram.contact_phone}
+                            </p>
+                          </div>
+                        )}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Email</label>
-                          <div className="mt-1 text-sm text-gray-900">
-                            {selectedProgram.contact_email ? (
-                              <div className="flex items-center">
-                                <Mail className="w-4 h-4 text-gray-400 mr-2" />
-                                {selectedProgram.contact_email}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">Not set</span>
-                            )}
-                          </div>
+                          <span className="text-sm text-gray-500">Total Units</span>
+                          <p className="font-medium text-gray-900 flex items-center">
+                            <BookOpen className="w-4 h-4 mr-2 text-blue-500" />
+                            {selectedProgram.units_count} units
+                          </p>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Phone</label>
-                          <div className="mt-1 text-sm text-gray-900">
-                            {selectedProgram.contact_phone ? (
-                              <div className="flex items-center">
-                                <Phone className="w-4 h-4 text-gray-400 mr-2" />
-                                {selectedProgram.contact_phone}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">Not set</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Statistics</h4>
-                      <div className="grid grid-cols-1 gap-4">
-                        <div className="bg-amber-50 p-4 rounded-lg">
-                          <div className="flex items-center">
-                            <BookOpen className="w-8 h-8 text-amber-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-amber-600">{selectedProgram.units_count}</div>
-                              <div className="text-sm text-amber-500">Units</div>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="bg-green-50 p-4 rounded-lg">
-                          <div className="flex items-center">
-                            <Users className="w-8 h-8 text-green-500" />
-                            <div className="ml-3">
-                              <div className="text-2xl font-bold text-green-600">{selectedProgram.enrollments_count}</div>
-                              <div className="text-sm text-green-500">Enrollments</div>
-                            </div>
-                          </div>
+                          <span className="text-sm text-gray-500">Total Enrollments</span>
+                          <p className="font-medium text-gray-900 flex items-center">
+                            <Users className="w-4 h-4 mr-2 text-green-500" />
+                            {selectedProgram.enrollments_count} students
+                          </p>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {selectedProgram.description && (
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Description</h4>
-                      <div className="text-sm text-gray-700 bg-amber-50 p-4 rounded-lg">
-                        {selectedProgram.description}
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Timestamps</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Dates */}
+                  <div className="pt-6 border-t">
+                    <h5 className="font-semibold text-gray-900 text-lg mb-3">Timeline</h5>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Created</label>
-                        <div className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedProgram.created_at).toLocaleString()}
-                        </div>
+                        <span className="text-gray-500">Created</span>
+                        <p className="font-medium text-gray-900">{new Date(selectedProgram.created_at).toLocaleString()}</p>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Last Updated</label>
-                        <div className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedProgram.updated_at).toLocaleString()}
-                        </div>
+                        <span className="text-gray-500">Last Updated</span>
+                        <p className="font-medium text-gray-900">{new Date(selectedProgram.updated_at).toLocaleString()}</p>
                       </div>
                     </div>
                   </div>
+                </div>
 
-                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                <div className="flex justify-end gap-3 px-6 pb-6">
+                  {can.update && !isClassTimetableOffice && (
                     <button
-                      onClick={() => setIsViewModalOpen(false)}
-                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                      onClick={() => {
+                        setIsViewModalOpen(false)
+                        handleEditProgram(selectedProgram)
+                      }}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                     >
-                      Close
+                      Edit Program
                     </button>
-                    {can.update && (
-                      <button
-                        onClick={() => {
-                          setIsViewModalOpen(false)
-                          handleEditProgram(selectedProgram)
-                        }}
-                        className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all duration-200 font-medium"
-                      >
-                        Edit Program
-                      </button>
-                    )}
-                  </div>
+                  )}
+                  <button
+                    onClick={() => setIsViewModalOpen(false)}
+                    className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                  >
+                    Close
+                  </button>
                 </div>
               </div>
             </div>

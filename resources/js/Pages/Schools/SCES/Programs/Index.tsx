@@ -116,6 +116,10 @@ const SCESProgramsManagement: React.FC = () => {
   const canPermission = (perm: string) => permissions.includes(perm)
   const isRole = (role: string) => roles.includes(role)
   const isClassTimetableOffice = isRole('Class Timetable office')
+  const isExamTimetableOffice = isRole('Exam Office')
+  const isSBSAdminOffice = isRole('Faculty Admin - SCES')
+  const isSCESAdminOffice = isRole('Faculty Admin - SBS')
+  
 
   // State management
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -568,112 +572,116 @@ const SCESProgramsManagement: React.FC = () => {
                         </td>
                       </tr>
 
-{/* Expanded row content */}
-{expandedRows.has(program.id) && (
-  <tr>
-    <td colSpan={6} className="px-6 py-6 bg-gradient-to-br from-indigo-50/80 via-cyan-50/50 to-white">
-      <div className="space-y-6">
-        
-        {/* 🔥 UPDATED: Program Management Section - Now matches SBS pattern */}
-        {program.routes && (
-          <div className="mb-6">
-            <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
-              <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
-              Program Management
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              
-              {/* Units Card - Blue */}
-              {!isClassTimetableOffice && (
-                <a
-                  href={program.routes.units}
-                  className="group relative p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                >
-                  <div className="flex flex-col items-center text-center">
-                    <BookOpen className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="text-xs font-bold text-white mb-1">Units</div>
-                    <div className="text-xl font-bold text-white">{program.units_count || 0}</div>
-                  </div>
-                </a>
-              )}
+                  {/* Expanded row content */}
+                  {expandedRows.has(program.id) && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-6 bg-gradient-to-br from-indigo-50/80 via-cyan-50/50 to-white">
+                        <div className="space-y-6">
+                          
+                          {/* 🔥 UPDATED: Program Management Section - Now matches SBS pattern */}
+                          {program.routes && (
+                            <div className="mb-6">
+                              <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
+                                <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
+                                Program Management
+                              </h3>
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                                
+                                {/* Units Card - Blue */}
+                                {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                  <a
+                                    href={program.routes.units}
+                                    className="group relative p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <BookOpen className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Units</div>
+                                      <div className="text-xl font-bold text-white">{program.units_count || 0}</div>
+                                    </div>
+                                  </a>
+                                )}
 
-              {/* Unit Assignment Card - Indigo - NOW ALWAYS VISIBLE */}
-              <a
-                href={program.routes.unit_assignment}
-                className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-              >
-                <div className="flex flex-col items-center text-center">
-                  <Settings className="w-8 h-8 text-white mb-2 group-hover:rotate-90 transition-transform duration-300" />
-                  <div className="text-xs font-bold text-white mb-1">Unit Assignment</div>
-                  <div className="text-xs text-white/90">Manage</div>
-                </div>
-              </a>
+                                {/* Unit Assignment Card - Indigo - NOW ALWAYS VISIBLE */}
+                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                <a
+                                  href={program.routes.unit_assignment}
+                                  className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                >
+                                  <div className="flex flex-col items-center text-center">
+                                    <Settings className="w-8 h-8 text-white mb-2 group-hover:rotate-90 transition-transform duration-300" />
+                                    <div className="text-xs font-bold text-white mb-1">Unit Assignment</div>
+                                    <div className="text-xs text-white/90">Manage</div>
+                                  </div>
+                                </a>
+                                )}
 
-              {/* Classes Card - Green */}
-              {!isClassTimetableOffice && (
-                <a
-                  href={program.routes.classes}
-                  className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                >
-                  <div className="flex flex-col items-center text-center">
-                    <Users className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="text-xs font-bold text-white mb-1">Classes</div>
-                    <div className="text-xs text-white/90">Manage</div>
-                  </div>
-                </a>
-              )}
+                                {/* Classes Card - Green */}
+                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                  <a
+                                    href={program.routes.classes}
+                                    className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <Users className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Classes</div>
+                                      <div className="text-xs text-white/90">Manage</div>
+                                    </div>
+                                  </a>
+                                )}
 
-              {/* Enrollments Card - Orange */}
-              {!isClassTimetableOffice && (
-                <a
-                  href={program.routes.enrollments}
-                  className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                >
-                  <div className="flex flex-col items-center text-center">
-                    <GraduationCap className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="text-xs font-bold text-white mb-1">Enrollments</div>
-                    <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
-                  </div>
-                </a>
-              )}
+                                {/* Enrollments Card - Orange */}
+                                {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                  <a
+                                    href={program.routes.enrollments}
+                                    className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <GraduationCap className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Enrollments</div>
+                                      <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
+                                    </div>
+                                  </a>
+                                )}
 
-              {/* Class Timetable Card - Cyan */}
-              <a
-                href={program.routes.class_timetables}
-                className="group relative p-4 bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-              >
-                <div className="flex flex-col items-center text-center">
-                  <Calendar className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                  <div className="text-xs font-bold text-white mb-1">Class Timetable</div>
-                  <div className="text-xs text-white/90">Schedule</div>
-                </div>
-              </a>
+                                {/* Class Timetable Card - Cyan */}
+                                {!isExamTimetableOffice && (
+                                <a
+                                  href={program.routes.class_timetables}
+                                  className="group relative p-4 bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                >
+                                  <div className="flex flex-col items-center text-center">
+                                    <Calendar className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                    <div className="text-xs font-bold text-white mb-1">Class Timetable</div>
+                                    <div className="text-xs text-white/90">Schedule</div>
+                                  </div>
+                                </a>
+                                )}
 
-              {/* Exam Timetable Card - Red */}
-              {!isClassTimetableOffice && (
-                <a
-                  href={program.routes.exam_timetables}
-                  className="group relative p-4 bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                >
-                  <div className="flex flex-col items-center text-center">
-                    <ClipboardList className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="text-xs font-bold text-white mb-1">Exam Timetable</div>
-                    <div className="text-xs text-white/90">Schedule</div>
-                  </div>
-                </a>
-              )}
-            </div>
-          </div>
-        )}
+                                {/* Exam Timetable Card - Red */}
+                                {!isClassTimetableOffice && (
+                                  <a
+                                    href={program.routes.exam_timetables}
+                                    className="group relative p-4 bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                  >
+                                    <div className="flex flex-col items-center text-center">
+                                      <ClipboardList className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <div className="text-xs font-bold text-white mb-1">Exam Timetable</div>
+                                      <div className="text-xs text-white/90">Schedule</div>
+                                    </div>
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          )}
 
-        {/* Existing Details Section - Keep as is */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* ... rest of the details section ... */}
-        </div>
-      </div>
-    </td>
-  </tr>
-)}
+                          {/* Existing Details Section - Keep as is */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* ... rest of the details section ... */}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                     </React.Fragment>
                   ))}
                 </tbody>

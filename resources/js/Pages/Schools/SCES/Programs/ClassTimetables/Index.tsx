@@ -1908,7 +1908,10 @@ const handleResolveAllConflicts = useCallback(async () => {
             </Button>
 
             {can.download && (
-              <Button onClick={handleDownloadClassTimetable} className="bg-indigo-500 hover:bg-indigo-600">
+              <Button
+                onClick={() => window.open(route('classtimetables.download-pdf'), '_blank')}
+                className="inline-flex items-center px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+              >
                 <Download className="w-4 h-4 mr-2" />
                 Download PDF
               </Button>

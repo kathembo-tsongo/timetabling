@@ -1,7 +1,7 @@
 import React from "react";
 import { Head, Link } from "@inertiajs/react";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
-import { Calendar, Clock, MapPin, Users, FileText, AlertCircle } from "lucide-react";
+import { Calendar, Clock, MapPin, Users, FileText, AlertCircle, Download } from "lucide-react";
 
 interface ExamTimetable {
     id: number;
@@ -46,14 +46,27 @@ const Dashboard: React.FC<Props> = ({ stats, recentExams, activeSemesters, can }
             <Head title="Exam Office Dashboard" />
             
             <div className="p-6 space-y-6">
-                {/* Header */}
+                {/* Header with Download Button */}
                 <div className="bg-white rounded-lg shadow-md p-6">
-                    <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                        Exam Office Dashboard
-                    </h1>
-                    <p className="text-gray-600">
-                        Manage exam timetables, venues, and scheduling across all schools
-                    </p>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+                                Exam Office Dashboard
+                            </h1>
+                            <p className="text-gray-600">
+                                Manage exam timetables, venues, and scheduling across all schools
+                            </p>
+                        </div>
+
+                        {/* Download PDF Button */}
+                        <button
+                             onClick={() => window.open(route('exam-timetables.pdf'), '_blank')}
+                             className="inline-flex items-center px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+                        >
+                            <Download className="w-5 h-5 mr-2" />
+                            Univ. Exam Schedule PDF
+                        </button>
+                    </div>
                 </div>
 
                 {/* Statistics Cards */}

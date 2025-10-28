@@ -54,18 +54,18 @@ class SendExamReminders extends Command
                 try {
                     // Prepare notification data with more detailed exam information
                    $data = [
-    'subject' => 'A humble Reminder',
-    'greeting' => 'Hello ' . ($student->first_name ?? $student->name ?? 'Student'),
-    'message' => 'We wish to remind you that you will be having an exam tomorrow. Please keep checking your timetable for further details.',
-    'exam_details' => [
-        'unit' => $exam->unit->code . ' - ' . $exam->unit->name,
-        'date' => $exam->date,
-        'day' => $exam->day,
-        'time' => $exam->start_time . ' - ' . $exam->end_time,
-        'venue' => $exam->venue . ' (' . ($exam->location ?? 'Main Campus') . ')',
-    ],
-    'closing' => 'Good luck with your exam preparation!'
-];
+                    'subject' => 'A humble Reminder',
+                    'greeting' => 'Hello ' . ($student->first_name ?? $student->name ?? 'Student'),
+                    'message' => 'We wish to remind you that you will be having an exam tomorrow. Please keep checking your timetable for further details.',
+                    'exam_details' => [
+                    'unit' => $exam->unit->code . ' - ' . $exam->unit->name,
+                    'date' => $exam->date,
+                    'day' => $exam->day,
+                    'time' => $exam->start_time . ' - ' . $exam->end_time,
+                    'venue' => $exam->venue . ' (' . ($exam->location ?? 'Main Campus') . ')',
+                ],
+                'closing' => 'Good luck with your exam preparation!'
+            ];
 
                     // Send notification
                     $student->notify(new Exam_reminder($data));
@@ -73,16 +73,16 @@ class SendExamReminders extends Command
                     
                     $this->info("Sent notification to {$student->first_name} {$student->last_name} ({$student->email})");
                     // Add this after sending the notification
-DB::table('notification_logs')->insert([
-    'notification_type' => 'App\\Notifications\\Exam_reminder',
-    'notifiable_type' => 'App\\Models\\User',
-    'notifiable_id' => $student->id,
-    'channel' => 'mail',
-    'success' => true,
-    'error_message' => null,
-    'created_at' => now(),
-    'updated_at' => now(),
-]);
+                    DB::table('notification_logs')->insert([
+                        'notification_type' => 'App\\Notifications\\Exam_reminder',
+                        'notifiable_type' => 'App\\Models\\User',
+                        'notifiable_id' => $student->id,
+                        'channel' => 'mail',
+                        'success' => true,
+                        'error_message' => null,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+            ]);
                 } catch (\Exception $e) {
                     $this->error("Failed to send notification to student {$student->code}: " . $e->getMessage());
                     Log::error("Failed to send exam notification", [
