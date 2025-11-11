@@ -109,11 +109,11 @@ export default function Sidebar() {
               <span>Exam Supervision</span>
             </Link>
 
-            {/* Profile */}
+            {/* Profile
             <Link href="/lecturer/profile" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
               <UserCircle className="mr-3 h-5 w-5" />
               <span>Profile</span>
-            </Link>
+            </Link> */}
           </div>
         )}
 
@@ -326,7 +326,7 @@ export default function Sidebar() {
                     </div>
 
                     {/* SLS Exams */}
-                    <div>
+                    {/* <div>
                       <button
                         onClick={() => toggleSection('exam-sls')}
                         className="flex items-center w-full px-4 py-2 hover:bg-blue-800 rounded-md text-sm"
@@ -343,8 +343,8 @@ export default function Sidebar() {
                           </Link>
                         </div>
                       )}
-                    </div>
-                  </div>
+                    </div>*/}
+                  </div> 
                 )}
               </div>
             )}            

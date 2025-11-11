@@ -72,7 +72,6 @@ class SendExamReminders extends Command
                     $notificationsSent++;
                     
                     $this->info("Sent notification to {$student->first_name} {$student->last_name} ({$student->email})");
-                    // Add this after sending the notification
                     DB::table('notification_logs')->insert([
                         'notification_type' => 'App\\Notifications\\Exam_reminder',
                         'notifiable_type' => 'App\\Models\\User',

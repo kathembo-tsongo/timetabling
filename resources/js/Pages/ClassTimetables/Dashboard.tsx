@@ -124,11 +124,11 @@ export default function Dashboard({
           <h1 className="text-3xl font-bold text-gray-900">Class Timetable Office</h1>
           <p className="text-gray-600 mt-1">
             Manage class schedules and resolve conflicts
-            {currentSemester && (
+            {/* {currentSemester && (
               <span className="ml-2">
                 • Current Semester: <span className="font-semibold">{currentSemester.name}</span>
               </span>
-            )}
+            )} */}
           </p>
         </div>
 

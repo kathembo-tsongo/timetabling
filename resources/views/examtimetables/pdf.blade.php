@@ -1,184 +1,444 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-<title>{{ $title }}</title>
-<style>
-body {
-    font-family: Arial, sans-serif;
-    font-size: 12px;
-    margin: 20px;
-    background: #f9f9f9;
-}
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>{{ $title }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-h1 {
-    text-align: center;
-    font-size: 24px;
-    margin-bottom: 10px;
-    color: #333;
-    font-weight: bold;
-}
+        body {
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            font-size: 11px;
+            background: #f5f5f5;
+            padding: 15px;
+        }
 
-h2 {
-    text-align: center;
-    font-size: 18px;
-    margin-bottom: 20px;
-    color: #666;
-}
+        .container {
+            max-width: 100%;
+            background: white;
+            padding: 20px;
+        }
 
-.header-info {
-    text-align: center;
-    margin-bottom: 20px;
-    font-size: 14px;
-    padding: 15px;
-    background: #ffffff;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-}
+        /* University Header - Improved Layout */
+        .university-header {
+            border: 3px solid #000;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: white;
+        }
 
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
-    background: #ffffff;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
+        .header-content {
+            display: flex;
+            align-items: flex-start;
+            gap: 30px;
+        }
 
-th, td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: left;
-    font-size: 11px;
-}
+        .logo-container {
+            flex-shrink: 0;
+            width: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
 
-th {
-    background-color: #f4f4f4;
-    font-weight: bold;
-    text-align: center;
-}
+        .logo-circle {
+            width: 120px;
+            height: 120px;
+            border: 4px solid #FFD700;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            padding: 10px;
+            box-shadow: 0 2px 8px rgba(255, 215, 0, 0.3);
+        }
 
-tr:nth-child(even) {
-    background-color: #f9f9f9;
-}
+        .logo-circle img {
+            width: 100px;
+            height: 100px;
+            object-fit: contain;
+        }
 
-tr:hover {
-    background-color: #f5f5f5;
-}
+        .logo-circle svg {
+            width: 90px;
+            height: 90px;
+        }
 
-/* Column specific styling */
-td:nth-child(1) { /* Date */
-    font-weight: bold;
-    text-align: center;
-    font-family: monospace;
-}
+        .university-text-logo {
+            margin-top: 10px;
+            text-align: center;
+        }
 
-td:nth-child(2) { /* Day */
-    text-align: center;
-    font-weight: bold;
-    color: #0066cc;
-}
+        .university-text-logo h2 {
+            font-size: 11px;
+            font-weight: bold;
+            color: #000;
+            letter-spacing: 0.5px;
+            margin: 0;
+        }
 
-td:nth-child(3) { /* Time */
-    text-align: center;
-    font-family: monospace;
-    font-weight: bold;
-    color: #cc0000;
-}
+        .university-text-logo p {
+            font-size: 8px;
+            color: #666;
+            margin: 2px 0 0 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
 
-td:nth-child(4) { /* Unit Code */
-    text-align: center;
-    font-weight: bold;
-    color: #cc6600;
-}
+        .header-text-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
 
-td:nth-child(5) { /* Unit Name */
-    color: #333;
-}
+        .university-title {
+            text-align: center;
+            margin-bottom: 15px;
+        }
 
-td:nth-child(6) { /* Semester */
-    text-align: center;
-    font-weight: bold;
-    color: #009900;
-}
+        .university-title h1 {
+            font-size: 24px;
+            font-weight: bold;
+            color: #000;
+            margin: 0 0 5px 0;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
 
-td:nth-child(7) { /* Venue */
-    color: #660066;
-    font-weight: bold;
-}
+        .schools-list {
+            text-align: center;
+            margin-bottom: 10px;
+        }
 
-td:nth-child(8) { /* Chief Invigilator */
-    color: #333;
-}
+        .schools-list p {
+            font-size: 9px;
+            font-weight: bold;
+            color: #000;
+            line-height: 1.4;
+            margin: 0;
+            letter-spacing: 0.3px;
+        }
 
-.footer {
-    margin-top: 20px;
-    text-align: center;
-    font-size: 10px;
-    color: #666;
-    padding: 10px;
-    background: #ffffff;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-}
+        .programs-list {
+            text-align: center;
+        }
 
-/* Print styles */
-@media print {
-    body {
-        background: white;
-        margin: 10px;
-    }
-    
-    table {
-        box-shadow: none;
-    }
-    
-    .header-info, .footer {
-        background: white;
-        border: 1px solid #ddd;
-    }
-}
-</style>
+        .programs-list p {
+            font-size: 8px;
+            color: #333;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        /* Document Title */
+        .document-title {
+            background: #000;
+            color: white;
+            padding: 15px 20px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+            border-left: 5px solid #FFD700;
+            border-right: 5px solid #FFD700;
+        }
+
+        .document-title .exam-period {
+            background: white;
+            color: #000;
+            padding: 3px 10px;
+            display: inline-block;
+            margin: 0 5px;
+            border-radius: 3px;
+        }
+
+        .document-title .status {
+            background: white;
+            color: #000;
+            padding: 3px 10px;
+            display: inline-block;
+            margin: 0 5px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        /* Header Info Box */
+        .header-info {
+            background: linear-gradient(to right, #f8f9fa, #fff);
+            border-left: 4px solid #FFD700;
+            padding: 12px 20px;
+            margin: 15px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .header-info p {
+            margin: 0;
+            color: #003366;
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        .info-badge {
+            background: #003366;
+            color: #FFD700;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        /* Table Styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            border: 2px solid #000;
+        }
+
+        thead {
+            background: #003366;
+            color: white;
+        }
+
+        th {
+            padding: 12px 8px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid #000;
+        }
+
+        td {
+            padding: 10px 8px;
+            border: 1px solid #ddd;
+            font-size: 9px;
+            vertical-align: middle;
+        }
+
+        tbody tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        tbody tr:nth-child(odd) {
+            background: white;
+        }
+
+        /* Column-specific styling */
+        td:nth-child(1) { /* Date */
+            font-weight: bold;
+            text-align: center;
+            color: #003366;
+            font-family: 'Courier New', monospace;
+        }
+
+        td:nth-child(2) { /* Day */
+            text-align: center;
+            font-weight: bold;
+            color: #003366;
+            text-transform: uppercase;
+            font-size: 9px;
+        }
+
+        td:nth-child(3) { /* Time */
+            text-align: center;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #d32f2f;
+        }
+
+        td:nth-child(4) { /* Unit Code */
+            text-align: center;
+            font-weight: bold;
+            color: #FF8C00;
+            font-family: 'Courier New', monospace;
+        }
+
+        td:nth-child(5) { /* Unit Name */
+            color: #333;
+            font-weight: 500;
+        }
+
+        td:nth-child(6) { /* Semester */
+            text-align: center;
+            font-weight: bold;
+            color: #00796b;
+        }
+
+        td:nth-child(7) { /* Venue */
+            color: #6a1b9a;
+            font-weight: 600;
+        }
+
+        td:nth-child(8) { /* Chief Invigilator */
+            color: #333;
+            font-weight: 500;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+            font-style: italic;
+        }
+
+        /* Footer */
+        .footer {
+            background: #003366;
+            color: white;
+            text-align: center;
+            padding: 15px 20px;
+            margin-top: 30px;
+            border-top: 4px solid #FFD700;
+        }
+
+        .footer p {
+            margin: 5px 0;
+            font-size: 10px;
+        }
+
+        .footer .tagline {
+            color: #FFD700;
+            font-weight: bold;
+            font-size: 9px;
+            letter-spacing: 1px;
+            margin-top: 10px;
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                padding: 10px;
+            }
+
+            .university-header,
+            .footer {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
 </head>
 <body>
-<h1>STRATHMORE UNIVERSITY</h1>
-<h1>{{ $title }}</h1>
-<div class="header-info">
-<p>Generated at: {{ $generatedAt }}</p>
-</div>
-<table>
-<thead>
-<tr>
-<th>Date</th>
-<th>Day</th>
-<th>Time</th>
-<th>Unit Code</th>
-<th>Unit Name</th>
-<th>Semester</th>
-<th>Venue</th>
-<th>Chief Invigilator</th>
-</tr>
-</thead>
-<tbody>
- @forelse($examTimetables as $exam)
-<tr>
-<td>{{ date('Y:m:d', strtotime($exam->date)) }}</td>
-<td>{{ $exam->day }}</td>
-<td>{{ date('H:i', strtotime($exam->start_time)) }} - {{ date('H:i', strtotime($exam->end_time)) }}</td>
-<td>{{ $exam->unit_code }}</td>
-<td>{{ $exam->unit_name }}</td>
-<td>{{ $exam->semester_name }}</td>
-<td>{{ $exam->venue }} ({{ $exam->location }})</td>
-<td>{{ $exam->chief_invigilator }}</td>
-</tr>
- @empty
-<tr>
-<td colspan="8" style="text-align: center; padding: 20px; color: #999; font-style: italic;">No exam timetables available</td>
-</tr>
- @endforelse
-</tbody>
-</table>
-<div class="footer">
-<p>This is an official document. Please keep it for your records.</p>
-</div>
+    <div class="container">
+        <!-- University Header -->
+        <div class="university-header">
+            <div class="header-content">
+                <!-- Logo Section -->
+                <div class="logo-container">
+                    @if(isset($logoBase64) && $logoBase64)
+                        <img src="{{ $logoBase64 }}" alt="Strathmore University Logo">
+                    @else
+                        <!-- SVG Fallback Logo -->
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="48" fill="#003366"/>
+                                <text x="50" y="65" text-anchor="middle" font-size="45" fill="#FFD700" font-weight="bold" font-family="Arial">SU</text>
+                        </svg>
+                    @endif                                       
+                </div>
+
+                <!-- Text Content -->
+                <div class="header-text-content">
+                    <div class="university-title">
+                        <h1>STRATHMORE UNIVERSITY</h1>
+                    </div>
+
+                    <div class="schools-list">
+                        <p>
+                            STRATHMORE UNIVERSITY BUSINESS SCHOOL, SCHOOL OF COMPUTING AND ENGINEERING SCIENCES,<br>
+                            STRATHMORE INSTITUTE OF MATHEMATICAL SCIENCES, SCHOOL OF TOURISM AND HOSPITALITY AND<br>
+                            SCHOOL OF HUMANITIES AND SOCIAL SCIENCES.
+                        </p>
+                    </div>
+
+                    <div class="programs-list">
+                        <p>
+                            <strong>BACHELOR OF COMMERCE:</strong><br>
+                            BACHELOR OF FINANCIAL SERVICES; BACHELOR OF SCIENCE IN SUPPLY CHAIN AND OPERATIONS MANAGEMENT.<br>
+                            BACHELOR OF BUSINESS INFORMATION TECHNOLOGY;<br>
+                            BACHELOR OF SCIENCE IN INFORMATICS AND COMPUTER SCIENCE; COMPUTER NETWORKS AND CYBERSECURITY; ELECTRICAL AND ELECTRONICS ENGINEERING.<br>
+                            BACHELOR OF BUSINESS SCIENCE: ACTUARIAL SCIENCE; FINANCIAL ECONOMICS; FINANCIAL ENGINEERING.<br>
+                            BACHELOR OF SCIENCE IN STATISTICS AND DATA SCIENCE.<br>
+                            BACHELOR OF SCIENCE IN HOSPITALITY; TOURISM MANAGEMENT.<br>
+                            BACHELOR OF ARTS: COMMUNICATION; DEVELOPMENT STUDIES AND PHILOSPOHY; INTERNATIONAL STUDIES.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document Title -->
+        <div class="document-title">
+            <span class="exam-period">DECEMBER 2025:END OF SEMESTER EXAMINATIONS TIMETABLE</span>                       
+        </div>
+
+        <!-- Header Info
+        <div class="header-info">
+            <p>📅 Generated on: {{ $generatedAt }}</p>
+            <span class="info-badge">OFFICIAL DOCUMENT</span>
+        </div> -->
+
+        <!-- Exam Timetable -->
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Day</th>
+                    <th>Time</th>
+                    <th>Unit Code</th>
+                    <th>Unit Name</th>
+                    <th>Semester</th>
+                    <th>Venue</th>
+                    <th>Chief Invigilator</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($examTimetables as $exam)
+                <tr>
+                    <td>{{ date('Y-m-d', strtotime($exam->date)) }}</td>
+                    <td>{{ $exam->day }}</td>
+                    <td>{{ date('H:i', strtotime($exam->start_time)) }} - {{ date('H:i', strtotime($exam->end_time)) }}</td>
+                    <td>{{ $exam->unit_code }}</td>
+                    <td>{{ $exam->unit_name }}</td>
+                    <td>{{ $exam->semester_name }}</td>
+                    <td>{{ $exam->venue }} ({{ $exam->location }})</td>
+                    <td>{{ $exam->chief_invigilator }}</td>
+                </tr>
+                @empty
+                <tr>
+                    <td colspan="8" class="empty-state">
+                        No exam timetables available
+                    </td>
+                </tr>
+                @endforelse
+            </tbody>
+        </table>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>This is an official Strathmore University document</p>
+            <p>Please keep this timetable for your records and arrive 30 minutes before exam time</p>
+            <p class="tagline">Excellence in Education Since 1961</p>
+        </div>
+    </div>
 </body>
 </html>

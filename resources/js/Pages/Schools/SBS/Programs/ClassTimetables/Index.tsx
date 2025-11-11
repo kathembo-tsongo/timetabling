@@ -1927,12 +1927,12 @@ const handleResolveAllConflicts = useCallback(async () => {
               Analyze Conflicts
             </Button>
 
-            {can.download && (
+            {/* {can.download && (
               <Button onClick={handleDownloadClassTimetable} className="bg-indigo-500 hover:bg-indigo-600">
                 <Download className="w-4 h-4 mr-2" />
                 Download PDF
               </Button>
-            )}
+            )} */}
           </div>
 
           <form onSubmit={handleSearchSubmit} className="flex items-center space-x-2">

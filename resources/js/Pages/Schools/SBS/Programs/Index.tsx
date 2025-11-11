@@ -585,7 +585,7 @@ const SBSProgramsManagement: React.FC = () => {
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                                 
                                 {/* Units Card - Blue */}
-                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                {!isClassTimetableOffice && !isExamTimetableOffice && (
                                   <a
                                     href={program.routes.units}
                                     className="group relative p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
@@ -599,7 +599,7 @@ const SBSProgramsManagement: React.FC = () => {
                                 )}
 
                                 {/* Unit Assignment Card - Indigo - NOW ALWAYS VISIBLE */}
-                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                {!isClassTimetableOffice && !isExamTimetableOffice && (
                                 <a
                                   href={program.routes.unit_assignment}
                                   className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
@@ -613,7 +613,7 @@ const SBSProgramsManagement: React.FC = () => {
                                 )}
 
                                 {/* Classes Card - Green */}
-                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                {!isClassTimetableOffice && !isExamTimetableOffice && (
                                   <a
                                     href={program.routes.classes}
                                     className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
@@ -627,7 +627,7 @@ const SBSProgramsManagement: React.FC = () => {
                                 )}
 
                                 {/* Enrollments Card - Orange */}
-                                {!isClassTimetableOffice || !isExamTimetableOffice && (
+                                {!isClassTimetableOffice && !isExamTimetableOffice && (
                                   <a
                                     href={program.routes.enrollments}
                                     className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
@@ -671,10 +671,6 @@ const SBSProgramsManagement: React.FC = () => {
                             </div>
                           )}
 
-                          {/* Existing Details Section - Keep as is */}
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {/* ... rest of the details section ... */}
-                          </div>
                         </div>
                       </td>
                     </tr>

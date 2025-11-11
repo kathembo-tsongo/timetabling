@@ -657,7 +657,7 @@ const SCESProgramsManagement: React.FC = () => {
                                 </a>
                                 )}
 
-                                {/* Exam Timetable Card - Red */}
+                                {/* Exam Timetable Card */}
                                 {!isClassTimetableOffice && (
                                   <a
                                     href={program.routes.exam_timetables}
