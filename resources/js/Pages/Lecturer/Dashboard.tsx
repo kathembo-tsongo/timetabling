@@ -79,9 +79,9 @@ const Dashboard = ({ currentSemester, lecturerSemesters, unitsBySemester, studen
                   <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                     Welcome Back, Lecturer!
                   </h1>
-                  <p className="text-gray-600 text-lg mt-1">
+                  {/* <p className="text-gray-600 text-lg mt-1">
                     Current Semester: <span className="font-semibold text-indigo-600">{mockCurrentSemester.name}</span>
-                  </p>
+                  </p> */}
                 </div>
               </div>
               <div className="flex items-center gap-3">

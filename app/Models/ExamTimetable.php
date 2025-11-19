@@ -27,7 +27,6 @@ class ExamTimetable extends Model
 
     protected $casts = [
         'date' => 'date',
-        // Removed start_time and end_time datetime casts to prevent timezone conversion
     ];
 
     /**
