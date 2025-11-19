@@ -1411,18 +1411,21 @@ public function updateProgramExamTimetable(Program $program, $timetable, Request
     }
 
 /**
- * ✅ FULLY FIXED: Bulk schedule exams - Ensures all weekdays are utilized
- * Key Changes:
- * 1. Gap between exams now applies PER CLASS, not globally
- * 2. Date iteration happens every day, not skipping days
- * 3. Better distribution across all weekdays (Mon-Fri)
+ * ✅ FULLY FIXED: Bulk schedule exams with proper weekday gap enforcement
+ * 
+ * Key Features:
+ * 1. Counts WEEKDAYS (not calendar days) for gap calculation
+ * 2. Gap applies PER CLASS (different classes can have exams on consecutive days)
+ * 3. Utilizes ALL weekdays (Mon-Fri) while respecting preparation time
+ * 4. Intelligent venue assignment with capacity tracking
+ * 5. Real-time conflict detection
  */
 public function bulkScheduleExams(Program $program, Request $request, $schoolCode)
 {
     \Log::info('=== BULK EXAM SCHEDULING STARTED ===', [
         'program_id' => $program->id,
         'program_name' => $program->name,
-        'request_data' => $request->all()
+        'timestamp' => now()->toDateTimeString()
     ]);
 
     $validated = $request->validate([
@@ -1499,50 +1502,40 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
         // Load selected exam rooms
         $selectedExamroomIds = $validated['selected_examrooms'] ?? [];
 
-        \Log::info('📍 Loading exam rooms from request', [
-            'selected_ids' => $selectedExamroomIds,
-            'count' => count($selectedExamroomIds)
-        ]);
-
         $availableRooms = Examroom::whereIn('id', $selectedExamroomIds)
             ->orderBy('capacity', 'asc')
             ->get();
-
-        \Log::info('✅ Retrieved exam rooms for scheduling', [
-            'count' => $availableRooms->count(),
-            'rooms' => $availableRooms->map(function($room) {
-                return [
-                    'id' => $room->id,
-                    'name' => $room->name,
-                    'capacity' => $room->capacity,
-                    'location' => $room->location,
-                    'is_active' => $room->is_active ?? 'N/A'
-                ];
-            })->toArray()
-        ]);
 
         if ($availableRooms->isEmpty()) {
             throw new \Exception('No exam rooms selected or available');
         }
 
-        // ✅ KEY FIX: Track last exam date PER CLASS (not globally)
+        \Log::info('📍 Scheduling configuration', [
+            'gap_days' => $gapDays,
+            'gap_type' => 'WEEKDAYS (excluding weekends)',
+            'excluded_days' => $excludedDays,
+            'max_exams_per_day' => $maxExamsPerDay,
+            'available_rooms' => $availableRooms->count(),
+            'date_range' => "{$validated['start_date']} to {$validated['end_date']}"
+        ]);
+
+        // ✅ Track last exam date PER CLASS (Carbon objects)
         $classLastExamDate = [];
         
-        // Track venue capacity in 3D structure (venue -> date -> time_slot)
+        // Track venue capacity in 3D structure
         $venueCapacityUsage = [];
         
-        // Map selected_class_units by unit_id for easy lookup
+        // Map selected_class_units by unit_id
         $selectedUnitsMap = [];
         foreach ($validated['selected_class_units'] as $unitData) {
             $selectedUnitsMap[$unitData['unit_id']] = $unitData;
         }
 
-        // ✅ NEW: Track exams per day to enforce max_exams_per_day
+        // Track exams per day
         $examsPerDay = [];
 
         // Loop through units
         foreach ($unitsByClass as $unitId => $unitRecords) {
-            // Get the assigned time slot from frontend
             if (!isset($selectedUnitsMap[$unitId])) {
                 \Log::warning("Unit {$unitId} not found in selected units map");
                 continue;
@@ -1590,29 +1583,43 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                 ? trim("{$lecturer->first_name} {$lecturer->last_name}")
                 : 'No lecturer assigned';
             
-            \Log::info("Processing unit for scheduling", [
+            \Log::info("📝 Processing unit for scheduling", [
                 'unit_code' => $firstUnit['unit_code'],
                 'unit_name' => $firstUnit['unit_name'],
+                'classes_involved' => $selectedClassIds,
                 'assigned_time_slot' => "{$assignedStartTime} - {$assignedEndTime}",
                 'slot_number' => $slotNumber,
                 'total_students' => $totalStudents,
                 'lecturer' => $chiefInvigilator
             ]);
 
-            // ✅ KEY FIX: Find earliest allowed date considering gap PER CLASS
+            // ✅ CRITICAL: Calculate earliest allowed date using WEEKDAY gap
             $currentDate = Carbon::parse($validated['start_date']);
             $endDate = Carbon::parse($validated['end_date']);
             $earliestAllowedDate = $currentDate->copy();
             
-            // Check each class's last exam date and apply gap
+            // Check EACH class involved in this unit
             foreach ($selectedClassIds as $classId) {
                 if (isset($classLastExamDate[$classId])) {
-                    $classMinDate = $classLastExamDate[$classId]->copy()->addDays($gapDays);
+                    // ✅ FIX: Use weekday gap calculation
+                    $classMinDate = $this->addWeekdays(
+                        $classLastExamDate[$classId], 
+                        $gapDays
+                    );
+                    
+                    \Log::debug("  Class {$classId} gap check", [
+                        'last_exam' => $classLastExamDate[$classId]->format('Y-m-d l'),
+                        'gap_required' => "{$gapDays} weekdays",
+                        'min_date' => $classMinDate->format('Y-m-d l')
+                    ]);
+                    
                     if ($classMinDate->gt($earliestAllowedDate)) {
                         $earliestAllowedDate = $classMinDate;
                     }
                 }
             }
+            
+            \Log::info("  ⏰ Earliest allowed date: {$earliestAllowedDate->format('Y-m-d l')}");
             
             // Find next available slot
             $scheduled = false;
@@ -1624,8 +1631,14 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
             while (!$scheduled && $attempts < $maxAttempts && $attemptDate->lte($endDate)) {
                 $attempts++;
 
-                // ✅ FIX 1: Skip excluded days
+                // Skip excluded days
                 if (in_array($attemptDate->format('l'), $excludedDays)) {
+                    $attemptDate->addDay();
+                    continue;
+                }
+
+                // Skip weekends automatically
+                if ($attemptDate->isWeekend()) {
                     $attemptDate->addDay();
                     continue;
                 }
@@ -1633,20 +1646,45 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                 $examDate = $attemptDate->format('Y-m-d');
                 $examDay = $attemptDate->format('l');
                 
-                // ✅ FIX 2: Check if we've hit max exams per day limit
+                // Check max exams per day
                 $examsOnThisDay = $examsPerDay[$examDate] ?? 0;
                 if ($examsOnThisDay >= $maxExamsPerDay) {
-                    $failureReasons[] = "Date {$examDate}: Max exams per day ({$maxExamsPerDay}) reached";
-                    $attemptDate->addDay(); // Move to next day
+                    $attemptDate->addDay();
                     continue;
                 }
                 
-                // Generate time slot key for venue tracking
+                // ✅ CRITICAL CHECK: Verify WEEKDAY gap for ALL classes
+                $dateViolatesGap = false;
+                foreach ($selectedClassIds as $classId) {
+                    if (isset($classLastExamDate[$classId])) {
+                        $weekdaysSinceLastExam = $this->countWeekdaysBetween(
+                            $classLastExamDate[$classId],
+                            $attemptDate
+                        );
+                        
+                        if ($weekdaysSinceLastExam < $gapDays) {
+                            $dateViolatesGap = true;
+                            \Log::debug("  ❌ {$examDate} violates weekday gap for class {$classId}", [
+                                'weekdays_since_last' => $weekdaysSinceLastExam,
+                                'required' => $gapDays,
+                                'last_exam' => $classLastExamDate[$classId]->format('Y-m-d l')
+                            ]);
+                            break;
+                        }
+                    }
+                }
+                
+                if ($dateViolatesGap) {
+                    $attemptDate->addDay();
+                    continue;
+                }
+                
+                // Generate time slot key
                 $timeSlotKey = "{$assignedStartTime}-{$assignedEndTime}";
                 $examStartTime = Carbon::parse("{$examDate} {$assignedStartTime}");
                 $examEndTime = Carbon::parse("{$examDate} {$assignedEndTime}");
 
-                // Find available venue with capacity tracking
+                // Find available venue
                 $venueResult = $this->findVenueWithRemainingCapacity(
                     $availableRooms,
                     $totalStudents,
@@ -1656,12 +1694,12 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                 );
 
                 if (!$venueResult['success']) {
-                    $failureReasons[] = "Date {$examDate} Slot {$slotNumber}: {$venueResult['message']}";
-                    $attemptDate->addDay(); // Move to next day
+                    $failureReasons[] = "Date {$examDate}: {$venueResult['message']}";
+                    $attemptDate->addDay();
                     continue;
                 }
 
-                // Check for conflicts
+                // Check conflicts
                 $hasConflict = false;
                 $conflictReasons = [];
 
@@ -1680,7 +1718,7 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
 
                     if ($classConflict) {
                         $hasConflict = true;
-                        $conflictReasons[] = "Class already has exam ({$classConflict->unit_code}) at this time";
+                        $conflictReasons[] = "Class {$classId} conflict with {$classConflict->unit_code}";
                         break;
                     }
                 }
@@ -1705,8 +1743,8 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                 }
 
                 if ($hasConflict) {
-                    $failureReasons[] = "Date {$examDate} Slot {$slotNumber}: " . implode(', ', $conflictReasons);
-                    $attemptDate->addDay(); // Move to next day
+                    $failureReasons[] = "Date {$examDate}: " . implode(', ', $conflictReasons);
+                    $attemptDate->addDay();
                     continue;
                 }
 
@@ -1733,18 +1771,18 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                 $createdExam = ExamTimetable::create($examData);
                 $existingExams->push($createdExam);
                 
-                // ✅ FIX 3: Update last exam date for ALL selected classes
+                // ✅ Update last exam date for ALL classes
                 foreach ($selectedClassIds as $classId) {
                     $classLastExamDate[$classId] = clone $attemptDate;
                 }
                 
-                // ✅ FIX 4: Increment exams per day counter
+                // Update counters
                 if (!isset($examsPerDay[$examDate])) {
                     $examsPerDay[$examDate] = 0;
                 }
                 $examsPerDay[$examDate]++;
                 
-                // Update venue capacity usage
+                // Update venue capacity
                 $this->updateVenueCapacityUsage(
                     $venueCapacityUsage,
                     $venueResult['venue'],
@@ -1763,6 +1801,7 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                     'class_count' => count($selectedClassIds),
                     'total_students' => $totalStudents,
                     'date' => $examDate,
+                    'day' => $examDay,
                     'time' => "{$examStartTime->format('H:i')} - {$examEndTime->format('H:i')}",
                     'slot_number' => $slotNumber,
                     'venue' => $venueResult['venue'],
@@ -1771,33 +1810,25 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
 
                 $scheduled = true;
 
-                \Log::info("✅ Exam scheduled successfully", [
+                \Log::info("✅ Exam scheduled", [
                     'unit' => $firstUnit['unit_code'],
-                    'classes' => $classNames,
-                    'students' => $totalStudents,
                     'date' => $examDate,
                     'day' => $examDay,
-                    'time_slot' => $timeSlotKey,
-                    'slot_number' => $slotNumber,
                     'venue' => $venueResult['venue'],
-                    'attempts_taken' => $attempts,
-                    'exams_on_this_day' => $examsPerDay[$examDate]
+                    'students' => $totalStudents,
+                    'attempts' => $attempts
                 ]);
             }
 
             if (!$scheduled) {
                 $reason = !empty($failureReasons) 
-                    ? implode('; ', array_slice($failureReasons, -5)) // Show last 5 reasons
+                    ? implode('; ', array_slice($failureReasons, -3))
                     : 'Could not find suitable slot within date range';
                 
                 \Log::warning('❌ Failed to schedule unit', [
                     'unit_code' => $firstUnit['unit_code'],
-                    'unit_name' => $firstUnit['unit_name'],
                     'reason' => $reason,
-                    'assigned_slot' => "Slot {$slotNumber}: {$assignedStartTime} - {$assignedEndTime}",
-                    'students' => $totalStudents,
-                    'lecturer' => $chiefInvigilator,
-                    'attempts_made' => $attempts
+                    'attempts' => $attempts
                 ]);
                 
                 $conflicts[] = [
@@ -1815,8 +1846,8 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
             'scheduled_count' => count($scheduledExams),
             'conflicts_count' => count($conflicts),
             'warnings_count' => count($warnings),
-            'gap_days_used' => $gapDays,
-            'exams_per_day_distribution' => $examsPerDay
+            'gap_days' => $gapDays . ' weekdays',
+            'exams_per_day' => $examsPerDay
         ]);
 
         return response()->json([
@@ -1828,7 +1859,7 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
                 'total_scheduled' => count($scheduledExams),
                 'total_conflicts' => count($conflicts),
                 'total_warnings' => count($warnings),
-                'gap_days_used' => $gapDays,
+                'gap_days_used' => $gapDays . ' weekdays',
                 'exams_per_day' => $examsPerDay
             ]
         ]);
@@ -1849,102 +1880,95 @@ public function bulkScheduleExams(Program $program, Request $request, $schoolCod
 }
 
 /**
- * ✅ FIXED: Find venue with lowest utilization for better distribution
+ * ✅ Count weekdays between two dates (excluding weekends)
+ * 
+ * @param Carbon $startDate Starting date
+ * @param Carbon $endDate Ending date
+ * @return int Number of weekdays between the dates
+ */
+private function countWeekdaysBetween(Carbon $startDate, Carbon $endDate): int
+{
+    $weekdays = 0;
+    $current = $startDate->copy()->addDay(); // Start from next day
+    
+    while ($current->lt($endDate)) {
+        // Count only Monday-Friday (dayOfWeek: 1-5)
+        if ($current->isWeekday()) {
+            $weekdays++;
+        }
+        $current->addDay();
+    }
+    
+    return $weekdays;
+}
+
+/**
+ * ✅ Add N weekdays to a date (skipping weekends)
+ * 
+ * @param Carbon $date Starting date
+ * @param int $weekdaysToAdd Number of weekdays to add
+ * @return Carbon New date after adding weekdays
+ */
+private function addWeekdays(Carbon $date, int $weekdaysToAdd): Carbon
+{
+    $result = $date->copy();
+    $added = 0;
+    
+    while ($added < $weekdaysToAdd) {
+        $result->addDay();
+        
+        // Only count weekdays
+        if ($result->isWeekday()) {
+            $added++;
+        }
+    }
+    
+    return $result;
+}
+
+/**
+ * Find venue with lowest utilization for better distribution
  */
 private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $examDate, $timeSlotKey, &$venueCapacityUsage)
 {
-    \Log::info('🔍 Searching for venue', [
-        'required_capacity' => $requiredCapacity,
-        'date' => $examDate,
-        'time_slot' => $timeSlotKey,
-        'available_rooms_count' => count($examrooms)
-    ]);
-
     $bestVenue = null;
-    $bestUsedCapacity = 0;
-    $bestRemainingCapacity = 0;
     $lowestUtilization = PHP_INT_MAX;
     
     foreach ($examrooms as $room) {
-        // Skip rooms that are too small
         if ($room->capacity < $requiredCapacity) {
-            \Log::debug("  ⏭️ Skipping {$room->name} - Too small ({$room->capacity} < {$requiredCapacity})");
             continue;
         }
         
         $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
         $remainingCapacity = $room->capacity - $usedCapacity;
         
-        \Log::debug("  Checking venue: {$room->name}", [
-            'total_capacity' => $room->capacity,
-            'used_capacity' => $usedCapacity,
-            'remaining_capacity' => $remainingCapacity,
-            'required' => $requiredCapacity,
-            'fits' => $remainingCapacity >= $requiredCapacity
-        ]);
-        
-        // Check if this venue has enough remaining capacity
         if ($remainingCapacity >= $requiredCapacity) {
-            // Calculate utilization percentage
             $utilization = ($usedCapacity / $room->capacity) * 100;
             
-            \Log::debug("    💡 {$room->name} is viable", [
-                'utilization' => round($utilization, 2) . '%',
-                'is_better' => $utilization < $lowestUtilization ? 'YES' : 'NO'
-            ]);
-            
-            // Prefer venue with lowest current utilization
             if ($utilization < $lowestUtilization) {
                 $lowestUtilization = $utilization;
                 $bestVenue = $room;
-                $bestUsedCapacity = $usedCapacity;
-                $bestRemainingCapacity = $remainingCapacity;
             }
         }
     }
     
-    // If we found a suitable venue, return it
     if ($bestVenue !== null) {
-        \Log::info('✅ Venue found!', [
-            'venue' => $bestVenue->name,
-            'utilization' => round($lowestUtilization, 2) . '%',
-            'capacity_allocated' => $requiredCapacity,
-            'remaining_after' => $bestRemainingCapacity - $requiredCapacity
-        ]);
-        
         return [
             'success' => true,
             'venue' => $bestVenue->name,
             'location' => $bestVenue->location,
-            'total_capacity' => $bestVenue->capacity,
-            'capacity_used' => $bestUsedCapacity + $requiredCapacity,
-            'remaining_capacity' => $bestRemainingCapacity - $requiredCapacity
+            'total_capacity' => $bestVenue->capacity
         ];
     }
     
-    // No suitable venue found
-    \Log::warning('❌ No venue found with sufficient capacity', [
-        'required_capacity' => $requiredCapacity,
-        'venues_checked' => $examrooms->pluck('name')->toArray(),
-        'current_usage' => array_map(function($room) use ($venueCapacityUsage, $examDate, $timeSlotKey) {
-            $used = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
-            return [
-                'venue' => $room->name,
-                'capacity' => $room->capacity,
-                'used' => $used,
-                'remaining' => $room->capacity - $used
-            ];
-        }, $examrooms->toArray())
-    ]);
-    
     return [
         'success' => false,
-        'message' => "No venue with capacity for {$requiredCapacity} students at {$timeSlotKey} on {$examDate}"
+        'message' => "No venue with capacity for {$requiredCapacity} students at {$timeSlotKey}"
     ];
 }
 
 /**
- * ✅ FIXED: Update venue capacity usage (3D tracking: venue -> date -> time_slot)
+ * Update venue capacity usage (3D tracking: venue -> date -> time_slot)
  */
 private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $examDate, $timeSlotKey, $studentCount)
 {
@@ -1961,30 +1985,14 @@ private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $exa
     }
     
     $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] += $studentCount;
-    
-    \Log::debug('📊 Updated venue capacity', [
-        'venue' => $venueName,
-        'date' => $examDate,
-        'time_slot' => $timeSlotKey,
-        'students_added' => $studentCount,
-        'total_used' => $venueCapacityUsage[$venueName][$examDate][$timeSlotKey]
-    ]);
 }
 
 /**
- * ✅ Smart venue assignment for single exam scheduling
- * Finds the best available venue for a given exam slot
+ * Smart venue assignment for single exam scheduling
  */
 private function assignSmartVenue($studentCount, $date, $startTime, $endTime)
 {
-    \Log::info('🔍 Smart venue assignment requested', [
-        'student_count' => $studentCount,
-        'date' => $date,
-        'time' => "{$startTime} - {$endTime}"
-    ]);
-
     try {
-        // Get all available exam rooms
         $examrooms = Examroom::all();
         
         if ($examrooms->isEmpty()) {
@@ -1994,32 +2002,25 @@ private function assignSmartVenue($studentCount, $date, $startTime, $endTime)
             ];
         }
 
-        // Parse the time range
         $examStartTime = Carbon::parse($date . ' ' . $startTime);
         $examEndTime = Carbon::parse($date . ' ' . $endTime);
 
-        // Find venues that can accommodate the students
         $suitableVenues = [];
         
         foreach ($examrooms as $room) {
-            // Skip rooms that are too small
             if ($room->capacity < $studentCount) {
-                \Log::debug("  ⏭️ Skipping {$room->name} - Too small ({$room->capacity} < {$studentCount})");
                 continue;
             }
 
-            // Check existing exams in this venue at this time
             $existingExams = ExamTimetable::where('venue', $room->name)
                 ->where('date', $date)
                 ->get();
 
-            // Calculate total students already scheduled at overlapping times
             $occupiedCapacity = 0;
             foreach ($existingExams as $exam) {
                 $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
                 $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
 
-                // Check for time overlap
                 if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
                     $occupiedCapacity += $exam->no;
                 }
@@ -2027,15 +2028,6 @@ private function assignSmartVenue($studentCount, $date, $startTime, $endTime)
 
             $remainingCapacity = $room->capacity - $occupiedCapacity;
 
-            \Log::debug("  Checking venue: {$room->name}", [
-                'total_capacity' => $room->capacity,
-                'occupied' => $occupiedCapacity,
-                'remaining' => $remainingCapacity,
-                'required' => $studentCount,
-                'fits' => $remainingCapacity >= $studentCount
-            ]);
-
-            // If venue has enough remaining capacity, add it to candidates
             if ($remainingCapacity >= $studentCount) {
                 $utilizationPercentage = ($occupiedCapacity / $room->capacity) * 100;
                 
@@ -2048,35 +2040,18 @@ private function assignSmartVenue($studentCount, $date, $startTime, $endTime)
             }
         }
 
-        // If no suitable venues found
         if (empty($suitableVenues)) {
-            \Log::warning('❌ No suitable venue found', [
-                'required_capacity' => $studentCount,
-                'date' => $date,
-                'time' => "{$startTime} - {$endTime}"
-            ]);
-            
             return [
                 'success' => false,
-                'message' => "No exam room available with capacity for {$studentCount} students at {$startTime}-{$endTime} on {$date}"
+                'message' => "No exam room available with capacity for {$studentCount} students"
             ];
         }
 
-        // Sort by utilization (prefer venues with lowest current utilization)
         usort($suitableVenues, function($a, $b) {
             return $a['utilization'] <=> $b['utilization'];
         });
 
-        // Select the best venue (lowest utilization)
         $bestVenue = $suitableVenues[0];
-
-        \Log::info('✅ Venue assigned successfully', [
-            'venue' => $bestVenue['room']->name,
-            'location' => $bestVenue['room']->location,
-            'capacity' => $bestVenue['room']->capacity,
-            'utilization' => round($bestVenue['utilization'], 2) . '%',
-            'remaining_after' => $bestVenue['remaining_capacity'] - $studentCount
-        ]);
 
         return [
             'success' => true,
@@ -2087,17 +2062,13 @@ private function assignSmartVenue($studentCount, $date, $startTime, $endTime)
         ];
 
     } catch (\Exception $e) {
-        \Log::error('❌ Error in smart venue assignment', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-
         return [
             'success' => false,
             'message' => 'Error assigning venue: ' . $e->getMessage()
         ];
     }
 }
+
 
 // ============================================================
 // 1. UPDATE downloadPDF() METHOD (around line 700)
