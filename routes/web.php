@@ -501,8 +501,6 @@ Route::middleware(['auth'])->group(function () {
         });    
     });
 
-    // SCHOOL-SPECIFIC ROUTES (SCES, SBS, SLS)
-
  // ============================================
 // SCES SCHOOL ROUTES - CORRECTED
 // ============================================
