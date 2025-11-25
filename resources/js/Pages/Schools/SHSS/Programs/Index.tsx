@@ -6,7 +6,7 @@ import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { toast } from "react-hot-toast"
 import {
-  TrendingUp,
+  BookOpen,
   Plus,
   Search,
   Filter,
@@ -15,7 +15,6 @@ import {
   Eye,
   ChevronDown,
   ChevronUp,
-  BookOpen,
   Users,
   Phone,
   Mail,
@@ -27,7 +26,9 @@ import {
   Calendar,
   ClipboardList,
   Settings,
-  Briefcase
+  Globe,
+  Heart,
+  Brain
 } from "lucide-react"
 import { route } from 'ziggy-js';
 
@@ -105,7 +106,7 @@ interface ProgramFormData {
   sort_order: number
 }
 
-const SBSProgramsManagement: React.FC = () => {
+const SHSSProgramsManagement: React.FC = () => {
   
   const { programs, school, filters, can = { create: false, update: false, delete: false }, flash, errors, auth } = usePage<PageProps>().props
 
@@ -149,13 +150,12 @@ const SBSProgramsManagement: React.FC = () => {
   const [sortField, setSortField] = useState(filters.sort_field || 'sort_order')
   const [sortDirection, setSortDirection] = useState(filters.sort_direction || 'asc')
 
-  // 🔥 SBS-SPECIFIC: Business degree types (includes MBA)
+  // 🔥 SHSS-SPECIFIC: Humanities & Social Sciences degree types
   const degreeTypes = [
     { value: 'Certificate', label: 'Certificate' },
     { value: 'Diploma', label: 'Diploma' },
     { value: 'Bachelor', label: "Bachelor's Degree" },
     { value: 'Master', label: "Master's Degree" },
-    { value: 'MBA', label: 'Master of Business Administration' },
     { value: 'PhD', label: 'Doctoral Degree (PhD)' }
   ]
 
@@ -197,23 +197,22 @@ const SBSProgramsManagement: React.FC = () => {
     )
   }
 
-  // 🔥 SBS-SPECIFIC: Business degree badge with Briefcase icon
+  // 🔥 SHSS-SPECIFIC: Humanities degree badge with Brain icon
   const DegreeBadge: React.FC<{ degreeType: string }> = ({ degreeType }) => {
     const getBadgeColor = (type: string) => {
       switch (type) {
         case 'Certificate': return 'bg-yellow-500'
         case 'Diploma': return 'bg-orange-500'
-        case 'Bachelor': return 'bg-blue-500'
-        case 'Master': return 'bg-purple-500'
-        case 'MBA': return 'bg-red-500'
-        case 'PhD': return 'bg-indigo-500'
+        case 'Bachelor': return 'bg-purple-500'
+        case 'Master': return 'bg-violet-600'
+        case 'PhD': return 'bg-indigo-600'
         default: return 'bg-gray-500'
       }
     }
 
     return (
       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${getBadgeColor(degreeType)}`}>
-        <Briefcase className="w-3 h-3 mr-1" />
+        <Brain className="w-3 h-3 mr-1" />
         {degreeType}
       </span>
     )
@@ -264,8 +263,8 @@ const SBSProgramsManagement: React.FC = () => {
 
     if (confirm(`Are you sure you want to delete "${program.name}"? This action cannot be undone.`)) {
       setLoading(true)
-      // 🔥 FIXED: Using SBS route
-      router.delete(route('schools.sbs.programs.destroy', program.id), {
+      // 🔥 FIXED: Using SHSS route
+      router.delete(route('schools.shss.programs.destroy', program.id), {
         onSuccess: () => {
           toast.success('Program deleted successfully!')
         },
@@ -281,10 +280,10 @@ const SBSProgramsManagement: React.FC = () => {
     e.preventDefault()
     setLoading(true)
 
-    // 🔥 FIXED: Using SBS routes
+    // 🔥 FIXED: Using SHSS routes
     const url = selectedProgram 
-      ? route("schools.sbs.programs.update", { program: selectedProgram.id })
-      : route("schools.sbs.programs.store") 
+      ? route("schools.shss.programs.update", { program: selectedProgram.id })
+      : route("schools.shss.programs.store") 
 
     const method = selectedProgram ? "put" : "post"
 
@@ -312,8 +311,8 @@ const SBSProgramsManagement: React.FC = () => {
     params.set('sort_field', sortField)
     params.set('sort_direction', sortDirection)
     
-    // 🔥 FIXED: Using SBS route
-    router.get(`${route('schools.sbs.programs.index')}?${params.toString()}`)
+    // 🔥 FIXED: Using SHSS route
+    router.get(`${route('schools.shss.programs.index')}?${params.toString()}`)
   }
 
   const toggleRowExpansion = (programId: number) => {
@@ -336,8 +335,8 @@ const SBSProgramsManagement: React.FC = () => {
     <AuthenticatedLayout>
       <Head title={`${school.code} Programs Management`} />
       
-      {/* 🔥 SBS BRANDING: Amber/Orange gradient */}
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 py-8">
+      {/* 🔥 SHSS BRANDING: Purple/Violet gradient for humanities */}
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           {/* Header */}
@@ -346,15 +345,15 @@ const SBSProgramsManagement: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center mb-2">
-                    {/* 🔥 SBS ICON: TrendingUp for business */}
-                    <TrendingUp className="w-8 h-8 text-amber-600 mr-3" />
-                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-amber-700 to-orange-800 bg-clip-text text-transparent">
+                    {/* 🔥 SHSS ICON: Globe for global humanities perspective */}
+                    <Globe className="w-8 h-8 text-purple-600 mr-3" />
+                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-purple-700 to-violet-800 bg-clip-text text-transparent">
                       {school.name}
                     </h1>
                   </div>
-                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">Business Programs Management</h2>
+                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">Humanities & Social Sciences Programs</h2>
                   <p className="text-slate-600 text-lg">
-                    Manage business programs, degrees, and professional qualifications
+                    Manage humanities, social sciences, and interdisciplinary programs
                   </p>
                   <div className="flex items-center gap-4 mt-4">
                     <div className="text-sm text-slate-600">
@@ -375,8 +374,8 @@ const SBSProgramsManagement: React.FC = () => {
                   {can.create && !isClassTimetableOffice && (
                     <button
                       onClick={handleCreateProgram}
-                      // 🔥 SBS COLORS: Amber/Orange/Red gradient
-                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-amber-600 hover:via-orange-600 hover:to-red-600 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                      // 🔥 SHSS COLORS: Purple/Violet/Indigo gradient
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-purple-600 hover:via-violet-600 hover:to-indigo-600 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
                     >
                       <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
                       Create Program
@@ -395,10 +394,10 @@ const SBSProgramsManagement: React.FC = () => {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
                     type="text"
-                    placeholder="Search business programs..."
+                    placeholder="Search humanities & social sciences programs..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                   />
                 </div>
               </div>
@@ -406,7 +405,7 @@ const SBSProgramsManagement: React.FC = () => {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 >
                   <option value="all">All Status</option>
                   <option value="active">Active</option>
@@ -415,7 +414,7 @@ const SBSProgramsManagement: React.FC = () => {
                 <select
                   value={degreeFilter}
                   onChange={(e) => setDegreeFilter(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 >
                   <option value="all">All Degrees</option>
                   {degreeTypes.map((degree) => (
@@ -426,7 +425,7 @@ const SBSProgramsManagement: React.FC = () => {
                 </select>
                 <button
                   onClick={handleFilter}
-                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   <Filter className="w-5 h-5" />
                 </button>
@@ -478,11 +477,11 @@ const SBSProgramsManagement: React.FC = () => {
                                 <ChevronDown className="w-4 h-4" />
                               )}
                             </button>
-                            {/* 🔥 SBS ICON: TrendingUp */}
-                            <TrendingUp className="w-8 h-8 text-amber-500 mr-3" />
+                            {/* 🔥 SHSS ICON: Heart for humanistic studies */}
+                            <Heart className="w-8 h-8 text-purple-500 mr-3" />
                             <div>
                               <div className="text-sm font-medium text-slate-900">{program.name}</div>
-                              <div className="text-xs text-amber-600 font-semibold">{program.code}</div>
+                              <div className="text-xs text-purple-600 font-semibold">{program.code}</div>
                               {program.description && (
                                 <div className="text-xs text-slate-500 mt-1 max-w-xs truncate">
                                   {program.description}
@@ -525,7 +524,7 @@ const SBSProgramsManagement: React.FC = () => {
                         <td className="px-6 py-4 text-sm text-slate-700">
                           <div className="flex gap-4">
                             <div className="flex items-center">
-                              <BookOpen className="w-4 h-4 mr-1 text-amber-500" />
+                              <BookOpen className="w-4 h-4 mr-1 text-purple-500" />
                               <span className="font-medium">{program.units_count}</span>
                               <span className="text-xs text-gray-500 ml-1">units</span>
                             </div>
@@ -540,7 +539,7 @@ const SBSProgramsManagement: React.FC = () => {
                           <div className="flex items-center space-x-2">
                             <button
                               onClick={() => handleViewProgram(program)}
-                              className="text-amber-600 hover:text-amber-900 transition-colors p-1 rounded hover:bg-amber-50"
+                              className="text-purple-600 hover:text-purple-900 transition-colors p-1 rounded hover:bg-purple-50"
                               title="View details"
                             >
                               <Eye className="w-4 h-4" />
@@ -548,7 +547,7 @@ const SBSProgramsManagement: React.FC = () => {
                             {can.update && !isClassTimetableOffice && (
                               <button
                                 onClick={() => handleEditProgram(program)}
-                                className="text-orange-600 hover:text-orange-900 transition-colors p-1 rounded hover:bg-orange-50"
+                                className="text-violet-600 hover:text-violet-900 transition-colors p-1 rounded hover:bg-violet-50"
                                 title="Edit program"
                               >
                                 <Edit className="w-4 h-4" />
@@ -571,15 +570,15 @@ const SBSProgramsManagement: React.FC = () => {
                   {/* Expanded row content */}
                   {expandedRows.has(program.id) && (
                     <tr>
-                      {/* 🔥 SBS COLORS: Amber gradient background */}
-                      <td colSpan={6} className="px-6 py-6 bg-amber-50/50">
+                      {/* 🔥 SHSS COLORS: Purple gradient background */}
+                      <td colSpan={6} className="px-6 py-6 bg-purple-50/50">
                         <div className="space-y-6">
                           
                           {/* Program Management Section */}
                           {program.routes && (
                             <div className="mb-6">
                               <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
-                                <BookOpen className="w-5 h-5 mr-2 text-amber-600" />
+                                <BookOpen className="w-5 h-5 mr-2 text-purple-600" />
                                 Program Management
                               </h3>
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -633,7 +632,7 @@ const SBSProgramsManagement: React.FC = () => {
                                     className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
                                   >
                                     <div className="flex flex-col items-center text-center">
-                                      <TrendingUp className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <Heart className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
                                       <div className="text-xs font-bold text-white mb-1">Enrollments</div>
                                       <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
                                     </div>
@@ -681,21 +680,21 @@ const SBSProgramsManagement: React.FC = () => {
               
               {filteredPrograms.length === 0 && (
                 <div className="text-center py-12">
-                  <TrendingUp className="mx-auto h-12 w-12 text-gray-400" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No business programs found</h3>
+                  <Globe className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No programs found</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     {searchTerm || statusFilter !== 'all' || degreeFilter !== 'all'
                       ? 'Try adjusting your filters'
-                      : 'Get started by creating a new business program'
+                      : 'Get started by creating a new humanities program'
                     }
                   </p>
                   {can.create && !isClassTimetableOffice && (
                     <button
                       onClick={handleCreateProgram}
-                      className="mt-4 inline-flex items-center px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                      className="mt-4 inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Create Business Program
+                      Create Humanities Program
                     </button>
                   )}
                 </div>
@@ -707,10 +706,10 @@ const SBSProgramsManagement: React.FC = () => {
           {(isCreateModalOpen || isEditModalOpen) && !isClassTimetableOffice && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                {/* 🔥 SBS COLORS: Modal header */}
-                <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 p-6 rounded-t-2xl">
+                {/* 🔥 SHSS COLORS: Modal header */}
+                <div className="bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 p-6 rounded-t-2xl">
                   <h3 className="text-xl font-semibold text-white">
-                    {selectedProgram ? 'Edit Business Program' : 'Create New Business Program'}
+                    {selectedProgram ? 'Edit Humanities Program' : 'Create New Humanities Program'}
                   </h3>
                 </div>
 
@@ -724,8 +723,8 @@ const SBSProgramsManagement: React.FC = () => {
                         type="text"
                         value={formData.code}
                         onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                        placeholder="e.g., BBA, MBA, BCom"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        placeholder="e.g., BA-PSY, BA-SOC"
                         maxLength={20}
                         required
                       />
@@ -738,7 +737,7 @@ const SBSProgramsManagement: React.FC = () => {
                         type="number"
                         value={formData.sort_order}
                         onChange={(e) => setFormData(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                         min={0}
                       />
                     </div>
@@ -752,8 +751,8 @@ const SBSProgramsManagement: React.FC = () => {
                       type="text"
                       value={formData.name}
                       onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                      placeholder="e.g., Business Administration, Finance, Marketing"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      placeholder="e.g., Psychology, Sociology, International Relations"
                       required
                     />
                   </div>
@@ -766,7 +765,7 @@ const SBSProgramsManagement: React.FC = () => {
                       <select
                         value={formData.degree_type}
                         onChange={(e) => setFormData(prev => ({ ...prev, degree_type: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                         required
                       >
                         {degreeTypes.map((degree) => (
@@ -787,7 +786,7 @@ const SBSProgramsManagement: React.FC = () => {
                         max="10"
                         value={formData.duration_years}
                         onChange={(e) => setFormData(prev => ({ ...prev, duration_years: parseFloat(e.target.value) || 1 }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                         required
                       />
                     </div>
@@ -800,9 +799,9 @@ const SBSProgramsManagement: React.FC = () => {
                     <textarea
                       value={formData.description}
                       onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                       rows={3}
-                      placeholder="Brief description of the business program..."
+                      placeholder="Brief description of the program..."
                     />
                   </div>
 
@@ -815,8 +814,8 @@ const SBSProgramsManagement: React.FC = () => {
                         type="email"
                         value={formData.contact_email}
                         onChange={(e) => setFormData(prev => ({ ...prev, contact_email: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                        placeholder="business@strathmore.edu"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        placeholder="humanities@strathmore.edu"
                       />
                     </div>
                     <div>
@@ -827,7 +826,7 @@ const SBSProgramsManagement: React.FC = () => {
                         type="tel"
                         value={formData.contact_phone}
                         onChange={(e) => setFormData(prev => ({ ...prev, contact_phone: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                         placeholder="+254 123 456 789"
                       />
                     </div>
@@ -839,7 +838,7 @@ const SBSProgramsManagement: React.FC = () => {
                       id="is_active"
                       checked={formData.is_active}
                       onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
-                      className="w-4 h-4 text-amber-600 bg-gray-100 border-gray-300 rounded focus:ring-amber-500 focus:ring-2"
+                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
                     />
                     <label htmlFor="is_active" className="ml-2 text-sm font-medium text-gray-700">
                       Program is active
@@ -861,7 +860,7 @@ const SBSProgramsManagement: React.FC = () => {
                     <button
                       type="submit"
                       disabled={loading}
-                      className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-6 py-3 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-lg hover:from-purple-600 hover:to-violet-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {loading ? 'Processing...' : selectedProgram ? 'Update Program' : 'Create Program'}
                     </button>
@@ -875,10 +874,10 @@ const SBSProgramsManagement: React.FC = () => {
           {isViewModalOpen && selectedProgram && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-                {/* 🔥 SBS COLORS: View modal header */}
-                <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 p-6 rounded-t-2xl">
+                {/* 🔥 SHSS COLORS: View modal header */}
+                <div className="bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">Business Program Details</h3>
+                    <h3 className="text-xl font-semibold text-white">Humanities Program Details</h3>
                     <button
                       onClick={() => setIsViewModalOpen(false)}
                       className="text-white hover:text-gray-200 transition-colors"
@@ -891,10 +890,10 @@ const SBSProgramsManagement: React.FC = () => {
                 <div className="p-6 space-y-6">
                   {/* Header Info */}
                   <div className="flex items-start space-x-4">
-                    <TrendingUp className="w-12 h-12 text-amber-600 flex-shrink-0" />
+                    <Globe className="w-12 h-12 text-purple-600 flex-shrink-0" />
                     <div className="flex-1">
                       <h4 className="text-2xl font-bold text-gray-900">{selectedProgram.name}</h4>
-                      <p className="text-amber-600 font-semibold mt-1">{selectedProgram.code}</p>
+                      <p className="text-purple-600 font-semibold mt-1">{selectedProgram.code}</p>
                       {selectedProgram.description && (
                         <p className="text-gray-600 mt-2">{selectedProgram.description}</p>
                       )}
@@ -956,7 +955,7 @@ const SBSProgramsManagement: React.FC = () => {
                         <div>
                           <span className="text-sm text-gray-500">Total Units</span>
                           <p className="font-medium text-gray-900 flex items-center">
-                            <BookOpen className="w-4 h-4 mr-2 text-amber-500" />
+                            <BookOpen className="w-4 h-4 mr-2 text-purple-500" />
                             {selectedProgram.units_count} units
                           </p>
                         </div>
@@ -994,7 +993,7 @@ const SBSProgramsManagement: React.FC = () => {
                         setIsViewModalOpen(false)
                         handleEditProgram(selectedProgram)
                       }}
-                      className="px-6 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
+                      className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
                     >
                       Edit Program
                     </button>
@@ -1015,4 +1014,4 @@ const SBSProgramsManagement: React.FC = () => {
   )
 }
 
-export default SBSProgramsManagement
+export default SHSSProgramsManagement

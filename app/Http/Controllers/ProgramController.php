@@ -257,13 +257,27 @@ public function index(Request $request, $schoolCode)
         $user = auth()->user();
         $schoolCode = strtoupper($schoolCode);
         
+        Log::info('=== PROGRAM STORE CALLED ===', [
+            'school_code_param' => $schoolCode,
+            'request_data' => $request->all(),
+            'user_id' => $user->id,
+            'url' => $request->fullUrl()
+        ]);
+        
         if (!$this->hasSchoolPermission($user, $schoolCode, 'create')) {
             abort(403, "Unauthorized to create {$schoolCode} programs.");
         }
 
         $school = School::where('code', $schoolCode)->first();
         
+        Log::info('School lookup in store', [
+            'looking_for' => $schoolCode,
+            'school_found' => $school ? true : false,
+            'school_data' => $school ? $school->toArray() : null
+        ]);
+        
         if (!$school) {
+            Log::error("School not found in store", ['school_code' => $schoolCode]);
             return back()->withErrors(['error' => "{$schoolCode} school not found."]);
         }
 
@@ -288,25 +302,63 @@ public function index(Request $request, $schoolCode)
                 'sort_order' => 'nullable|integer|min:0',
             ]);
 
-            // Set school_id
+            // 🔥 CRITICAL: Force school_id assignment
             $validated['school_id'] = $school->id;
+
+            Log::info('Creating program with validated data', [
+                'validated' => $validated,
+                'school_id' => $school->id,
+                'school_code' => $schoolCode
+            ]);
 
             // Set default sort order if not provided
             if (!isset($validated['sort_order'])) {
                 $validated['sort_order'] = Program::where('school_id', $school->id)->max('sort_order') + 1;
             }
 
-            $program = Program::create($validated);
+            // 🔥 EXPLICIT CREATION - Force school_id
+            $program = new Program();
+            $program->fill($validated);
+            $program->school_id = $school->id;  // Explicit set
+            $program->save();
 
-            Log::info("{$schoolCode} Program created", [
+            // 🔥 DOUBLE-CHECK: Verify school_id after save
+            if ($program->school_id !== $school->id) {
+                Log::critical('SCHOOL MISMATCH DETECTED AFTER SAVE', [
+                    'expected_school_id' => $school->id,
+                    'actual_school_id' => $program->school_id,
+                    'expected_school_code' => $schoolCode,
+                    'program_id' => $program->id
+                ]);
+                
+                // Force update if mismatch
+                $program->update(['school_id' => $school->id]);
+                $program->refresh();
+                
+                Log::info('Forced school_id correction', [
+                    'program_id' => $program->id,
+                    'corrected_school_id' => $program->school_id
+                ]);
+            }
+
+            Log::info("{$schoolCode} Program created successfully", [
                 'program_id' => $program->id,
                 'code' => $program->code,
                 'name' => $program->name,
+                'school_id' => $program->school_id,
                 'school_code' => $schoolCode,
                 'created_by' => $user->id
             ]);
 
-            $routeName = $schoolCode === 'SCES' ? 'schools.sces.programs.index' : 'schools.sbs.programs.index';
+            // 🔥 FIXED: Use dynamic route name based on actual school code
+            $schoolCodeLower = strtolower($schoolCode);
+            $routeName = "schools.{$schoolCodeLower}.programs.index";
+            
+            Log::info('Redirecting to route', [
+                'route_name' => $routeName,
+                'school_code' => $schoolCode
+            ]);
+            
             return redirect()->route($routeName)
                 ->with('success', 'Program created successfully');
 
@@ -315,6 +367,7 @@ public function index(Request $request, $schoolCode)
                 'data' => $request->all(),
                 'school_code' => $schoolCode,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'user_id' => $user->id
             ]);
 
