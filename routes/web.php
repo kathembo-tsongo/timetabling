@@ -63,37 +63,40 @@ Route::middleware(['auth'])->group(function () {
 
     // MAIN DASHBOARD
     Route::get('/dashboard', function () {
-        $user = auth()->user();
-        
-        if ($user->hasRole('Admin')) {
-            return redirect()->route('admin.dashboard');
-        }
+    $user = auth()->user();
+    
+    if ($user->hasRole('Admin')) {
+        return redirect()->route('admin.dashboard');
+    }
 
-        if ($user->hasRole('Class Timetable office')) {
-            return redirect()->route('classtimetables.dashboard');
+    if ($user->hasRole('Class Timetable office')) {
+        return redirect()->route('classtimetables.dashboard');
+    }
+    
+    if ($user->hasRole('Exam Office')) {
+        return redirect()->route('examoffice.dashboard');
+    }
+    
+    // Faculty Admin redirect
+    $roles = $user->getRoleNames();
+    foreach ($roles as $role) {
+        if (str_starts_with($role, 'Faculty Admin - ')) {
+            return redirect()->route('schoolAdmin.dashboard');
         }
-        
-        if ($user->hasRole('Exam Office')) {
-            return redirect()->route('examoffice.dashboard');
-        }
-        
-        $roles = $user->getRoleNames();
-        foreach ($roles as $role) {
-            if (str_starts_with($role, 'Faculty Admin - ')) {
-                return redirect()->route('schoolAdmin.dashboard');
-            }
-        }
-        
-        if ($user->hasRole('Lecturer')) {
-            return redirect()->route('lecturer.dashboard');
-        }
-        
-        if ($user->hasRole('Student')) {
-            return redirect()->route('student.dashboard');
-        }
-        
-        return Inertia::render('Dashboard');
-    })->name('dashboard');
+    }
+    
+    if ($user->hasRole('Lecturer')) {
+        return redirect()->route('lecturer.dashboard');
+    }
+    
+    if ($user->hasRole('Student')) {
+        return redirect()->route('student.dashboard');
+    }
+    
+    // No Dashboard.tsx fallback - show error instead
+    abort(403, 'No dashboard available for your role.');
+    
+})->name('dashboard');
 
    // ============================================
     // GLOBAL API ROUTES
@@ -238,34 +241,74 @@ Route::middleware(['auth'])->group(function () {
             )->middleware(['permission:view-exam-timetables']);
         });
     });
-    // SCHOOL ADMIN DASHBOARD
+
     Route::prefix('SchoolAdmin')->group(function() {
-        Route::get('/dashboard', function() {
-            $user = auth()->user();
-            $roles = $user->getRoleNames();
-            
+    Route::get('/dashboard', function() {
+        $user = auth()->user();
+        $roles = $user->getRoleNames();
+        
+        \Log::info('SchoolAdmin dashboard access attempt', [
+            'user_email' => $user->email,
+            'roles' => $roles->toArray()
+        ]);
+        
+        $schoolCode = null;
+        
+        // Check for Faculty Admin roles (NEW format: Faculty Admin - SHSS)
+        foreach ($roles as $role) {
+            if (str_starts_with($role, 'Faculty Admin - ')) {
+                $schoolCode = str_replace('Faculty Admin - ', '', $role);
+                \Log::info('Faculty Admin role detected', ['school_code' => $schoolCode]);
+                break;
+            }
+        }
+        
+        // Also check for ExamOff roles (OLD format: ExamOff- SHSS)
+        if (!$schoolCode) {
             foreach ($roles as $role) {
-                if (str_starts_with($role, 'Faculty Admin - ')) {
-                    $schoolCode = str_replace('Faculty Admin - ', '', $role);
-                    
-                    switch($schoolCode) {
-                        case 'SCES':
-                            return app(DashboardController::class)->scesDashboard();
-                        case 'SBS':
-                            return app(DashboardController::class)->sbsDashboard();
-                        case 'SLS':
-                            return app(DashboardController::class)->slsDashboard();
-                        default:
-                            abort(403, 'Unknown school: ' . $schoolCode);
-                    }
+                if (str_starts_with($role, 'ExamOff- ')) {
+                    $schoolCode = str_replace('ExamOff- ', '', $role);
+                    \Log::info('ExamOff role detected', ['school_code' => $schoolCode]);
+                    break;
                 }
             }
+        }
+        
+        // If we found a school code, route to appropriate dashboard
+        if ($schoolCode) {
+            \Log::info('Routing to school dashboard', ['school_code' => $schoolCode]);
             
-            abort(403, 'Unauthorized access to school admin dashboard.');
-        })
-        ->middleware(['auth', 'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS'])
-        ->name('schoolAdmin.dashboard');
-    });
+            switch($schoolCode) {
+                case 'SCES':
+                    return app(\App\Http\Controllers\DashboardController::class)->scesDashboard();
+                case 'SBS':
+                    return app(\App\Http\Controllers\DashboardController::class)->sbsDashboard();
+                case 'SLS':
+                    return app(\App\Http\Controllers\DashboardController::class)->slsDashboard();
+                case 'SHSS':
+                    return app(\App\Http\Controllers\DashboardController::class)->shssDashboard();
+                case 'SMS':
+                    return app(\App\Http\Controllers\DashboardController::class)->smsDashboard();
+                case 'STH':
+                    return app(\App\Http\Controllers\DashboardController::class)->sthDashboard();
+                case 'SI':
+                    return app(\App\Http\Controllers\DashboardController::class)->siDashboard();
+                default:
+                    \Log::error('Unknown school code', ['school_code' => $schoolCode]);
+                    abort(403, 'Unknown school: ' . $schoolCode);
+            }
+        }
+        
+        \Log::error('No valid school role found', ['roles' => $roles->toArray()]);
+        abort(403, 'You do not have permission to access any school admin dashboard.');
+    })
+    ->middleware([
+        'auth', 
+        'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS|Faculty Admin - SHSS|Faculty Admin - SMS|Faculty Admin - STH|Faculty Admin - SI|ExamOff- SCES|ExamOff- SBS|ExamOff- SLS|ExamOff- SHSS|ExamOff- SMS|ExamOff- STH|ExamOff- SI|Admin'
+    ])
+    ->name('schoolAdmin.dashboard');
+});
+
 
     // ADMIN ROUTES - PERMISSION-BASED
     Route::prefix('admin')->group(function () {
@@ -342,14 +385,17 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/semesters/bulk-deactivate', [SemesterController::class, 'bulkDeactivate'])->middleware(['permission:edit-semesters'])->name('admin.semesters.bulk-deactivate');
         Route::post('/semesters/bulk-delete', [SemesterController::class, 'bulkDelete'])->middleware(['permission:delete-semesters'])->name('admin.semesters.bulk-delete');
 
-        
-        Route::get('/schools/create', [SchoolController::class, 'create'])->middleware(['permission:create-schools'])->name('admin.schools.create');
-        Route::get('/schools/{school}/edit', [SchoolController::class, 'edit'])->middleware(['permission:edit-schools'])->name('admin.schools.edit');
-        Route::post('/schools', [SchoolController::class, 'store'])->middleware(['permission:create-schools'])->name('admin.schools.store');
-        Route::put('/schools/{school}', [SchoolController::class, 'update'])->middleware(['permission:edit-schools'])->name('admin.schools.update');
-        Route::patch('/schools/{school}', [SchoolController::class, 'update'])->middleware(['permission:edit-schools'])->name('admin.schools.patch');
-        Route::delete('/schools/{school}', [SchoolController::class, 'destroy'])->middleware(['permission:delete-schools'])->name('admin.schools.destroy');
-        
+        // Schools Management - PERMISSION-BASED
+        Route::middleware(['permission:view-schools'])->group(function () {
+            Route::get('/schools', [SchoolController::class, 'index'])->name('admin.schools.index');  // ← THIS WAS MISSING!
+            Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('admin.schools.show');
+        });
+            Route::get('/schools/create', [SchoolController::class, 'create'])->middleware(['permission:create-schools'])->name('admin.schools.create');
+            Route::get('/schools/{school}/edit', [SchoolController::class, 'edit'])->middleware(['permission:edit-schools'])->name('admin.schools.edit');
+            Route::post('/schools', [SchoolController::class, 'store'])->middleware(['permission:create-schools'])->name('admin.schools.store');
+            Route::put('/schools/{school}', [SchoolController::class, 'update'])->middleware(['permission:edit-schools'])->name('admin.schools.update');
+            Route::patch('/schools/{school}', [SchoolController::class, 'update'])->middleware(['permission:edit-schools'])->name('admin.schools.patch');
+            Route::delete('/schools/{school}', [SchoolController::class, 'destroy'])->middleware(['permission:delete-schools'])->name('admin.schools.destroy');
         // Programs - PERMISSION-BASED
         Route::middleware(['permission:view-programs'])->group(function () {
             Route::get('/programs', [ProgramController::class, 'index'])->name('admin.programs.index');

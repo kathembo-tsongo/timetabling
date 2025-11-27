@@ -13,7 +13,7 @@ class FacultySeeder extends Seeder
             ['name' => 'SCES'], // School of Computer and Engineering Sciences
             ['name' => 'SBS'],  // School of Business Studies
             ['name' => 'SL'],   // School of Law
-            ['name' => 'SM'],   // School of Medicine
+            ['name' => 'SMS'],   // School of
             ['name' => 'TM'],   // Technical Management
         ];
 

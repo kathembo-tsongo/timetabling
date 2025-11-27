@@ -38,7 +38,7 @@ class DashboardController extends Controller
             'can_view_admin_dashboard' => $user->can('view admin dashboard'),
         ]);
 
-        // Check for Faculty Admin roles first (school-specific)
+        // ✅ Check for Faculty Admin roles first (school-specific) - ALL 7 SCHOOLS
         $roles = $user->getRoleNames();
         foreach ($roles as $role) {
             if (str_starts_with($role, 'Faculty Admin - ')) {
@@ -46,7 +46,11 @@ class DashboardController extends Controller
                 $schoolRoute = match($faculty) {
                     'SCES' => 'schoolAdmin.dashboard',
                     'SBS' => 'schoolAdmin.dashboard',
-                    'SET' => 'schoolAdmin.dashboard',
+                    'SLS' => 'schoolAdmin.dashboard',
+                    'SHSS' => 'schoolAdmin.dashboard',
+                    'SMS' => 'schoolAdmin.dashboard',
+                    'STH' => 'schoolAdmin.dashboard',
+                    'SI' => 'schoolAdmin.dashboard',
                     default => null
                 };
                 
@@ -979,176 +983,377 @@ public function sbsDashboard()
     return $this->schoolDashboardByCode('SBS', 'School of Business Studies');
 }
 
+public function slsDashboard()
+    {
+        $user = auth()->user();
+        
+        if (!$user->can('view-faculty-dashboard-sls') && !$user->hasRole('Faculty Admin - SLS')) {
+            abort(403, 'Unauthorized access to SLS faculty dashboard.');
+        }
+
+        return $this->schoolDashboardByCode('SLS', 'School of Law Studies');
+    }
+
+    /**
+     * ✅ NEW: SHSS Dashboard
+     */
+    public function shssDashboard()
+    {
+        $user = auth()->user();
+        
+        if (!$user->can('view-faculty-dashboard-shss') && !$user->hasRole('Faculty Admin - SHSS')) {
+            abort(403, 'Unauthorized access to SHSS faculty dashboard.');
+        }
+
+        return $this->schoolDashboardByCode('SHSS', 'School of Humanities & Social Sciences');
+    }
+
+    /**
+     * ✅ NEW: SMS Dashboard
+     */
+    public function smsDashboard()
+    {
+        $user = auth()->user();
+        
+        if (!$user->can('view-faculty-dashboard-sms') && !$user->hasRole('Faculty Admin - SMS')) {
+            abort(403, 'Unauthorized access to SMS faculty dashboard.');
+        }
+
+        return $this->schoolDashboardByCode('SMS', 'Strathmore Medical School');
+    }
+
+    /**
+     * ✅ NEW: STH Dashboard
+     */
+    public function sthDashboard()
+    {
+        $user = auth()->user();
+        
+        if (!$user->can('view-faculty-dashboard-sth') && !$user->hasRole('Faculty Admin - STH')) {
+            abort(403, 'Unauthorized access to STH faculty dashboard.');
+        }
+
+        return $this->schoolDashboardByCode('STH', 'School of Tourism & Hospitality');
+    }
+
+    /**
+     * ✅ NEW: SI Dashboard
+     */
+    public function siDashboard()
+    {
+        $user = auth()->user();
+        
+        if (!$user->can('view-faculty-dashboard-si') && !$user->hasRole('Faculty Admin - SI')) {
+            abort(403, 'Unauthorized access to SI faculty dashboard.');
+        }
+
+        return $this->schoolDashboardByCode('SI', 'Strathmore Institute');
+    }
+
+
+
+   
 /**
  * Generic School Dashboard Method - Reusable for all schools
  */
 private function schoolDashboardByCode($schoolCode, $schoolName)
-{
-    $user = auth()->user();
-    
-    $school = School::where('code', $schoolCode)->first();
-    
-    if (!$school) {
-        abort(404, $schoolCode . ' school not found');
-    }
+    {
+        $user = auth()->user();
+        
+        $school = School::where('code', $schoolCode)->first();
+        
+        if (!$school) {
+            abort(404, $schoolCode . ' school not found');
+        }
 
-    $currentSemester = Semester::where('is_active', true)->first();
-    if (!$currentSemester) {
-        $currentSemester = Semester::latest()->first();
-    }
+        $currentSemester = Semester::where('is_active', true)->first();
+        if (!$currentSemester) {
+            $currentSemester = Semester::latest()->first();
+        }
 
-    try {
-        // Get programs
-        $programs = Program::where('school_id', $school->id)->get();
-        $programIds = $programs->pluck('id')->toArray();
+        try {
+            // Get programs
+            $programs = Program::where('school_id', $school->id)->get();
+            $programIds = $programs->pluck('id')->toArray();
 
-        // Count from users table by school code
-        $stats = [
-            'total_students' => User::whereHas('roles', function($query) {
-                    $query->where('name', 'Student');
-                })
-                ->where('schools', $schoolCode)
-                ->count(),
-            
-            'total_lecturers' => User::whereHas('roles', function($query) {
-                    $query->where('name', 'Lecturer');
-                })
-                ->where('schools', $schoolCode)
-                ->count(),
-            
-            'total_units' => Unit::whereIn('program_id', $programIds)
-                ->where('is_active', 1)
-                ->count(),
-            
-            'active_enrollments' => $currentSemester ? Enrollment::where('semester_id', $currentSemester->id)
-                ->whereHas('unit', function($query) use ($programIds) {
-                    $query->whereIn('program_id', $programIds);
-                })
-                ->where('status', 'enrolled')
-                ->count() : 0,
-        ];
+            Log::info('School Dashboard Loading', [
+                'school_code' => $schoolCode,
+                'school_id' => $school->id,
+                'program_ids' => $programIds
+            ]);
 
-        // Get programs data
-        $programsData = [];
-        foreach ($programs as $program) {
-            $programsData[] = [
-                'id' => $program->id,
-                'name' => $program->name,
-                'code' => $program->code,
-                'degree' => $program->degree_type ?? 'Bachelor',
-                'duration' => $program->duration ?? 4,
-                'totalUnits' => Unit::where('program_id', $program->id)->where('is_active', 1)->count(),
-                'enrolledStudents' => User::whereHas('roles', function($query) {
+            // Count from users table by school code
+            $stats = [
+                'total_students' => User::whereHas('roles', function($query) {
                         $query->where('name', 'Student');
                     })
                     ->where('schools', $schoolCode)
-                    ->where('programs', $program->code)
                     ->count(),
-                'capacity' => $program->capacity ?? 100,
-                'growth' => 0,
-                'colorClass' => $this->getProgramColorClass($program->code),
+                
+                'total_lecturers' => User::whereHas('roles', function($query) {
+                        $query->where('name', 'Lecturer');
+                    })
+                    ->where('schools', $schoolCode)
+                    ->count(),
+                
+                'total_units' => Unit::whereIn('program_id', $programIds)
+                    ->where('is_active', 1)
+                    ->count(),
+                
+                'active_enrollments' => $currentSemester ? Enrollment::where('semester_id', $currentSemester->id)
+                    ->whereHas('unit', function($query) use ($programIds) {
+                        $query->whereIn('program_id', $programIds);
+                    })
+                    ->where('status', 'enrolled')
+                    ->count() : 0,
             ];
+
+            Log::info('School stats calculated', [
+                'school' => $schoolCode,
+                'students' => $stats['total_students'],
+                'lecturers' => $stats['total_lecturers'],
+                'units' => $stats['total_units'],
+                'enrollments' => $stats['active_enrollments']
+            ]);
+
+            // Get programs data
+            $programsData = [];
+            foreach ($programs as $program) {
+                $programCode = $program->code;
+                
+                $unitsCount = Unit::where('program_id', $program->id)
+                    ->where('is_active', 1)
+                    ->count();
+
+                $enrolledStudents = User::whereHas('roles', function($query) {
+                        $query->where('name', 'Student');
+                    })
+                    ->where('schools', $schoolCode)
+                    ->where('programs', $programCode)
+                    ->count();
+
+                $lecturersCount = User::whereHas('roles', function($query) {
+                        $query->where('name', 'Lecturer');
+                    })
+                    ->where('schools', $schoolCode)
+                    ->where('programs', $programCode)
+                    ->count();
+
+                $programsData[] = [
+                    'id' => $program->id,
+                    'name' => $program->name,
+                    'code' => $program->code,
+                    'degree' => $program->degree_type ?? 'Bachelor',
+                    'duration' => $program->duration ?? 4,
+                    'totalUnits' => $unitsCount,
+                    'enrolledStudents' => $enrolledStudents,
+                    'lecturers' => $lecturersCount,
+                    'capacity' => $program->capacity ?? 100,
+                    'growth' => 0,
+                    'colorClass' => $this->getProgramColorClass($program->code),
+                ];
+
+                Log::info('Program data compiled', [
+                    'school' => $schoolCode,
+                    'program' => $programCode,
+                    'students' => $enrolledStudents,
+                    'lecturers' => $lecturersCount,
+                    'units' => $unitsCount
+                ]);
+            }
+
+            // Get recent activities
+            $recentActivities = [];
+            $enrollments = Enrollment::whereHas('unit', function($query) use ($programIds) {
+                    $query->whereIn('program_id', $programIds);
+                })
+                ->with(['unit', 'student'])
+                ->orderBy('created_at', 'desc')
+                ->limit(10)
+                ->get();
+
+            foreach ($enrollments as $enrollment) {
+                $studentName = $enrollment->student 
+                    ? trim(($enrollment->student->first_name ?? '') . ' ' . ($enrollment->student->last_name ?? ''))
+                    : ($enrollment->student_code ?? 'Student');
+
+                if (empty($studentName) || $studentName === ' ') {
+                    $studentName = $enrollment->student_code ?? 'Student';
+                }
+
+                $unitName = $enrollment->unit ? ($enrollment->unit->name ?? $enrollment->unit->code ?? 'Unit') : 'Unit';
+
+                $recentActivities[] = [
+                    'id' => $enrollment->id,
+                    'type' => 'enrollment',
+                    'message' => $studentName . ' enrolled in ' . $unitName,
+                    'description' => 'Student enrollment activity',
+                    'time' => $enrollment->created_at->diffForHumans(),
+                    'created_at' => $enrollment->created_at->format('Y-m-d H:i:s'),
+                ];
+            }
+
+            Log::info('School Dashboard Ready', [
+                'school' => $schoolCode,
+                'programs_count' => count($programsData),
+                'activities_count' => count($recentActivities)
+            ]);
+
+            return Inertia::render('SchoolAdmin/Dashboard', [
+                'schoolName' => $schoolName,
+                'schoolCode' => $schoolCode,
+                'currentSemester' => $currentSemester ? [
+                    'id' => $currentSemester->id,
+                    'name' => $currentSemester->name,
+                    'is_active' => (bool)$currentSemester->is_active,
+                ] : null,
+                'stats' => [
+                    'totalStudents' => $stats['total_students'],
+                    'studentsTrend' => '0%',
+                    'activePrograms' => count($programsData),
+                    'programsTrend' => '0%',
+                    'totalUnits' => $stats['total_units'],
+                    'unitsTrend' => '0%',
+                    'totalLecturers' => $stats['total_lecturers'],
+                    'lecturersTrend' => '0%',
+                    'activeEnrollments' => $stats['active_enrollments'],
+                    'enrollmentsTrend' => '0%',
+                ],
+                'programs' => $programsData,
+                'recentActivities' => $recentActivities,
+                'upcomingEvents' => [],
+                'pendingApprovals' => [],
+                'userPermissions' => $user->getAllPermissions()->pluck('name')->toArray(),
+                'userRoles' => $user->getRoleNames()->toArray(),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error("Error in $schoolCode dashboard", [
+                'school' => $schoolCode,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return Inertia::render('SchoolAdmin/Dashboard', [
+                'schoolName' => $schoolName,
+                'schoolCode' => $schoolCode,
+                'currentSemester' => null,
+                'stats' => [
+                    'totalStudents' => 0,
+                    'studentsTrend' => '0%',
+                    'activePrograms' => 0,
+                    'programsTrend' => '0%',
+                    'totalUnits' => 0,
+                    'unitsTrend' => '0%',
+                    'totalLecturers' => 0,
+                    'lecturersTrend' => '0%',
+                ],
+                'programs' => [],
+                'recentActivities' => [],
+                'upcomingEvents' => [],
+                'pendingApprovals' => [],
+                'userPermissions' => [],
+                'userRoles' => [],
+                'error' => $e->getMessage()
+            ]);
         }
-
-        // Get recent activities
-        $recentActivities = [];
-        $enrollments = Enrollment::whereHas('unit', function($query) use ($programIds) {
-                $query->whereIn('program_id', $programIds);
-            })
-            ->with(['unit', 'student'])
-            ->orderBy('created_at', 'desc')
-            ->limit(10)
-            ->get();
-
-        foreach ($enrollments as $enrollment) {
-            $studentName = $enrollment->student 
-                ? trim(($enrollment->student->first_name ?? '') . ' ' . ($enrollment->student->last_name ?? ''))
-                : ($enrollment->student_code ?? 'Student');
-
-            $unitName = $enrollment->unit ? ($enrollment->unit->name ?? $enrollment->unit->code ?? 'Unit') : 'Unit';
-
-            $recentActivities[] = [
-                'id' => $enrollment->id,
-                'type' => 'enrollment',
-                'message' => $studentName . ' enrolled in ' . $unitName,
-                'time' => $enrollment->created_at->diffForHumans(),
-                'created_at' => $enrollment->created_at->format('Y-m-d H:i:s'),
-            ];
-        }
-
-        return Inertia::render('SchoolAdmin/Dashboard', [
-            'schoolName' => $schoolName,
-            'schoolCode' => $schoolCode,
-            'currentSemester' => $currentSemester ? [
-                'id' => $currentSemester->id,
-                'name' => $currentSemester->name,
-                'is_active' => (bool)$currentSemester->is_active,
-            ] : null,
-            'stats' => [
-                'totalStudents' => $stats['total_students'],
-                'studentsTrend' => '0%',
-                'activePrograms' => count($programsData),
-                'programsTrend' => '0%',
-                'totalUnits' => $stats['total_units'],
-                'unitsTrend' => '0%',
-                'totalLecturers' => $stats['total_lecturers'],
-                'lecturersTrend' => '0%',
-            ],
-            'programs' => $programsData,
-            'recentActivities' => $recentActivities,
-            'upcomingEvents' => [],
-            'pendingApprovals' => [],
-            'userPermissions' => $user->getAllPermissions()->pluck('name')->toArray(),
-            'userRoles' => $user->getRoleNames()->toArray(),
-        ]);
-
-    } catch (\Exception $e) {
-        Log::error("Error in $schoolCode dashboard", [
-            'error' => $e->getMessage()
-        ]);
-
-        return Inertia::render('SchoolAdmin/Dashboard', [
-            'schoolName' => $schoolName,
-            'schoolCode' => $schoolCode,
-            'currentSemester' => null,
-            'stats' => [
-                'totalStudents' => 0,
-                'studentsTrend' => '0%',
-                'activePrograms' => 0,
-                'programsTrend' => '0%',
-                'totalUnits' => 0,
-                'unitsTrend' => '0%',
-                'totalLecturers' => 0,
-                'lecturersTrend' => '0%',
-            ],
-            'programs' => [],
-            'recentActivities' => [],
-            'upcomingEvents' => [],
-            'pendingApprovals' => [],
-            'userPermissions' => [],
-            'userRoles' => [],
-            'error' => $e->getMessage()
-        ]);
     }
-}
 
 /**
  * Helper: Get program color class
  */
 private function getProgramColorClass($code)
-{
-    $colors = [
-        'BBIT' => 'bg-blue-500',
-        'ICS' => 'bg-purple-500',
-        'SEEE' => 'bg-green-500',
-        'BCS' => 'bg-indigo-500',
-        'SE' => 'bg-pink-500',
-        'BCOM' => 'bg-orange-500',
-        'BA' => 'bg-yellow-500',
-    ];
+    {
+        $colors = [
+            // SCES Programs
+            'BBIT' => 'bg-blue-500',
+            'ICS' => 'bg-purple-500',
+            'SEEE' => 'bg-green-500',
+            'BCS' => 'bg-indigo-500',
+            'SE' => 'bg-pink-500',
+            // SBS Programs
+            'BCOM' => 'bg-orange-500',
+            'BA' => 'bg-yellow-500',
+            'MBA' => 'bg-red-500',
+            'BHRM' => 'bg-amber-500',
+            // SLS Programs
+            'LLB' => 'bg-indigo-600',
+            'LLM' => 'bg-indigo-700',
+            'PhD-Law' => 'bg-indigo-900',
+            // SHSS Programs
+            'BSocSci' => 'bg-purple-600',
+            'BA-Psych' => 'bg-violet-500',
+            'MA-Dev' => 'bg-purple-700',
+            // SMS Programs
+            'MBCHB' => 'bg-red-600',
+            'BNurs' => 'bg-pink-600',
+            'MSc-ClinMed' => 'bg-rose-600',
+            // STH Programs
+            'BTourism' => 'bg-teal-500',
+            'BHosp' => 'bg-emerald-500',
+            'MTourism' => 'bg-teal-700',
+            // SI Programs
+            'CERT-PM' => 'bg-orange-400',
+            'DIP-IT' => 'bg-amber-400',
+            'CERT-BusAnal' => 'bg-yellow-500',
+        ];
 
-    return $colors[$code] ?? 'bg-gray-500';
-}
+        return $colors[$code] ?? 'bg-gray-500';
+    }
+
+    /**
+     * ✅ UPDATED: Get user dashboard based on role (API endpoint) - ALL 7 SCHOOLS
+     */
+    public function getUserDashboard(Request $request)
+    {
+        $user = $request->user();
+        $dashboardRoute = 'dashboard';
+
+        // Check for Faculty Admin roles first (school-specific) - ALL 7 SCHOOLS
+        $roles = $user->getRoleNames();
+        foreach ($roles as $role) {
+            if (str_starts_with($role, 'Faculty Admin - ')) {
+                $faculty = str_replace('Faculty Admin - ', '', $role);
+                $schoolRoute = match($faculty) {
+                    'SCES' => 'faculty.dashboard.sces',
+                    'SBS' => 'faculty.dashboard.sbs',
+                    'SLS' => 'faculty.dashboard.sls',
+                    'SHSS' => 'faculty.dashboard.shss',
+                    'SMS' => 'faculty.dashboard.sms',
+                    'STH' => 'faculty.dashboard.sth',
+                    'SI' => 'faculty.dashboard.si',
+                    default => null
+                };
+                
+                if ($schoolRoute) {
+                    $dashboardRoute = $schoolRoute;
+                    break;
+                }
+            }
+        }
+
+        // Fallback to generic role checks
+        if ($dashboardRoute === 'dashboard') {
+            if ($user->hasRole('Admin')) {
+                $dashboardRoute = 'admin.dashboard';
+            } elseif ($user->hasRole('Student')) {
+                $dashboardRoute = 'student.dashboard';
+            } elseif ($user->hasRole('Lecturer')) {
+                $dashboardRoute = 'lecturer.dashboard';
+            } elseif ($user->hasRole('Exam Office')) {
+                $dashboardRoute = 'exam-office.dashboard';
+            } elseif ($user->hasRole('Faculty Admin')) {
+                $dashboardRoute = 'faculty-admin.dashboard';
+            }
+        }
+
+        return response()->json([
+            'dashboard_route' => $dashboardRoute,
+            'user_roles' => $user->getRoleNames(),
+            'user_permissions' => $user->getAllPermissions()->pluck('name')
+        ]);
+    }
+
 
 
     /**
@@ -1290,58 +1495,6 @@ private function getProgramColorClass($code)
                 'roles' => $user->getRoleNames()->toArray(),
                 'permissions' => $user->getAllPermissions()->pluck('name')->toArray()
             ]
-        ]);
-    }
-
-    /**
-     * Get user dashboard based on role (API endpoint)
-     */
-    public function getUserDashboard(Request $request)
-    {
-        $user = $request->user();
-        $dashboardRoute = 'dashboard';
-
-        // Check for Faculty Admin roles first (school-specific)
-        $roles = $user->getRoleNames();
-        foreach ($roles as $role) {
-            if (str_starts_with($role, 'Faculty Admin - ')) {
-                $faculty = str_replace('Faculty Admin - ', '', $role);
-                $schoolRoute = match($faculty) {
-                    'SCES' => 'faculty.dashboard.sces',
-                    'SBS' => 'faculty.dashboard.sbs',
-                    'SLS' => 'faculty.dashboard.sls',
-                    'TOURISM' => 'faculty.dashboard.tourism',
-                    'SHM' => 'faculty.dashboard.shm',
-                    'SHS' => 'faculty.dashboard.shs',
-                    default => null
-                };
-                
-                if ($schoolRoute) {
-                    $dashboardRoute = $schoolRoute;
-                    break;
-                }
-            }
-        }
-
-        // Fallback to generic role checks
-        if ($dashboardRoute === 'dashboard') {
-            if ($user->hasRole('Admin')) {
-                $dashboardRoute = 'admin.dashboard';
-            } elseif ($user->hasRole('Student')) {
-                $dashboardRoute = 'student.dashboard';
-            } elseif ($user->hasRole('Lecturer')) {
-                $dashboardRoute = 'lecturer.dashboard';
-            } elseif ($user->hasRole('Exam Office')) {
-                $dashboardRoute = 'exam-office.dashboard';
-            } elseif ($user->hasRole('Faculty Admin')) {
-                $dashboardRoute = 'faculty-admin.dashboard';
-            }
-        }
-
-        return response()->json([
-            'dashboard_route' => $dashboardRoute,
-            'user_roles' => $user->getRoleNames(),
-            'user_permissions' => $user->getAllPermissions()->pluck('name')
         ]);
     }
 

@@ -142,6 +142,12 @@ export default function Sidebar() {
                 <span>Dynamic Permissions</span>
               </Link>
             )}
+            {can('view-schools') && (
+              <Link href="/admin/schools" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <Building className="mr-3 h-5 w-5" />
+                  <span>Schools</span>
+              </Link>
+            )}
             {can('view-settings') && (
               <Link href="/admin/settings" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
                 <Settings className="mr-3 h-5 w-5" />

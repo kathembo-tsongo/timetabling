@@ -16,31 +16,70 @@ export default function SchoolAdminDashboard({
 }) {
   const [timeRange, setTimeRange] = useState('week');
 
-  // School-specific themes
+  // ✅ School-specific themes - ALL 7 SCHOOLS WITH CORRECT BRANDING
   const schoolThemes = {
     SCES: {
-      gradient: 'from-blue-50 via-white to-indigo-50',
+      gradient: 'from-indigo-50 via-white to-cyan-50',
       primary: 'blue',
       iconColor: 'text-blue-600',
-      titleGradient: 'from-slate-800 via-blue-700 to-indigo-800',
+      titleGradient: 'from-slate-800 via-blue-800 to-indigo-800',
       cardBg: 'bg-blue-50',
       cardBorder: 'border-blue-200',
+      name: 'School of Computing & Engineering Sciences'
     },
     SBS: {
-      gradient: 'from-red-50 via-white to-orange-50',
+      gradient: 'from-amber-50 via-white to-orange-50',
+      primary: 'amber',
+      iconColor: 'text-amber-600',
+      titleGradient: 'from-slate-800 via-amber-700 to-orange-800',
+      cardBg: 'bg-amber-50',
+      cardBorder: 'border-amber-200',
+      name: 'Strathmore Business School'
+    },
+    SLS: {
+      gradient: 'from-slate-50 via-white to-indigo-50',
+      primary: 'indigo',
+      iconColor: 'text-indigo-700',
+      titleGradient: 'from-slate-800 via-indigo-800 to-blue-900',
+      cardBg: 'bg-indigo-50',
+      cardBorder: 'border-indigo-200',
+      name: 'School of Law Studies'
+    },
+    SHSS: {
+      gradient: 'from-purple-50 via-white to-violet-50',
+      primary: 'purple',
+      iconColor: 'text-purple-600',
+      titleGradient: 'from-slate-800 via-purple-700 to-violet-800',
+      cardBg: 'bg-purple-50',
+      cardBorder: 'border-purple-200',
+      name: 'School of Humanities & Social Sciences'
+    },
+    SMS: {
+      gradient: 'from-red-50 via-white to-rose-50',
       primary: 'red',
       iconColor: 'text-red-600',
-      titleGradient: 'from-slate-800 via-red-700 to-orange-800',
+      titleGradient: 'from-slate-800 via-red-700 to-rose-800',
       cardBg: 'bg-red-50',
       cardBorder: 'border-red-200',
+      name: 'Strathmore Medical School'
     },
-    SET: {
-      gradient: 'from-green-50 via-white to-emerald-50',
-      primary: 'green',
-      iconColor: 'text-green-600',
-      titleGradient: 'from-slate-800 via-green-700 to-emerald-800',
-      cardBg: 'bg-green-50',
-      cardBorder: 'border-green-200',
+    STH: {
+      gradient: 'from-teal-50 via-white to-emerald-50',
+      primary: 'teal',
+      iconColor: 'text-teal-600',
+      titleGradient: 'from-slate-800 via-teal-700 to-emerald-800',
+      cardBg: 'bg-teal-50',
+      cardBorder: 'border-teal-200',
+      name: 'School of Tourism & Hospitality'
+    },
+    SI: {
+      gradient: 'from-orange-50 via-white to-amber-50',
+      primary: 'orange',
+      iconColor: 'text-orange-600',
+      titleGradient: 'from-slate-800 via-orange-700 to-amber-800',
+      cardBg: 'bg-orange-50',
+      cardBorder: 'border-orange-200',
+      name: 'Strathmore Institute'
     }
   };
 
@@ -99,7 +138,9 @@ export default function SchoolAdminDashboard({
                       School Admin Dashboard
                     </h1>
                   </div>
-                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">{schoolName || 'School Dashboard'}</h2>
+                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">
+                    {schoolName || theme.name || 'School Dashboard'}
+                  </h2>
                   <p className="text-slate-600 text-lg">
                     {schoolCode} School Management Portal
                   </p>
