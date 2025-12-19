@@ -6,7 +6,7 @@ import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { toast } from "react-hot-toast"
 import {
-  BookOpen,
+  GraduationCap,
   Plus,
   Search,
   Filter,
@@ -15,6 +15,7 @@ import {
   Eye,
   ChevronDown,
   ChevronUp,
+  BookOpen,
   Users,
   Phone,
   Mail,
@@ -25,10 +26,7 @@ import {
   Building2,
   Calendar,
   ClipboardList,
-  Settings,
-  Globe,
-  Heart,
-  Brain
+  Settings
 } from "lucide-react"
 import { route } from 'ziggy-js';
 
@@ -106,7 +104,7 @@ interface ProgramFormData {
   sort_order: number
 }
 
-const SHSSProgramsManagement: React.FC = () => {
+const SCESProgramsManagement: React.FC = () => {
   
   const { programs, school, filters, can = { create: false, update: false, delete: false }, flash, errors, auth } = usePage<PageProps>().props
 
@@ -119,6 +117,9 @@ const SHSSProgramsManagement: React.FC = () => {
   const isRole = (role: string) => roles.includes(role)
   const isClassTimetableOffice = isRole('Class Timetable office')
   const isExamTimetableOffice = isRole('Exam Office')
+  const isSBSAdminOffice = isRole('Faculty Admin - SCES')
+  const isSCESAdminOffice = isRole('Faculty Admin - SBS')
+  
 
   // State management
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -150,7 +151,7 @@ const SHSSProgramsManagement: React.FC = () => {
   const [sortField, setSortField] = useState(filters.sort_field || 'sort_order')
   const [sortDirection, setSortDirection] = useState(filters.sort_direction || 'asc')
 
-  // 🔥 SHSS-SPECIFIC: Humanities & Social Sciences degree types
+  // Degree types
   const degreeTypes = [
     { value: 'Certificate', label: 'Certificate' },
     { value: 'Diploma', label: 'Diploma' },
@@ -197,22 +198,22 @@ const SHSSProgramsManagement: React.FC = () => {
     )
   }
 
-  // 🔥 SHSS-SPECIFIC: Humanities degree badge with Brain icon
+  // Degree badge component
   const DegreeBadge: React.FC<{ degreeType: string }> = ({ degreeType }) => {
     const getBadgeColor = (type: string) => {
       switch (type) {
         case 'Certificate': return 'bg-yellow-500'
         case 'Diploma': return 'bg-orange-500'
-        case 'Bachelor': return 'bg-purple-500'
-        case 'Master': return 'bg-violet-600'
-        case 'PhD': return 'bg-indigo-600'
+        case 'Bachelor': return 'bg-blue-500'
+        case 'Master': return 'bg-purple-500'
+        case 'PhD': return 'bg-red-500'
         default: return 'bg-gray-500'
       }
     }
 
     return (
       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${getBadgeColor(degreeType)}`}>
-        <Brain className="w-3 h-3 mr-1" />
+        <Award className="w-3 h-3 mr-1" />
         {degreeType}
       </span>
     )
@@ -263,8 +264,7 @@ const SHSSProgramsManagement: React.FC = () => {
 
     if (confirm(`Are you sure you want to delete "${program.name}"? This action cannot be undone.`)) {
       setLoading(true)
-      // 🔥 FIXED: Using SHSS route
-      router.delete(route('schools.shss.programs.destroy', program.id), {
+      router.delete(route('schools.sces.programs.destroy', program.id), {
         onSuccess: () => {
           toast.success('Program deleted successfully!')
         },
@@ -280,10 +280,9 @@ const SHSSProgramsManagement: React.FC = () => {
     e.preventDefault()
     setLoading(true)
 
-    // 🔥 FIXED: Using SHSS routes
     const url = selectedProgram 
-      ? route("schools.shss.programs.update", { program: selectedProgram.id })
-      : route("schools.shss.programs.store") 
+      ? route("schools.sces.programs.update", { program: selectedProgram.id })
+      : route("schools.sces.programs.store") 
 
     const method = selectedProgram ? "put" : "post"
 
@@ -311,8 +310,7 @@ const SHSSProgramsManagement: React.FC = () => {
     params.set('sort_field', sortField)
     params.set('sort_direction', sortDirection)
     
-    // 🔥 FIXED: Using SHSS route
-    router.get(`${route('schools.shss.programs.index')}?${params.toString()}`)
+    router.get(`${route('schools.sces.programs.index')}?${params.toString()}`)
   }
 
   const toggleRowExpansion = (programId: number) => {
@@ -331,12 +329,22 @@ const SHSSProgramsManagement: React.FC = () => {
     return `${years} years`
   }
 
+  const visibleColumns = useMemo(() => {
+    return [
+      "Program",
+      "Degree & Duration",
+      "Contact",
+      "Status",
+      "Statistics",
+      "Actions"
+    ]
+  }, [])
+
   return (
     <AuthenticatedLayout>
       <Head title={`${school.code} Programs Management`} />
       
-      {/* 🔥 SHSS BRANDING: Purple/Violet gradient for humanities */}
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50 py-8">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           {/* Header */}
@@ -345,15 +353,14 @@ const SHSSProgramsManagement: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center mb-2">
-                    {/* 🔥 SHSS ICON: Globe for global humanities perspective */}
-                    <Globe className="w-8 h-8 text-purple-600 mr-3" />
-                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-purple-700 to-violet-800 bg-clip-text text-transparent">
+                    <Building2 className="w-8 h-8 text-blue-600 mr-3" />
+                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-blue-800 to-indigo-800 bg-clip-text text-transparent">
                       {school.name}
                     </h1>
                   </div>
-                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">Humanities & Social Sciences Programs</h2>
+                  <h2 className="text-2xl font-semibold text-slate-700 mb-2">Programs Management</h2>
                   <p className="text-slate-600 text-lg">
-                    Manage humanities, social sciences, and interdisciplinary programs
+                    Manage academic programs, degrees, and course offerings
                   </p>
                   <div className="flex items-center gap-4 mt-4">
                     <div className="text-sm text-slate-600">
@@ -374,8 +381,7 @@ const SHSSProgramsManagement: React.FC = () => {
                   {can.create && !isClassTimetableOffice && (
                     <button
                       onClick={handleCreateProgram}
-                      // 🔥 SHSS COLORS: Purple/Violet/Indigo gradient
-                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-purple-600 hover:via-violet-600 hover:to-indigo-600 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
                     >
                       <Plus className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
                       Create Program
@@ -394,10 +400,10 @@ const SHSSProgramsManagement: React.FC = () => {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
                     type="text"
-                    placeholder="Search humanities & social sciences programs..."
+                    placeholder="Search programs..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -405,7 +411,7 @@ const SHSSProgramsManagement: React.FC = () => {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Status</option>
                   <option value="active">Active</option>
@@ -414,7 +420,7 @@ const SHSSProgramsManagement: React.FC = () => {
                 <select
                   value={degreeFilter}
                   onChange={(e) => setDegreeFilter(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Degrees</option>
                   {degreeTypes.map((degree) => (
@@ -425,7 +431,7 @@ const SHSSProgramsManagement: React.FC = () => {
                 </select>
                 <button
                   onClick={handleFilter}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Filter className="w-5 h-5" />
                 </button>
@@ -477,11 +483,10 @@ const SHSSProgramsManagement: React.FC = () => {
                                 <ChevronDown className="w-4 h-4" />
                               )}
                             </button>
-                            {/* 🔥 SHSS ICON: Heart for humanistic studies */}
-                            <Heart className="w-8 h-8 text-purple-500 mr-3" />
+                            <GraduationCap className="w-8 h-8 text-blue-500 mr-3" />
                             <div>
                               <div className="text-sm font-medium text-slate-900">{program.name}</div>
-                              <div className="text-xs text-purple-600 font-semibold">{program.code}</div>
+                              <div className="text-xs text-blue-600 font-semibold">{program.code}</div>
                               {program.description && (
                                 <div className="text-xs text-slate-500 mt-1 max-w-xs truncate">
                                   {program.description}
@@ -524,7 +529,7 @@ const SHSSProgramsManagement: React.FC = () => {
                         <td className="px-6 py-4 text-sm text-slate-700">
                           <div className="flex gap-4">
                             <div className="flex items-center">
-                              <BookOpen className="w-4 h-4 mr-1 text-purple-500" />
+                              <BookOpen className="w-4 h-4 mr-1 text-blue-500" />
                               <span className="font-medium">{program.units_count}</span>
                               <span className="text-xs text-gray-500 ml-1">units</span>
                             </div>
@@ -539,7 +544,7 @@ const SHSSProgramsManagement: React.FC = () => {
                           <div className="flex items-center space-x-2">
                             <button
                               onClick={() => handleViewProgram(program)}
-                              className="text-purple-600 hover:text-purple-900 transition-colors p-1 rounded hover:bg-purple-50"
+                              className="text-blue-600 hover:text-blue-900 transition-colors p-1 rounded hover:bg-blue-50"
                               title="View details"
                             >
                               <Eye className="w-4 h-4" />
@@ -547,7 +552,7 @@ const SHSSProgramsManagement: React.FC = () => {
                             {can.update && !isClassTimetableOffice && (
                               <button
                                 onClick={() => handleEditProgram(program)}
-                                className="text-violet-600 hover:text-violet-900 transition-colors p-1 rounded hover:bg-violet-50"
+                                className="text-indigo-600 hover:text-indigo-900 transition-colors p-1 rounded hover:bg-indigo-50"
                                 title="Edit program"
                               >
                                 <Edit className="w-4 h-4" />
@@ -570,20 +575,19 @@ const SHSSProgramsManagement: React.FC = () => {
                   {/* Expanded row content */}
                   {expandedRows.has(program.id) && (
                     <tr>
-                      {/* 🔥 SHSS COLORS: Purple gradient background */}
-                      <td colSpan={6} className="px-6 py-6 bg-purple-50/50">
+                      <td colSpan={6} className="px-6 py-6 bg-gradient-to-br from-indigo-50/80 via-cyan-50/50 to-white">
                         <div className="space-y-6">
                           
-                          {/* Program Management Section */}
+                          {/* 🔥 UPDATED: Program Management Section - Now matches SBS pattern */}
                           {program.routes && (
                             <div className="mb-6">
                               <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
-                                <BookOpen className="w-5 h-5 mr-2 text-purple-600" />
+                                <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
                                 Program Management
                               </h3>
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                                 
-                                {/* Units Card */}
+                                {/* Units Card - Blue */}
                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
                                   <a
                                     href={program.routes.units}
@@ -597,8 +601,8 @@ const SHSSProgramsManagement: React.FC = () => {
                                   </a>
                                 )}
 
-                                {/* Unit Assignment Card */}
-                                {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                {/* Unit Assignment Card - Indigo - NOW ALWAYS VISIBLE */}
+                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
                                 <a
                                   href={program.routes.unit_assignment}
                                   className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
@@ -611,8 +615,8 @@ const SHSSProgramsManagement: React.FC = () => {
                                 </a>
                                 )}
 
-                                {/* Classes Card */}
-                                {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                {/* Classes Card - Green */}
+                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
                                   <a
                                     href={program.routes.classes}
                                     className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
@@ -625,21 +629,21 @@ const SHSSProgramsManagement: React.FC = () => {
                                   </a>
                                 )}
 
-                                {/* Enrollments Card */}
+                                {/* Enrollments Card - Orange */}
                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
                                   <a
                                     href={program.routes.enrollments}
                                     className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
                                   >
                                     <div className="flex flex-col items-center text-center">
-                                      <Heart className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                      <GraduationCap className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
                                       <div className="text-xs font-bold text-white mb-1">Enrollments</div>
                                       <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
                                     </div>
                                   </a>
                                 )}
 
-                                {/* Class Timetable Card */}
+                                {/* Class Timetable Card - Cyan */}
                                 {!isExamTimetableOffice && (
                                 <a
                                   href={program.routes.class_timetables}
@@ -669,6 +673,11 @@ const SHSSProgramsManagement: React.FC = () => {
                               </div>
                             </div>
                           )}
+
+                          {/* Existing Details Section - Keep as is */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* ... rest of the details section ... */}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -680,21 +689,21 @@ const SHSSProgramsManagement: React.FC = () => {
               
               {filteredPrograms.length === 0 && (
                 <div className="text-center py-12">
-                  <Globe className="mx-auto h-12 w-12 text-gray-400" />
+                  <GraduationCap className="mx-auto h-12 w-12 text-gray-400" />
                   <h3 className="mt-2 text-sm font-medium text-gray-900">No programs found</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     {searchTerm || statusFilter !== 'all' || degreeFilter !== 'all'
                       ? 'Try adjusting your filters'
-                      : 'Get started by creating a new humanities program'
+                      : 'Get started by creating a new program'
                     }
                   </p>
                   {can.create && !isClassTimetableOffice && (
                     <button
                       onClick={handleCreateProgram}
-                      className="mt-4 inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                      className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Create Humanities Program
+                      Create Program
                     </button>
                   )}
                 </div>
@@ -706,10 +715,9 @@ const SHSSProgramsManagement: React.FC = () => {
           {(isCreateModalOpen || isEditModalOpen) && !isClassTimetableOffice && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                {/* 🔥 SHSS COLORS: Modal header */}
-                <div className="bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 p-6 rounded-t-2xl">
+                <div className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 p-6 rounded-t-2xl">
                   <h3 className="text-xl font-semibold text-white">
-                    {selectedProgram ? 'Edit Humanities Program' : 'Create New Humanities Program'}
+                    {selectedProgram ? 'Edit Program' : 'Create New Program'}
                   </h3>
                 </div>
 
@@ -723,8 +731,8 @@ const SHSSProgramsManagement: React.FC = () => {
                         type="text"
                         value={formData.code}
                         onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                        placeholder="e.g., BA-PSY, BA-SOC"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        placeholder="e.g., BSE, BSCS"
                         maxLength={20}
                         required
                       />
@@ -737,7 +745,7 @@ const SHSSProgramsManagement: React.FC = () => {
                         type="number"
                         value={formData.sort_order}
                         onChange={(e) => setFormData(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         min={0}
                       />
                     </div>
@@ -751,8 +759,8 @@ const SHSSProgramsManagement: React.FC = () => {
                       type="text"
                       value={formData.name}
                       onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                      placeholder="e.g., Psychology, Sociology, International Relations"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      placeholder="e.g., Computer Science, Software Engineering"
                       required
                     />
                   </div>
@@ -765,7 +773,7 @@ const SHSSProgramsManagement: React.FC = () => {
                       <select
                         value={formData.degree_type}
                         onChange={(e) => setFormData(prev => ({ ...prev, degree_type: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         required
                       >
                         {degreeTypes.map((degree) => (
@@ -786,7 +794,7 @@ const SHSSProgramsManagement: React.FC = () => {
                         max="10"
                         value={formData.duration_years}
                         onChange={(e) => setFormData(prev => ({ ...prev, duration_years: parseFloat(e.target.value) || 1 }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         required
                       />
                     </div>
@@ -799,7 +807,7 @@ const SHSSProgramsManagement: React.FC = () => {
                     <textarea
                       value={formData.description}
                       onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                       rows={3}
                       placeholder="Brief description of the program..."
                     />
@@ -814,8 +822,8 @@ const SHSSProgramsManagement: React.FC = () => {
                         type="email"
                         value={formData.contact_email}
                         onChange={(e) => setFormData(prev => ({ ...prev, contact_email: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                        placeholder="humanities@strathmore.edu"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        placeholder="program@strathmore.edu"
                       />
                     </div>
                     <div>
@@ -826,7 +834,7 @@ const SHSSProgramsManagement: React.FC = () => {
                         type="tel"
                         value={formData.contact_phone}
                         onChange={(e) => setFormData(prev => ({ ...prev, contact_phone: e.target.value }))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                         placeholder="+254 123 456 789"
                       />
                     </div>
@@ -838,7 +846,7 @@ const SHSSProgramsManagement: React.FC = () => {
                       id="is_active"
                       checked={formData.is_active}
                       onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
-                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                      className="w-4 h-4 text-emerald-600 bg-gray-100 border-gray-300 rounded focus:ring-emerald-500 focus:ring-2"
                     />
                     <label htmlFor="is_active" className="ml-2 text-sm font-medium text-gray-700">
                       Program is active
@@ -860,7 +868,7 @@ const SHSSProgramsManagement: React.FC = () => {
                     <button
                       type="submit"
                       disabled={loading}
-                      className="px-6 py-3 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-lg hover:from-purple-600 hover:to-violet-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {loading ? 'Processing...' : selectedProgram ? 'Update Program' : 'Create Program'}
                     </button>
@@ -874,10 +882,9 @@ const SHSSProgramsManagement: React.FC = () => {
           {isViewModalOpen && selectedProgram && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-                {/* 🔥 SHSS COLORS: View modal header */}
-                <div className="bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 p-6 rounded-t-2xl">
+                <div className="bg-gradient-to-r from-slate-500 via-slate-600 to-gray-600 p-6 rounded-t-2xl">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-white">Humanities Program Details</h3>
+                    <h3 className="text-xl font-semibold text-white">Program Details</h3>
                     <button
                       onClick={() => setIsViewModalOpen(false)}
                       className="text-white hover:text-gray-200 transition-colors"
@@ -890,10 +897,10 @@ const SHSSProgramsManagement: React.FC = () => {
                 <div className="p-6 space-y-6">
                   {/* Header Info */}
                   <div className="flex items-start space-x-4">
-                    <Globe className="w-12 h-12 text-purple-600 flex-shrink-0" />
+                    <GraduationCap className="w-12 h-12 text-blue-600 flex-shrink-0" />
                     <div className="flex-1">
                       <h4 className="text-2xl font-bold text-gray-900">{selectedProgram.name}</h4>
-                      <p className="text-purple-600 font-semibold mt-1">{selectedProgram.code}</p>
+                      <p className="text-blue-600 font-semibold mt-1">{selectedProgram.code}</p>
                       {selectedProgram.description && (
                         <p className="text-gray-600 mt-2">{selectedProgram.description}</p>
                       )}
@@ -955,7 +962,7 @@ const SHSSProgramsManagement: React.FC = () => {
                         <div>
                           <span className="text-sm text-gray-500">Total Units</span>
                           <p className="font-medium text-gray-900 flex items-center">
-                            <BookOpen className="w-4 h-4 mr-2 text-purple-500" />
+                            <BookOpen className="w-4 h-4 mr-2 text-blue-500" />
                             {selectedProgram.units_count} units
                           </p>
                         </div>
@@ -993,7 +1000,7 @@ const SHSSProgramsManagement: React.FC = () => {
                         setIsViewModalOpen(false)
                         handleEditProgram(selectedProgram)
                       }}
-                      className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                     >
                       Edit Program
                     </button>
@@ -1014,4 +1021,4 @@ const SHSSProgramsManagement: React.FC = () => {
   )
 }
 
-export default SHSSProgramsManagement
+export default SCESProgramsManagement

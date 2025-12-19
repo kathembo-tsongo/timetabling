@@ -5,10 +5,14 @@ import {
   ClipboardCheck, Settings, BookOpen, GraduationCap,
   BarChart3, Scale, ChevronDown, ChevronRight, Clock,
   FileText, AlertTriangle, MapPin, Download, UserCircle,
-  BookMarked, FileCheck
+  BookMarked, FileCheck, X
 } from "lucide-react";
 
-export default function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export default function Sidebar({ onClose }: SidebarProps) {
   const { auth } = usePage().props as any;
   const user = auth?.user;
   const permissions = user?.permissions || [];
@@ -70,8 +74,19 @@ export default function Sidebar() {
 
   return (
     <div className="w-64 bg-blue-900 text-white h-full flex flex-col overflow-y-auto">
-      <div className="p-4 border-b border-blue-700">
+      {/* Header with Close Button for Mobile */}
+      <div className="p-4 border-b border-blue-700 flex items-center justify-between">
         <h1 className="text-xl font-bold">Timetabling System</h1>
+        {/* Close button - only visible on mobile */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="lg:hidden p-2 hover:bg-blue-800 rounded-lg transition-colors"
+            aria-label="Close sidebar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 py-4 px-2 space-y-1">
