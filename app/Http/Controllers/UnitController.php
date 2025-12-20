@@ -84,7 +84,8 @@ public function programUnits(Program $program, Request $request, $schoolCode)
         'total_units' => $units->total()
     ]);
     
-    return Inertia::render('Schools/SCES/Programs/Units/Index', [
+    $componentPath = "Schools/{$schoolCode}/Programs/Units/Index";
+    return Inertia::render($componentPath, [
         'units' => $units,
         'program' => $program->load('school'),
         'schoolCode' => $schoolCode,
