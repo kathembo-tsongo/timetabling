@@ -671,8 +671,10 @@ public function programClasses(Program $program, Request $request, $schoolCode)
         ->where('is_active', true)
         ->orderBy('name')
         ->get();
-    
-    return Inertia::render('Schools/SCES/Programs/Classes/Index', [
+
+    $componentPathForProgramClasses = "Schools/{$schoolCode}/Programs/Classes/Index";
+
+    return Inertia::render($componentPathForProgramClasses, [
         'classes' => $classes,
         'program' => $program->load('school'),
         'semesters' => $semesters,

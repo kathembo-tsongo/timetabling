@@ -719,8 +719,10 @@ class EnrollmentController extends Controller
             'total_enrollments' => $allEnrollments->count(),
             'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(),
         ];
+        
+        $componentPath = "Schools/" . strtoupper($schoolCode) . "/Programs/Enrollments/Index";
 
-        return Inertia::render('Schools/SCES/Programs/Enrollments/Index', [
+        return Inertia::render($componentPath, [
             'program' => $program->load('school'),
             'schoolCode' => $schoolCode,
             'enrollments' => $enrollments,

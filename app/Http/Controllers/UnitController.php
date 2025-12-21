@@ -50,72 +50,66 @@ private function getProgramUnitsStats($programId)
 /**
  * Display units for a specific program with enhanced context
  */
-public function programUnits(Program $program, Request $request, $schoolCode)
+public function programUnits(Program $program, Request $request, string $schoolCode)
 {
-    $schoolCode = strtoupper($schoolCode);
-    $user = auth()->user();
+    $school = School::where('code', $schoolCode)->firstOrFail();
     
-    // Verify program belongs to the correct school
-    if ($program->school->code !== $schoolCode) {
-        abort(404, 'Program not found in this school.');
+    if ($program->school_id !== $school->id) {
+        abort(403, 'Program does not belong to this school');
     }
 
-    $perPage = $request->per_page ?? 10;
-    $search = $request->search ?? '';
-    
-    // Build the query for program-specific units
+    // ✅ Get pagination parameters
+    $perPage = $request->input('per_page', 10);
+    $search = $request->input('search', '');
+
+    // ✅ Build query with search
     $query = Unit::where('program_id', $program->id)
-        ->with(['school', 'program'])
+        ->where('is_active', true)
         ->when($search, function($q) use ($search) {
-            $q->where('name', 'like', '%' . $search . '%')
-              ->orWhere('code', 'like', '%' . $search . '%');
+            $q->where(function($subQ) use ($search) {
+                $subQ->where('code', 'like', "%{$search}%")
+                     ->orWhere('name', 'like', "%{$search}%");
+            });
         })
-        ->orderBy('code')
-        ->orderBy('name');
-    
-    // Get paginated results
+        ->with(['school', 'program'])
+        ->orderBy('code');
+
+    // ✅ CRITICAL: Use paginate() not get()
     $units = $query->paginate($perPage)->withQueryString();
+
+    // ✅ Calculate stats
+    $stats = [
+        'total' => Unit::where('program_id', $program->id)->count(),
+        'active' => Unit::where('program_id', $program->id)
+                       ->where('is_active', true)->count(),
+        'inactive' => Unit::where('program_id', $program->id)
+                        ->where('is_active', false)->count(),
+        'total_credits' => Unit::where('program_id', $program->id)
+                              ->sum('credit_hours'),
+    ];
+
+    $componentPath = "Schools/" . strtoupper($schoolCode) . "/Programs/Units/Index";
     
-    Log::info("Program units accessed", [
-        'program_id' => $program->id,
-        'program_code' => $program->code,
-        'school_code' => $schoolCode,
-        'user_id' => auth()->id(),
-        'total_units' => $units->total()
-    ]);
-    
-    $componentPath = "Schools/{$schoolCode}/Programs/Units/Index";
     return Inertia::render($componentPath, [
-        'units' => $units,
+        'units' => $units, // ← This should be paginated
         'program' => $program->load('school'),
         'schoolCode' => $schoolCode,
+        'stats' => $stats,
         'filters' => [
             'search' => $search,
             'per_page' => (int) $perPage,
         ],
-        'stats' => $this->getProgramUnitsStats($program->id), // ✅ ADD THIS LINE
         'can' => [
-            'create' => $user->hasRole('Admin') || 
-                       $user->can('manage-units') || 
-                       $user->can('edit-units'),
-            
-            'update' => $user->hasRole('Admin') || 
-                       $user->can('manage-units') || 
-                       $user->can('edit-units'),
-            
-            'delete' => $user->hasRole('Admin') || 
-                       $user->can('manage-units') || 
-                       $user->can('delete-units'),
-        ],
-        'flash' => [
-            'success' => session('success'),
-            'error' => session('error'),
+            'create' => auth()->user()->can('create-units'),
+            'update' => auth()->user()->can('edit-units'),
+            'delete' => auth()->user()->can('delete-units'),
         ],
     ]);
 }
-    /**
-     * Update program unit with enhanced validation and context logging
-     */
+
+/**
+ * Update program unit with enhanced validation and context logging
+ */
     public function updateProgramUnit(Program $program, Unit $unit, Request $request, $schoolCode)
     {
         $schoolCode = strtoupper($schoolCode);
@@ -617,7 +611,9 @@ public function programUnitAssignments(Program $program, Request $request, $scho
 
     $user = auth()->user();
 
-    return Inertia::render('Schools/SCES/Programs/UnitAssignments/Index', [
+    $componentPathForUnitAssignments = "Schools/{$schoolCode}/Programs/UnitAssignments/Index";
+
+    return Inertia::render($componentPathForUnitAssignments, [
         'unassigned_units' => $unassignedUnits,
         'assigned_units' => $assignedUnits,
         'program' => $program->load('school'),
