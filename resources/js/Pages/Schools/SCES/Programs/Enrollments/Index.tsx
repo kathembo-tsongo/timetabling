@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import Pagination from '@/Components/Pagination';
 import { toast } from 'react-hot-toast';
 import {
   Users,
@@ -167,12 +168,27 @@ type PaginationData = {
   }>;
 };
 
+type LecturerAssignmentPaginationData = {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  from: number;
+  to: number;
+  data: LecturerAssignment[];
+  links: Array<{
+    url: string | null;
+    label: string;
+    active: boolean;
+  }>;
+};
+
 type PageProps = {
   enrollments: PaginationData;
   students: Student[];
   units: Unit[];
   lecturers?: Lecturer[];
-  lecturerAssignments?: LecturerAssignment[]; 
+  lecturerAssignments?: LecturerAssignmentPaginationData;
   schools: School[];
   programs: Program[];
   classes: Class[];
@@ -186,11 +202,11 @@ type PageProps = {
     active_enrollments?: number;
   };
   can: {
-  create: boolean;
-  update: boolean;
-  delete: boolean;
-  assign_lecturer: boolean; 
-};
+    create: boolean;
+    update: boolean;
+    delete: boolean;
+    assign_lecturer: boolean;
+  };
   filters: {
     search?: string;
     student_code?: string;
@@ -200,6 +216,8 @@ type PageProps = {
     program_id?: string | number;
     class_id?: string | number;
     status?: string;
+    per_page_enrollments?: number;
+    per_page_assignments?: number;
   };
   flash?: {
     success?: string;
@@ -288,77 +306,6 @@ const CapacityWarning: React.FC<{ capacityInfo: CapacityInfo; loadingCapacity: b
   );
 };
 
-// Pagination Component
-const Pagination: React.FC<{ paginationData: PaginationData; onPageClick: (url: string | null) => void }> = ({ 
-  paginationData, 
-  onPageClick 
-}) => {
-  const { current_page, last_page, from, to, total, links } = paginationData;
-
-  if (last_page <= 1) return null;
-
-  return (
-    <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-200">
-      <div className="text-sm text-gray-700">
-        Showing <span className="font-medium">{from}</span> to <span className="font-medium">{to}</span> of{' '}
-        <span className="font-medium">{total}</span> results
-      </div>
-      
-      <div className="flex items-center space-x-1">
-        {links.map((link, index) => {
-          if (link.label === '&laquo; Previous') {
-            return (
-              <button
-                key={index}
-                onClick={() => onPageClick(link.url)}
-                disabled={!link.url}
-                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            );
-          }
-          
-          if (link.label === 'Next &raquo;') {
-            return (
-              <button
-                key={index}
-                onClick={() => onPageClick(link.url)}
-                disabled={!link.url}
-                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            );
-          }
-          
-          if (link.label === '...') {
-            return (
-              <span key={index} className="px-3 py-2 text-sm font-medium text-gray-700">
-                <MoreHorizontal className="w-4 h-4" />
-              </span>
-            );
-          }
-          
-          return (
-            <button
-              key={index}
-              onClick={() => onPageClick(link.url)}
-              className={`px-3 py-2 text-sm font-medium border rounded-md ${
-                link.active
-                  ? 'z-10 bg-emerald-50 border-emerald-500 text-emerald-600'
-                  : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-              }`}
-            >
-              {link.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
 // Main Component
 export default function EnrollmentsIndex() {
   const { props } = usePage<PageProps>();
@@ -367,7 +314,16 @@ export default function EnrollmentsIndex() {
     students = [], 
     units = [],
     lecturers = [],
-    lecturerAssignments = [],
+    lecturerAssignments = {
+      data: [],
+      links: [],
+      current_page: 1,
+      last_page: 1,
+      per_page: 15,
+      total: 0,
+      from: 0,
+      to: 0
+    },
     schools = [], 
     programs = [], 
     classes = [],
@@ -386,6 +342,10 @@ export default function EnrollmentsIndex() {
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+
+  // Pagination state
+  const [perPageEnrollments, setPerPageEnrollments] = useState(filters.per_page_enrollments || 15);
+  const [perPageAssignments, setPerPageAssignments] = useState(filters.per_page_assignments || 15);
 
   // Form state
   const [formData, setFormData] = useState<EnrollmentFormData>({
@@ -409,30 +369,29 @@ export default function EnrollmentsIndex() {
   });
 
   const handleEditLecturerAssignment = (assignment: LecturerAssignment) => {
-  // Set the form with existing assignment data
-  setLecturerAssignmentForm({
-    semester_id: assignment.semester_id.toString(),
-    school_id: assignment.unit.school_id.toString(),
-    program_id: assignment.unit.program_id.toString(),
-    class_id: assignment.class_id.toString(),
-    unit_id: assignment.unit_id.toString(),
-    lecturer_code: assignment.lecturer_code
-  });
-  setIsLecturerAssignModalOpen(true);
-};
-
-const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
-  if (confirm('Are you sure you want to remove this lecturer assignment?')) {
-    router.delete(`/admin/lecturerassignment/${unitId}/${semesterId}`, {
-      onSuccess: () => {
-        toast.success('Lecturer assignment removed successfully!');
-      },
-      onError: () => {
-        toast.error('Failed to remove lecturer assignment');
-      }
+    setLecturerAssignmentForm({
+      semester_id: assignment.semester_id.toString(),
+      school_id: assignment.unit.school_id.toString(),
+      program_id: assignment.unit.program_id.toString(),
+      class_id: assignment.class_id.toString(),
+      unit_id: assignment.unit_id.toString(),
+      lecturer_code: assignment.lecturer_code
     });
-  }
-};
+    setIsLecturerAssignModalOpen(true);
+  };
+
+  const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
+    if (confirm('Are you sure you want to remove this lecturer assignment?')) {
+      router.delete(`/admin/lecturerassignment/${unitId}/${semesterId}`, {
+        onSuccess: () => {
+          toast.success('Lecturer assignment removed successfully!');
+        },
+        onError: () => {
+          toast.error('Failed to remove lecturer assignment');
+        }
+      });
+    }
+  };
 
   // Available data for enrollment
   const [availableClasses, setAvailableClasses] = useState<Class[]>([]);
@@ -465,6 +424,69 @@ const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
       toast.error(flash.error);
     }
   }, [flash]);
+
+  // Pagination handlers
+  const handlePerPageEnrollmentsChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newPerPage = Number(e.target.value);
+    setPerPageEnrollments(newPerPage);
+    
+    router.get('/admin/enrollments', {
+      search: searchTerm,
+      semester_id: selectedSemester,
+      school_id: selectedSchool,
+      program_id: selectedProgram,
+      class_id: selectedClass,
+      student_code: selectedStudent,
+      unit_id: selectedUnit,
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+      per_page_enrollments: newPerPage,
+      per_page_assignments: perPageAssignments
+    }, { preserveState: true });
+  };
+
+  // Make sure these handlers are correct in your Index.tsx
+const handlePerPageAssignmentsChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const newPerPage = Number(e.target.value);
+  console.log('🔍 Changing assignments per page to:', newPerPage); // DEBUG
+  setPerPageAssignments(newPerPage);
+  
+  const currentUrl = window.location.pathname;
+  const params = {
+    // Keep all existing filters
+    search: searchTerm || undefined,
+    semester_id: selectedSemester || undefined,
+    school_id: selectedSchool || undefined,
+    program_id: selectedProgram || undefined,
+    class_id: selectedClass || undefined,
+    student_code: selectedStudent || undefined,
+    unit_id: selectedUnit || undefined,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    // Pagination params
+    per_page_enrollments: perPageEnrollments,
+    per_page_assignments: newPerPage,
+  };
+  
+  console.log('📤 Sending params:', params); // DEBUG
+  
+  router.get(currentUrl, params, { 
+    preserveState: true,
+    replace: false, // Changed to false to force refresh
+    onSuccess: (page) => {
+      console.log('✅ Success! New data:', page.props.lecturerAssignments); // DEBUG
+    },
+    onError: (errors) => {
+      console.error('❌ Request failed:', errors); // DEBUG
+    }
+  });
+};
+  const handlePaginationClick = (url: string | null) => {
+    if (url) {
+      router.get(url, {}, {
+        preserveState: true,
+        replace: true
+      });
+    }
+  };
 
   // API calls for enrollment
   const fetchClasses = async () => {
@@ -593,32 +615,14 @@ const handleRemoveLecturerAssignment = (unitId: number, semesterId: number) => {
     !selectedSchool || program.school_id === selectedSchool
   );
 
-const availableLecturers = lecturers.filter(lecturer => {
-  if (!lecturerAssignmentForm.school_id) return true;
-  
-  const selectedSchool = schools.find(school => school.id === Number(lecturerAssignmentForm.school_id));
-  if (!selectedSchool) return false;
-  
-  return lecturer.schools === selectedSchool.code;
-});
-
-// Alternative approach if lecturers don't have school_id property:
-// You might need to check the actual structure of your lecturer object
-const availableLecturersAlternative = lecturers.filter(lecturer => {
-  // If no school is selected, show all lecturers
-  if (!lecturerAssignmentForm.school_id) return true;
-  
-  // If lecturer doesn't have school_id, include them (or exclude based on your logic)
-  if (!lecturer.school_id) {
-    console.log('Lecturer without school_id:', lecturer);
-    return false; // or return true if you want to include lecturers without school assignment
-  }
-  
-  const selectedSchoolId = Number(lecturerAssignmentForm.school_id);
-  const lecturerSchoolId = Number(lecturer.school_id);
-  
-  return lecturerSchoolId === selectedSchoolId;
-});
+  const availableLecturers = lecturers.filter(lecturer => {
+    if (!lecturerAssignmentForm.school_id) return true;
+    
+    const selectedSchool = schools.find(school => school.id === Number(lecturerAssignmentForm.school_id));
+    if (!selectedSchool) return false;
+    
+    return lecturer.schools === selectedSchool.code;
+  });
 
   const lecturerAssignmentPrograms = programs.filter(program => 
     !lecturerAssignmentForm.school_id || program.school_id === parseInt(lecturerAssignmentForm.school_id)
@@ -634,7 +638,9 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
       class_id: selectedClass,
       student_code: selectedStudent,
       unit_id: selectedUnit,
-      status: statusFilter !== 'all' ? statusFilter : undefined
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+      per_page_enrollments: perPageEnrollments,
+      per_page_assignments: perPageAssignments
     }, {
       preserveState: true,
       replace: true
@@ -650,19 +656,13 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
     setSelectedStudent('');
     setSelectedUnit('');
     setStatusFilter('all');
-    router.get('/admin/enrollments', {}, {
+    router.get('/admin/enrollments', {
+      per_page_enrollments: perPageEnrollments,
+      per_page_assignments: perPageAssignments
+    }, {
       preserveState: true,
       replace: true
     });
-  };
-
-  const handlePaginationClick = (url: string | null) => {
-    if (url) {
-      router.get(url, {}, {
-        preserveState: true,
-        replace: true
-      });
-    }
   };
 
   const handleCreateEnrollment = () => {
@@ -818,7 +818,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
         unit_id: lecturerAssignmentForm.unit_id,
         lecturer_code: lecturerAssignmentForm.lecturer_code,
         semester_id: lecturerAssignmentForm.semester_id,
-        class_id: lecturerAssignmentForm.class_id  // Make sure this is included
+        class_id: lecturerAssignmentForm.class_id
     }, {
         onSuccess: () => {
             toast.success('Lecturer assigned successfully!');
@@ -841,7 +841,8 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
             setLoading(false);
         }
     });
-};
+  };
+
   return (
     <AuthenticatedLayout user={auth.user}>
       <Head title="Enrollments Management" />
@@ -895,20 +896,20 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                   )}
                   
                   {can.assign_lecturer && (
-  <button
-    onClick={handleLecturerAssignment}
-    className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg..."
-  >
-    <UserCheck className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
-    Lecturer Assignments
-  </button>
-)}
+                    <button
+                      onClick={handleLecturerAssignment}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-blue-600 hover:via-blue-700 hover:to-indigo-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <UserCheck className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
+                      Lecturer Assignments
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
- {/* Search and Filters */}
+          {/* Search and Filters */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 mb-8 overflow-hidden">
             <div className="p-6">
               <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
@@ -1073,7 +1074,29 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
           </div>
 
           {/* Enrollments Table */}
-          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden">
+          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden mb-8">
+            {/* Per-Page Selector */}
+            <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-700">Student Enrollments</h3>
+              <div className="flex items-center gap-2">
+                <label htmlFor="perPageEnrollments" className="text-sm text-gray-600">
+                  Items per page:
+                </label>
+                <select
+                  id="perPageEnrollments"
+                  value={perPageEnrollments}
+                  onChange={handlePerPageEnrollmentsChange}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -1176,7 +1199,8 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                     </tr>
                   ))}
                 </tbody>
-              </table>         </div>
+              </table>
+            </div>
 
             {enrollments.data.length === 0 && (
               <div className="text-center py-12">
@@ -1198,117 +1222,176 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
                 )}
               </div>
             )}
-            <Pagination paginationData={enrollments} onPageClick={handlePaginationClick} />
+
+            {/* Enrollments Pagination */}
+            {enrollments.data.length > 0 && (
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-sm text-gray-700">
+                    Showing <span className="font-medium">{enrollments.from || 0}</span> to{' '}
+                    <span className="font-medium">{enrollments.to || 0}</span> of{' '}
+                    <span className="font-medium">{enrollments.total || 0}</span> enrollments
+                  </div>
+                  <Pagination 
+                    links={enrollments.links} 
+                    onPageChange={handlePaginationClick} 
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Lecturer Assignments Table */}
-          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden mt-8">
-            <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+          <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden">
+            {/* Per-Page Selector */}
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-      <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
-      Current Lecturer Assignments
-    </h3>
-  </div>
+                <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
+                Current Lecturer Assignments
+              </h3>
+              <div className="flex items-center gap-2">
+                <label htmlFor="perPageAssignments" className="text-sm text-gray-600">
+                  Items per page:
+                </label>
+                <select
+                  id="perPageAssignments"
+                  value={perPageAssignments}
+                  onChange={handlePerPageAssignmentsChange}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+            </div>
   
-  <div className="overflow-x-auto">
-    <table className="min-w-full divide-y divide-gray-200">
-      <thead className="bg-gray-50">
-        <tr>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Unit
-          </th>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Lecturer
-          </th>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Class
-          </th>
-          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Semester
-          </th>          
-          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Actions
-          </th>
-        </tr>
-      </thead>
-      <tbody className="bg-white divide-y divide-gray-200">
-        {/* Note: You'll need to fetch lecturer assignments data from your backend */}
-        {/* This is a placeholder - you need to add lecturer assignments to your props */}
-        {lecturerAssignments?.length > 0 ? (
-          lecturerAssignments.map((assignment) => (
-            <tr key={`${assignment.unit_id}-${assignment.semester_id}`} className="hover:bg-gray-50">
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="text-sm font-medium text-gray-900">
-                  {assignment.unit?.code}
-                </div>
-                <div className="text-sm text-gray-500">
-                  {assignment.unit?.name}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {assignment.unit?.credit_hours} credits
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 h-10 w-10">
-                    <div className="h-10 w-10 rounded-full bg-gradient-to-r from-green-500 to-blue-600 flex items-center justify-center">
-                      <span className="text-sm font-medium text-white">
-                        {assignment.lecturer_code?.slice(0, 2) || 'UN'}
-                      </span>
-                    </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unit
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Lecturer
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Class
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Semester
+                    </th>          
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {lecturerAssignments?.data && lecturerAssignments.data.length > 0 ? (
+                    lecturerAssignments.data.map((assignment) => (
+                      <tr key={`${assignment.unit_id}-${assignment.semester_id}-${assignment.class_id}`} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {assignment.unit?.code}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {assignment.unit?.name}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {assignment.unit?.credit_hours} credits
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              <div className="h-10 w-10 rounded-full bg-gradient-to-r from-green-500 to-blue-600 flex items-center justify-center">
+                                <span className="text-sm font-medium text-white">
+                                  {assignment.lecturer_code?.slice(0, 2) || 'UN'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">
+                                {assignment.lecturer?.first_name} {assignment.lecturer?.last_name}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {assignment.lecturer_code}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {assignment.class?.name} Sec {assignment.class?.section}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            Year {assignment.class?.year_level}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {assignment.semester?.name}
+                        </td>              
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end space-x-2">
+                            {can.assign_lecturer && (
+                              <button
+                                onClick={() => handleRemoveLecturerAssignment(assignment.unit_id, assignment.semester_id)}
+                                className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
+                                title="Remove Assignment"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center">
+                        <UserX className="mx-auto h-12 w-12 text-gray-400" />
+                        <h3 className="mt-2 text-sm font-medium text-gray-900">No lecturer assignments found</h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Assign lecturers to units to get started.
+                        </p>
+                        {can.assign_lecturer && (
+                          <div className="mt-6">
+                            <button
+                              onClick={handleLecturerAssignment}
+                              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                            >
+                              <Plus className="w-4 h-4 mr-2" />
+                              Assign Lecturer
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Lecturer Assignments Pagination */}
+            {lecturerAssignments?.data && lecturerAssignments.data.length > 0 && (
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-sm text-gray-700">
+                    Showing <span className="font-medium">{lecturerAssignments.from || 0}</span> to{' '}
+                    <span className="font-medium">{lecturerAssignments.to || 0}</span> of{' '}
+                    <span className="font-medium">{lecturerAssignments.total || 0}</span> assignments
                   </div>
-                  <div className="ml-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      {assignment.lecturer?.first_name} {assignment.lecturer?.last_name}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {assignment.lecturer_code}
-                    </div>
-                  </div>
+                  <Pagination 
+                    links={lecturerAssignments.links} 
+                    onPageChange={handlePaginationClick} 
+                  />
                 </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="text-sm font-medium text-gray-900">
-                  {assignment.class?.name} Sec {assignment.class?.section}
-                </div>
-                <div className="text-sm text-gray-500">
-                  Year {assignment.class?.year_level}
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {assignment.semester?.name}
-              </td>              
-              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                <div className="flex items-center justify-end space-x-2">
-                  {/* <button
-                    onClick={() => handleEditLecturerAssignment(assignment)}
-                    className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
-                    title="Edit Assignment"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button> */}
-                  <button
-                    onClick={() => handleRemoveLecturerAssignment(assignment.unit_id, assignment.semester_id)}
-                    className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
-                    title="Remove Assignment"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))
-        ) : (
-          <tr>
-            <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
-              No lecturer assignments found
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-</div>
+              </div>
+            )}
+          </div>
 
           {/* Create Enrollment Modal */}
           {isCreateModalOpen && (
@@ -1751,33 +1834,27 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Lecturer *</label>
-                    <select
-                      value={lecturerAssignmentForm.lecturer_code}
-                      onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                      <select
+                        value={lecturerAssignmentForm.lecturer_code}
+                        onChange={(e) => setLecturerAssignmentForm(prev => ({ 
                         ...prev, 
                         lecturer_code: e.target.value
-                      }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                      disabled={!lecturerAssignmentForm.school_id}
-                    >
-                      <option value="">Select Lecturer</option>
-                      {availableLecturers.map(lecturer => (
-                        <option key={lecturer.id} value={lecturer.code}>
-                          {lecturer.display_name || `${lecturer.first_name} ${lecturer.last_name}`} ({lecturer.code})
-                        </option>
-                      ))}
-                    </select>
-                    {!lecturerAssignmentForm.school_id && (
-                      <p className="mt-1 text-xs text-gray-500">
-                        Select school first to see lecturers
-                      </p>
-                    )}
-                    {availableLecturers.length === 0 && lecturerAssignmentForm.school_id && (
-                      <p className="mt-1 text-xs text-gray-500">
-                        No lecturers found for the selected school
-                      </p>
-                    )}
+                        }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                      >
+                        <option value="">Select Lecturer</option>
+                           {lecturers.map(lecturer => (
+                          <option key={lecturer.id} value={lecturer.code}>
+                            {lecturer.display_name || `${lecturer.first_name} ${lecturer.last_name}`} ({lecturer.code})
+                          </option>
+                            ))}
+                      </select>
+                            {lecturers.length === 0 && (
+                              <p className="mt-1 text-xs text-gray-500">
+                                  No lecturers available in the system
+                              </p>
+                            )}
                   </div>
 
                   {lecturerAssignmentForm.unit_id && lecturerAssignmentForm.lecturer_code && (

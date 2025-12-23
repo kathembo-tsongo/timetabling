@@ -1751,33 +1751,27 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Lecturer *</label>
-                    <select
-                      value={lecturerAssignmentForm.lecturer_code}
-                      onChange={(e) => setLecturerAssignmentForm(prev => ({ 
+                      <select
+                        value={lecturerAssignmentForm.lecturer_code}
+                        onChange={(e) => setLecturerAssignmentForm(prev => ({ 
                         ...prev, 
                         lecturer_code: e.target.value
-                      }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                      disabled={!lecturerAssignmentForm.school_id}
-                    >
-                      <option value="">Select Lecturer</option>
-                      {availableLecturers.map(lecturer => (
-                        <option key={lecturer.id} value={lecturer.code}>
-                          {lecturer.display_name || `${lecturer.first_name} ${lecturer.last_name}`} ({lecturer.code})
-                        </option>
-                      ))}
-                    </select>
-                    {!lecturerAssignmentForm.school_id && (
-                      <p className="mt-1 text-xs text-gray-500">
-                        Select school first to see lecturers
-                      </p>
-                    )}
-                    {availableLecturers.length === 0 && lecturerAssignmentForm.school_id && (
-                      <p className="mt-1 text-xs text-gray-500">
-                        No lecturers found for the selected school
-                      </p>
-                    )}
+                        }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                      >
+                        <option value="">Select Lecturer</option>
+                           {lecturers.map(lecturer => (
+                          <option key={lecturer.id} value={lecturer.code}>
+                            {lecturer.display_name || `${lecturer.first_name} ${lecturer.last_name}`} ({lecturer.code})
+                          </option>
+                            ))}
+                      </select>
+                            {lecturers.length === 0 && (
+                              <p className="mt-1 text-xs text-gray-500">
+                                  No lecturers available in the system
+                              </p>
+                            )}
                   </div>
 
                   {lecturerAssignmentForm.unit_id && lecturerAssignmentForm.lecturer_code && (

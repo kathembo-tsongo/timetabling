@@ -21,203 +21,222 @@ use App\Exports\LecturerAssignmentsExport;
 class EnrollmentController extends Controller
 {
     public function index(Request $request)
-    {
-        // Start with base query
-        $query = Enrollment::with([
-            'student.school',
-            'student.program',
-            'unit.school',
-            'unit.program',
-            'semester',
-            'class',
-            'program',
-            'school'
-        ]);
+{
+    // Get pagination parameters with defaults
+    $perPageEnrollments = (int) $request->input('per_page_enrollments', 15);
+    $perPageAssignments = (int) $request->input('per_page_assignments', 15);
+    
+    // Log for debugging
+    \Log::info('Enrollment Index Request', [
+        'per_page_enrollments' => $perPageEnrollments,
+        'per_page_assignments' => $perPageAssignments,
+        'all_params' => $request->all()
+    ]);
 
-        // Apply filters if provided
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('student_code', 'like', '%' . $search . '%')
-                  ->orWhereHas('unit', function($unitQuery) use ($search) {
-                      $unitQuery->where('code', 'like', '%' . $search . '%')
-                               ->orWhere('name', 'like', '%' . $search . '%');
-                  })
-                  ->orWhereHas('class', function($classQuery) use ($search) {
-                      $classQuery->where('name', 'like', '%' . $search . '%');
-                  });
-            });
-        }
+    // Start with base query
+    $query = Enrollment::with([
+        'student.school',
+        'student.program',
+        'unit.school',
+        'unit.program',
+        'semester',
+        'class',
+        'program',
+        'school'
+    ]);
 
-        if ($request->filled('semester_id')) {
-            $query->where('semester_id', $request->semester_id);
-        }
-
-        if ($request->filled('school_id')) {
-            $query->where('school_id', $request->school_id);
-        }
-
-        if ($request->filled('program_id')) {
-            $query->where('program_id', $request->program_id);
-        }
-
-        if ($request->filled('class_id')) {
-            $query->where('class_id', $request->class_id);
-        }
-
-        if ($request->filled('status') && $request->status !== 'all') {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->filled('student_code')) {
-            $query->where('student_code', $request->student_code);
-        }
-
-        if ($request->filled('unit_id')) {
-            $query->where('unit_id', $request->unit_id);
-        }
-
-        // Order by latest enrollments first
-        $query->orderBy('created_at', 'desc');
-
-        // Paginate results
-        $enrollments = $query->paginate(5)->withQueryString();
-        
-        $students = User::with(['school', 'program'])
-            ->role('Student')
-            ->orderByRaw("CONCAT(first_name, ' ', last_name)")
-            ->get();
-
-        $lecturers = User::role('Lecturer')
-            ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
-            ->orderByRaw("CONCAT(first_name, ' ', last_name)")
-            ->get();
-
-        // ✅ NEW: Fetch lecturer assignments with PAGINATION
-        $lecturerAssignments = $this->getLecturerAssignments($request);
-
-        // Get units that are assigned to classes
-        $units = Unit::with(['school', 'program'])
-            ->whereHas('assignments')
-            ->where('is_active', true)
-            ->get();
-            
-        $schools = School::orderBy('name')->get();
-        $programs = Program::with('school')->orderBy('name')->get();
-        $semesters = Semester::orderBy('name')->get();
-        $classes = ClassModel::with(['program', 'semester'])
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->orderBy('section')
-            ->get();
-        
-        // Calculate statistics
-        $allEnrollments = Enrollment::all();
-        $stats = [
-            'total' => $allEnrollments->pluck('student_code')->unique()->count(),
-            'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(),
-            'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(),
-            'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(),
-            'total_enrollments' => $allEnrollments->count(),
-            'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(),
-        ];
-        
-        return Inertia::render('Schools/SCES/Programs/Enrollments/Index', [
-            'enrollments' => $enrollments,
-            'students' => $students,
-            'lecturers' => $lecturers,
-            'lecturerAssignments' => $lecturerAssignments,
-            'units' => $units,
-            'schools' => $schools,
-            'programs' => $programs,
-            'semesters' => $semesters,
-            'classes' => $classes,
-            'stats' => $stats,
-            'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
-            'can' => [
-                'create' => auth()->user()->can('create-enrollments'),
-                'update' => auth()->user()->can('edit-enrollments'),
-                'delete' => auth()->user()->can('delete-enrollments'),
-                'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
-                                    auth()->user()->can('create-lecturer-assignments'),
-                'download_lecturer_assignments' => auth()->user()->can('view-lecturer-assignments'),
-            ]
-        ]);
-    }
-
-    /**
-     * ✅ NEW METHOD: Get lecturer assignments with independent pagination
-     */
-    private function getLecturerAssignments(Request $request)
-    {
-        $query = UnitAssignment::with([
-            'unit.school',
-            'unit.program', 
-            'class.program.school',
-            'semester'
-        ])
-        ->whereNotNull('lecturer_code')
-        ->whereNotNull('class_id');
-
-        // Apply filters for lecturer assignments
-        if ($request->filled('lecturer_search')) {
-            $search = $request->lecturer_search;
-            $query->where(function($q) use ($search) {
-                $q->whereHas('unit', function($unitQuery) use ($search) {
-                    $unitQuery->where('code', 'like', '%' . $search . '%')
-                             ->orWhere('name', 'like', '%' . $search . '%');
-                })
-                ->orWhere('lecturer_code', 'like', '%' . $search . '%');
-            });
-        }
-
-        if ($request->filled('lecturer_semester_id')) {
-            $query->where('semester_id', $request->lecturer_semester_id);
-        }
-
-        if ($request->filled('lecturer_program_id')) {
-            $query->whereHas('unit', function($q) use ($request) {
-                $q->where('program_id', $request->lecturer_program_id);
-            });
-        }
-
-        if ($request->filled('lecturer_class_id')) {
-            $query->where('class_id', $request->lecturer_class_id);
-        }
-
-        if ($request->filled('lecturer_code_filter')) {
-            $query->where('lecturer_code', $request->lecturer_code_filter);
-        }
-
-        $query->orderBy('created_at', 'desc');
-
-        // Use lecturer_page parameter for independent pagination
-        $page = $request->input('lecturer_page', 1);
-        $perPage = $request->input('lecturer_per_page', 5);
-        
-        // Paginate with custom page parameter
-        $lecturerAssignments = $query->paginate($perPage, ['*'], 'lecturer_page', $page);
-        
-        // Add lecturer information to each assignment
-        $lecturerAssignments->getCollection()->transform(function ($assignment) {
-            $lecturer = User::where('code', $assignment->lecturer_code)->first();
-            $assignment->lecturer = $lecturer;
-            return $assignment;
+    // Apply filters if provided
+    if ($request->filled('search')) {
+        $search = $request->search;
+        $query->where(function($q) use ($search) {
+            $q->where('student_code', 'like', '%' . $search . '%')
+              ->orWhereHas('unit', function($unitQuery) use ($search) {
+                  $unitQuery->where('code', 'like', '%' . $search . '%')
+                           ->orWhere('name', 'like', '%' . $search . '%');
+              })
+              ->orWhereHas('class', function($classQuery) use ($search) {
+                  $classQuery->where('name', 'like', '%' . $search . '%');
+              });
         });
-
-        // Set path and append query parameters
-        $lecturerAssignments->withPath($request->url());
-        $lecturerAssignments->appends($request->except('lecturer_page'));
-
-        return $lecturerAssignments;
     }
 
-    /**
-     * ✅ NEW METHOD: Download lecturer assignments as CSV/Excel
-     */
-    public function downloadLecturerAssignments(Request $request)
-    {
-        try {
+    if ($request->filled('semester_id')) {
+        $query->where('semester_id', $request->semester_id);
+    }
+
+    if ($request->filled('school_id')) {
+        $query->where('school_id', $request->school_id);
+    }
+
+    if ($request->filled('program_id')) {
+        $query->where('program_id', $request->program_id);
+    }
+
+    if ($request->filled('class_id')) {
+        $query->where('class_id', $request->class_id);
+    }
+
+    if ($request->filled('status') && $request->status !== 'all') {
+        $query->where('status', $request->status);
+    }
+
+    if ($request->filled('student_code')) {
+        $query->where('student_code', $request->student_code);
+    }
+
+    if ($request->filled('unit_id')) {
+        $query->where('unit_id', $request->unit_id);
+    }
+
+    // Order by latest enrollments first
+    $query->orderBy('created_at', 'desc');
+
+    // ✅ Use dynamic pagination with custom page name
+    $enrollments = $query->paginate(
+        $perPageEnrollments,
+        ['*'],
+        'enrollments_page'
+    )->withQueryString();
+    
+    $students = User::with(['school', 'program'])
+        ->role('Student')
+        ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+        ->get();
+
+    $lecturers = User::role('Lecturer')
+        ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
+        ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+        ->get();
+
+    // ✅ Pass the perPage parameter explicitly
+    $lecturerAssignments = $this->getLecturerAssignments($request, $perPageAssignments);
+
+    // Get units that are assigned to classes
+    $units = Unit::with(['school', 'program'])
+        ->whereHas('assignments')
+        ->where('is_active', true)
+        ->get();
+        
+    $schools = School::orderBy('name')->get();
+    $programs = Program::with('school')->orderBy('name')->get();
+    $semesters = Semester::orderBy('name')->get();
+    $classes = ClassModel::with(['program', 'semester'])
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->orderBy('section')
+        ->get();
+    
+    // Calculate statistics
+    $allEnrollments = Enrollment::all();
+    $stats = [
+        'total' => $allEnrollments->pluck('student_code')->unique()->count(),
+        'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(),
+        'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(),
+        'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(),
+        'total_enrollments' => $allEnrollments->count(),
+        'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(),
+    ];
+    
+    return Inertia::render('Schools/SCES/Programs/Enrollments/Index', [
+        'enrollments' => $enrollments,
+        'students' => $students,
+        'lecturers' => $lecturers,
+        'lecturerAssignments' => $lecturerAssignments,
+        'units' => $units,
+        'schools' => $schools,
+        'programs' => $programs,
+        'semesters' => $semesters,
+        'classes' => $classes,
+        'stats' => $stats,
+        'filters' => array_merge(
+            $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
+            [
+                'per_page_enrollments' => $perPageEnrollments,
+                'per_page_assignments' => $perPageAssignments,
+            ]
+        ),
+        'can' => [
+            'create' => auth()->user()->can('create-enrollments'),
+            'update' => auth()->user()->can('edit-enrollments'),
+            'delete' => auth()->user()->can('delete-enrollments'),
+            'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
+                                auth()->user()->can('create-lecturer-assignments'),
+            'download_lecturer_assignments' => auth()->user()->can('view-lecturer-assignments'),
+        ]
+    ]);
+}
+
+/**
+ * ✅ UPDATED: Get lecturer assignments with dynamic pagination
+ */
+private function getLecturerAssignments(Request $request, $perPage = 15)
+{
+    $query = UnitAssignment::with([
+        'unit.school',
+        'unit.program', 
+        'class.program.school',
+        'semester'
+    ])
+    ->whereNotNull('lecturer_code')
+    ->whereNotNull('class_id');
+
+    // ✅ CHANGED: Use 'search' instead of 'lecturer_search'
+    if ($request->filled('search')) {
+        $search = $request->search;
+        $query->where(function($q) use ($search) {
+            $q->whereHas('unit', function($unitQuery) use ($search) {
+                $unitQuery->where('code', 'like', '%' . $search . '%')
+                         ->orWhere('name', 'like', '%' . $search . '%');
+            })
+            ->orWhere('lecturer_code', 'like', '%' . $search . '%')
+            // ✅ ADD: Search lecturer name too
+            ->orWhereHas('lecturer', function($lecturerQuery) use ($search) {
+                $lecturerQuery->where('first_name', 'like', '%' . $search . '%')
+                             ->orWhere('last_name', 'like', '%' . $search . '%');
+            });
+        });
+    }
+
+    if ($request->filled('lecturer_semester_id')) {
+        $query->where('semester_id', $request->lecturer_semester_id);
+    }
+
+    if ($request->filled('lecturer_program_id')) {
+        $query->whereHas('unit', function($q) use ($request) {
+            $q->where('program_id', $request->lecturer_program_id);
+        });
+    }
+
+    if ($request->filled('lecturer_class_id')) {
+        $query->where('class_id', $request->lecturer_class_id);
+    }
+
+    if ($request->filled('lecturer_code_filter')) {
+        $query->where('lecturer_code', $request->lecturer_code_filter);
+    }
+
+    $query->orderBy('created_at', 'desc');
+
+    // ✅ Use dynamic pagination with custom page parameter
+    $lecturerAssignments = $query->paginate($perPage, ['*'], 'assignments_page')
+        ->withQueryString();
+    
+    // Add lecturer information to each assignment
+    $lecturerAssignments->getCollection()->transform(function ($assignment) {
+        $lecturer = User::where('code', $assignment->lecturer_code)->first();
+        $assignment->lecturer = $lecturer;
+        return $assignment;
+    });
+
+    return $lecturerAssignments;
+}
+    
+/**
+ * ✅ NEW METHOD: Download lecturer assignments as CSV/Excel
+ */
+public function downloadLecturerAssignments(Request $request)
+{
+    try {
             $query = UnitAssignment::with([
                 'unit.school',
                 'unit.program', 
@@ -607,144 +626,162 @@ class EnrollmentController extends Controller
         }
     }
 
-    public function programEnrollments(Program $program, Request $request, $schoolCode)
-    {
-        $school = School::where('code', $schoolCode)->firstOrFail();
-        
-        if ($program->school_id !== $school->id) {
-            abort(403, 'Program does not belong to this school');
-        }
-
-        $query = Enrollment::with([
-            'student.school',
-            'student.program',
-            'unit.school',
-            'unit.program',
-            'semester',
-            'class',
-            'program',
-            'school'
-        ])->where('program_id', $program->id);
-
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('student_code', 'like', '%' . $search . '%')
-                  ->orWhereHas('unit', function($unitQuery) use ($search) {
-                      $unitQuery->where('code', 'like', '%' . $search . '%')
-                               ->orWhere('name', 'like', '%' . $search . '%');
-                  })
-                  ->orWhereHas('class', function($classQuery) use ($search) {
-                      $classQuery->where('name', 'like', '%' . $search . '%');
-                  });
-            });
-        }
-
-        if ($request->filled('semester_id')) {
-            $query->where('semester_id', $request->semester_id);
-        }
-
-        if ($request->filled('class_id')) {
-            $query->where('class_id', $request->class_id);
-        }
-
-        if ($request->filled('status') && $request->status !== 'all') {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->filled('student_code')) {
-            $query->where('student_code', $request->student_code);
-        }
-
-        if ($request->filled('unit_id')) {
-            $query->where('unit_id', $request->unit_id);
-        }
-
-        $query->orderBy('created_at', 'desc');
-        $enrollments = $query->paginate(5)->withQueryString();
-        
-        $students = User::with(['school', 'program'])
-            ->where('programs', $program->id)
-            ->role('Student')
-            ->orderByRaw("CONCAT(first_name, ' ', last_name)")
-            ->get();
-
-        $lecturers = User::role('Lecturer')
-            ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
-            ->orderByRaw("CONCAT(first_name, ' ', last_name)")
-            ->get();
-
-        $lecturerAssignments = UnitAssignment::with([
-            'unit.school',
-            'unit.program', 
-            'class.program.school',
-            'semester'
-        ])
-        ->whereHas('unit', function($q) use ($program) {
-            $q->where('program_id', $program->id);
-        })
-        ->whereNotNull('lecturer_code')
-        ->whereNotNull('class_id')
-        ->orderBy('created_at', 'desc')
-        ->take(10)
-        ->get()
-        ->map(function ($assignment) {
-            $lecturer = User::where('code', $assignment->lecturer_code)->first();
-            $assignment->lecturer = $lecturer;
-            return $assignment;
-        });
-
-        $units = Unit::with(['school', 'program'])
-            ->where('program_id', $program->id)
-            ->whereHas('assignments')
-            ->where('is_active', true)
-            ->get();
-            
-        $schools = School::orderBy('name')->get();
-        $programs = Program::where('school_id', $school->id)->orderBy('name')->get();
-        $semesters = Semester::orderBy('name')->get();
-        $classes = ClassModel::with(['program', 'semester'])
-            ->where('program_id', $program->id)
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->orderBy('section')
-            ->get();
-        
-        $allEnrollments = Enrollment::where('program_id', $program->id)->get();
-        $stats = [
-            'total' => $allEnrollments->pluck('student_code')->unique()->count(),
-            'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(),
-            'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(),
-            'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(),
-            'total_enrollments' => $allEnrollments->count(),
-            'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(),
-        ];
-        
-        $componentPath = "Schools/" . strtoupper($schoolCode) . "/Programs/Enrollments/Index";
-
-        return Inertia::render($componentPath, [
-            'program' => $program->load('school'),
-            'schoolCode' => $schoolCode,
-            'enrollments' => $enrollments,
-            'students' => $students,
-            'lecturers' => $lecturers,
-            'lecturerAssignments' => $lecturerAssignments,
-            'units' => $units,
-            'schools' => $schools,
-            'programs' => $programs,
-            'semesters' => $semesters,
-            'classes' => $classes,
-            'stats' => $stats,
-            'filters' => $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
-            'can' => [
-    'create' => auth()->user()->can('create-enrollments'),
-    'update' => auth()->user()->can('edit-enrollments'),
-    'delete' => auth()->user()->can('delete-enrollments'),
-    'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
-                        auth()->user()->can('create-lecturer-assignments'),
-]
-        ]);
+    // Enrollment view for a specific program within a school
+public function programEnrollments(Program $program, Request $request, $schoolCode)
+{
+    $school = School::where('code', $schoolCode)->firstOrFail();
+    
+    if ($program->school_id !== $school->id) {
+        abort(403, 'Program does not belong to this school');
     }
+
+    // ✅ ADD: Get pagination parameters
+    $perPageEnrollments = $request->input('per_page_enrollments', 15);
+    $perPageAssignments = $request->input('per_page_assignments', 15);
+
+    $query = Enrollment::with([
+        'student.school',
+        'student.program',
+        'unit.school',
+        'unit.program',
+        'semester',
+        'class',
+        'program',
+        'school'
+    ])->where('program_id', $program->id);
+
+    if ($request->filled('search')) {
+        $search = $request->search;
+        $query->where(function($q) use ($search) {
+            $q->where('student_code', 'like', '%' . $search . '%')
+              ->orWhereHas('unit', function($unitQuery) use ($search) {
+                  $unitQuery->where('code', 'like', '%' . $search . '%')
+                           ->orWhere('name', 'like', '%' . $search . '%');
+              })
+              ->orWhereHas('class', function($classQuery) use ($search) {
+                  $classQuery->where('name', 'like', '%' . $search . '%');
+              });
+        });
+    }
+
+    if ($request->filled('semester_id')) {
+        $query->where('semester_id', $request->semester_id);
+    }
+
+    if ($request->filled('class_id')) {
+        $query->where('class_id', $request->class_id);
+    }
+
+    if ($request->filled('status') && $request->status !== 'all') {
+        $query->where('status', $request->status);
+    }
+
+    if ($request->filled('student_code')) {
+        $query->where('student_code', $request->student_code);
+    }
+
+    if ($request->filled('unit_id')) {
+        $query->where('unit_id', $request->unit_id);
+    }
+
+    $query->orderBy('created_at', 'desc');
+    
+    // ✅ CHANGED: Use dynamic pagination
+    $enrollments = $query->paginate($perPageEnrollments, ['*'], 'enrollments_page')
+        ->withQueryString();
+    
+    $students = User::with(['school', 'program'])
+        ->where('programs', $program->id)
+        ->role('Student')
+        ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+        ->get();
+
+    $lecturers = User::role('Lecturer')
+        ->select(['id', 'code', 'first_name', 'last_name', 'email', 'schools'])
+        ->orderByRaw("CONCAT(first_name, ' ', last_name)")
+        ->get();
+
+    // ✅ CHANGED: Use dynamic pagination for lecturer assignments
+    $lecturerAssignmentsQuery = UnitAssignment::with([
+        'unit.school',
+        'unit.program', 
+        'class.program.school',
+        'semester'
+    ])
+    ->whereHas('unit', function($q) use ($program) {
+        $q->where('program_id', $program->id);
+    })
+    ->whereNotNull('lecturer_code')
+    ->whereNotNull('class_id')
+    ->orderBy('created_at', 'desc');
+
+    $lecturerAssignments = $lecturerAssignmentsQuery
+        ->paginate($perPageAssignments, ['*'], 'assignments_page')
+        ->withQueryString();
+
+    $lecturerAssignments->getCollection()->transform(function ($assignment) {
+        $lecturer = User::where('code', $assignment->lecturer_code)->first();
+        $assignment->lecturer = $lecturer;
+        return $assignment;
+    });
+
+    $units = Unit::with(['school', 'program'])
+        ->where('program_id', $program->id)
+        ->whereHas('assignments')
+        ->where('is_active', true)
+        ->get();
+        
+    $schools = School::orderBy('name')->get();
+    $programs = Program::where('school_id', $school->id)->orderBy('name')->get();
+    $semesters = Semester::orderBy('name')->get();
+    $classes = ClassModel::with(['program', 'semester'])
+        ->where('program_id', $program->id)
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->orderBy('section')
+        ->get();
+    
+    $allEnrollments = Enrollment::where('program_id', $program->id)->get();
+    $stats = [
+        'total' => $allEnrollments->pluck('student_code')->unique()->count(),
+        'active' => $allEnrollments->where('status', 'enrolled')->pluck('student_code')->unique()->count(),
+        'dropped' => $allEnrollments->where('status', 'dropped')->pluck('student_code')->unique()->count(),
+        'completed' => $allEnrollments->where('status', 'completed')->pluck('student_code')->unique()->count(),
+        'total_enrollments' => $allEnrollments->count(),
+        'active_enrollments' => $allEnrollments->where('status', 'enrolled')->count(),
+    ];
+    
+    $componentPath = "Schools/" . strtoupper($schoolCode) . "/Programs/Enrollments/Index";
+
+    return Inertia::render($componentPath, [
+        'program' => $program->load('school'),
+        'schoolCode' => $schoolCode,
+        'enrollments' => $enrollments,
+        'students' => $students,
+        'lecturers' => $lecturers,
+        'lecturerAssignments' => $lecturerAssignments,
+        'units' => $units,
+        'schools' => $schools,
+        'programs' => $programs,
+        'semesters' => $semesters,
+        'classes' => $classes,
+        'stats' => $stats,
+        'filters' => array_merge(
+            $request->only(['search', 'semester_id', 'school_id', 'program_id', 'class_id', 'status', 'student_code', 'unit_id']),
+            [
+                'per_page_enrollments' => (int) $perPageEnrollments,
+                'per_page_assignments' => (int) $perPageAssignments,
+            ]
+        ),
+        'can' => [
+            'create' => auth()->user()->can('create-enrollments'),
+            'update' => auth()->user()->can('edit-enrollments'),
+            'delete' => auth()->user()->can('delete-enrollments'),
+            'assign_lecturer' => auth()->user()->can('view-lecturer-assignments') || 
+                                auth()->user()->can('create-lecturer-assignments'),
+        ]
+    ]);
+}
 
     // special functions for handling enrollments and lecturer assignments can be added here
     /**
