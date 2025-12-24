@@ -629,9 +629,12 @@ public function getByProgramAndSemester(Request $request)
             return response()->json(['error' => 'Class not found'], 404);
         }
     }
-public function programClasses(Program $program, Request $request, $schoolCode)
+
+    
+    public function programClasses(Program $program, Request $request, $schoolCode)
 {
-    $perPage = $request->per_page ?? 15;
+    // Get pagination parameter with default
+    $perPage = (int) $request->input('per_page', 15);
     $search = $request->search ?? '';
     $semesterId = $request->semester_id;
     $yearLevel = $request->year_level;
@@ -641,7 +644,7 @@ public function programClasses(Program $program, Request $request, $schoolCode)
         abort(404, 'Program not found in this school.');
     }
 
-    $user = auth()->user(); // Add this line
+    $user = auth()->user();
 
     // Build the query for program-specific classes
     $query = ClassModel::with(['semester', 'program.school'])
@@ -663,7 +666,7 @@ public function programClasses(Program $program, Request $request, $schoolCode)
         ->orderBy('name')
         ->orderBy('section');
     
-    // Get paginated results
+    // ✅ Get paginated results with query string preservation
     $classes = $query->paginate($perPage)->withQueryString();
     
     // Get semesters for dropdowns
@@ -683,10 +686,9 @@ public function programClasses(Program $program, Request $request, $schoolCode)
             'search' => $search,
             'semester_id' => $semesterId ? (int) $semesterId : null,
             'year_level' => $yearLevel ? (int) $yearLevel : null,
-            'per_page' => (int) $perPage,
+            'per_page' => $perPage,
         ],
         'can' => [
-            // ✅ Fixed: Use hyphens to match actual permissions
             'create' => $user->hasRole('Admin') || 
                        $user->can('manage-classes') || 
                        $user->can('create-classes'),
