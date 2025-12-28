@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react"
 import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { toast } from "react-hot-toast"
+import Pagination from "@/Components/Pagination"
 import {
   BookOpen,
   Plus,
@@ -18,10 +19,7 @@ import {
   Clock,
   X,
   Check,
-  ChevronLeft,
   ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   AlertTriangle,
   Info
 } from "lucide-react"
@@ -84,7 +82,7 @@ interface PageProps {
     search?: string
     per_page?: number
   }
-  stats: {  // ✅ ADD THIS
+  stats: {
     total: number
     active: number
     inactive: number
@@ -102,6 +100,7 @@ interface PageProps {
   }
   errors?: any
 }
+
 interface UnitFormData {
   code: string
   name: string
@@ -109,17 +108,17 @@ interface UnitFormData {
   is_active: boolean
 }
 
-const ProgramUnitsIndex: React.FC = () => {
+export default function ProgramUnitsIndex() {
   const { 
-  units, 
-  program, 
-  schoolCode, 
-  filters,
-  stats,  
-  can = { create: false, update: false, delete: false }, 
-  flash, 
-  errors 
-} = usePage<PageProps>().props
+    units, 
+    program, 
+    schoolCode, 
+    filters,
+    stats,  
+    can = { create: false, update: false, delete: false }, 
+    flash, 
+    errors 
+  } = usePage<PageProps>().props
 
   // State management
   const [searchTerm, setSearchTerm] = useState(filters.search || '')
@@ -151,29 +150,29 @@ const ProgramUnitsIndex: React.FC = () => {
     }
   }, [errors, flash])
 
+  // Filtering and pagination
   const handleFilter = () => {
-    const params = new URLSearchParams()
-    
-    if (searchTerm) params.set('search', searchTerm)
-    params.set('per_page', perPage.toString())
-    
-    const indexRoute = route(`schools.${schoolCode.toLowerCase()}.programs.units.index`, program.id)
-    router.get(`${indexRoute}?${params.toString()}`)
-  }
+  const params = new URLSearchParams()
+  
+  if (searchTerm) params.set('search', searchTerm)
+  params.set('per_page', perPage.toString())
+  
+  const indexRoute = route(`schools.${schoolCode.toLowerCase()}.programs.units.index`, program.id)
+  router.get(`${indexRoute}?${params.toString()}`)
+}
 
-  const handlePaginationClick = (url: string | null) => {
-    if (!url) return
-    
-    const params = new URLSearchParams()
-    if (searchTerm) params.set('search', searchTerm)
-    params.set('per_page', perPage.toString())
-    
-    const finalUrl = url.includes('?') 
-      ? `${url}&${params.toString()}`
-      : `${url}?${params.toString()}`
-    
-    router.get(finalUrl)
-  }
+const handlePerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const newPerPage = Number(e.target.value)
+  setPerPage(newPerPage)
+  
+  // Immediately apply the new perPage value
+  const params = new URLSearchParams()
+  if (searchTerm) params.set('search', searchTerm)
+  params.set('per_page', newPerPage.toString())
+  
+  const indexRoute = route(`schools.${schoolCode.toLowerCase()}.programs.units.index`, program.id)
+  router.get(`${indexRoute}?${params.toString()}`)
+}
 
   // Form handlers
   const handleCreateUnit = () => {
@@ -316,16 +315,16 @@ const ProgramUnitsIndex: React.FC = () => {
                     Manage academic units and course modules for this program
                   </p>
                   <div className="flex items-center gap-4 mt-4">
-  <div className="text-sm text-slate-600">
-    Total Units: <span className="font-semibold">{stats?.total || 0}</span>
-  </div>
-  <div className="text-sm text-slate-600">
-    Active: <span className="font-semibold">{stats?.active || 0}</span>
-  </div>
-  <div className="text-sm text-slate-600">
-    Total Credits: <span className="font-semibold">{stats?.total_credits || 0}</span>
-  </div>
-</div>
+                    <div className="text-sm text-slate-600">
+                      Total Units: <span className="font-semibold">{stats?.total || 0}</span>
+                    </div>
+                      <div className="text-sm text-slate-600">
+                        Active: <span className="font-semibold">{stats?.active || 0}</span>
+                      </div>
+                      <div className="text-sm text-slate-600">
+                          Total Credits: <span className="font-semibold">{stats?.total_credits || 0}</span>
+                      </div>
+                    </div>
                 </div>
                 <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end">
                   {can.create && (
@@ -361,7 +360,7 @@ const ProgramUnitsIndex: React.FC = () => {
               <div className="flex gap-4 items-center">
                 <select
                   value={perPage}
-                  onChange={(e) => setPerPage(Number(e.target.value))}
+                  onChange={handlePerPageChange}  // ✅ CORRECT - triggers data fetch
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value={5}>5 per page</option>
@@ -489,85 +488,10 @@ const ProgramUnitsIndex: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* Pagination */}
-            {units.meta && units.meta.last_page && units.meta.last_page > 1 && (
-              <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 flex justify-between sm:hidden">
-                    <button
-                      onClick={() => handlePaginationClick(units.links?.find(link => link.label === '&laquo; Previous')?.url)}
-                      disabled={units.meta?.current_page === 1}
-                      className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Previous
-                    </button>
-                    <button
-                      onClick={() => handlePaginationClick(units.links?.find(link => link.label === 'Next &raquo;')?.url)}
-                      disabled={units.meta?.current_page === units.meta?.last_page}
-                      className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Next
-                    </button>
-                  </div>
-                  <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm text-gray-700">
-                        Showing <span className="font-medium">{units.meta?.from || 0}</span> to{' '}
-                        <span className="font-medium">{units.meta?.to || 0}</span> of{' '}
-                        <span className="font-medium">{units.meta?.total || 0}</span> results
-                      </p>
-                    </div>
-                    <div>
-                      <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                        <button
-                          onClick={() => handlePaginationClick(units.links?.[0]?.url)}
-                          disabled={units.meta?.current_page === 1}
-                          className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <ChevronsLeft className="h-5 w-5" />
-                        </button>
-                        
-                        <button
-                          onClick={() => handlePaginationClick(units.links?.find(link => link.label === '&laquo; Previous')?.url)}
-                          disabled={units.meta?.current_page === 1}
-                          className="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <ChevronLeft className="h-5 w-5" />
-                        </button>
-
-                        {units.links && units.links.slice(1, -1).map((link, index) => (
-                          <button
-                            key={index}
-                            onClick={() => handlePaginationClick(link.url)}
-                            className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                              link.active
-                                ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                                : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                            }`}
-                            dangerouslySetInnerHTML={{ __html: link.label }}
-                          />
-                        ))}
-
-                        <button
-                          onClick={() => handlePaginationClick(units.links?.find(link => link.label === 'Next &raquo;')?.url)}
-                          disabled={units.meta?.current_page === units.meta?.last_page}
-                          className="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <ChevronRight className="h-5 w-5" />
-                        </button>
-
-                        <button
-                          onClick={() => handlePaginationClick(units.links?.[units.links.length - 1]?.url)}
-                          disabled={units.meta?.current_page === units.meta?.last_page}
-                          className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <ChevronsRight className="h-5 w-5" />
-                        </button>
-                      </nav>
-                    </div>
-                  </div>
-                </div>
+            {/* Pagination - Outside the table, but inside the container */}
+            {units.data && units.data.length > 0 && (
+              <div className="px-6 py-4 bg-slate-50 border-t">
+                <Pagination links={units.links} />
               </div>
             )}
           </div>
@@ -1107,4 +1031,3 @@ const ProgramUnitsIndex: React.FC = () => {
   )
 }
 
-export default ProgramUnitsIndex
