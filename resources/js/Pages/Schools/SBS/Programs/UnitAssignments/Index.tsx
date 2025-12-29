@@ -209,8 +209,10 @@ export default function UnitAssignments() {
 
     setLoading(true);
     
-    // ✅ FIXED: Dynamic schoolCode
-    router.post(route(`schools.${schoolCode.toLowerCase()}.programs.unitassignment.assign`, program.id), {
+    // ✅ FIXED: Build route name as a variable first
+    const routeName = `schools.${schoolCode.toLowerCase()}.programs.unitassignment.assign`;
+    
+    router.post(route(routeName, program.id), {
       unit_ids: Array.from(selectedUnits),
       semester_id: selectedSemester,
       class_ids: selectedClasses
@@ -234,8 +236,10 @@ export default function UnitAssignments() {
     if (confirm(`Are you sure you want to remove ${assignmentIds.length} assignment(s)?`)) {
       setLoading(true);
       
-      // ✅ FIXED: Dynamic schoolCode
-      router.post(route(`schools.${schoolCode.toLowerCase()}.programs.unitassignment.remove`, program.id), {
+      // ✅ FIXED: Build route name as a variable first
+      const routeName = `schools.${schoolCode.toLowerCase()}.programs.unitassignment.remove`;
+      
+      router.post(route(routeName, program.id), {
         assignment_ids: assignmentIds
       }, {
         onSuccess: () => {
@@ -258,8 +262,17 @@ export default function UnitAssignments() {
       params.append('class_id', selectedClasses[0].toString());
     }
 
-    // ✅ FIXED: Dynamic schoolCode
-    router.get(`${route(`schools.${schoolCode.toLowerCase()}.programs.unitassignment.AssignSemesters`, program.id)}?${params.toString()}`);
+    // ✅ FIXED: Build route name as a variable first
+    const routeName = `schools.${schoolCode.toLowerCase()}.programs.unitassignment.AssignSemesters`;
+    const url = route(routeName, program.id);
+    
+    router.get(`${url}?${params.toString()}`);
+  };
+
+  // ✅ FIXED: Helper function for back button
+  const getBackRoute = () => {
+    const routeName = `schools.${schoolCode.toLowerCase()}.programs.index`;
+    return route(routeName);
   };
 
   return (
@@ -297,9 +310,9 @@ export default function UnitAssignments() {
                   </div>
                 </div>
                 
-                {/* ✅ FIXED: Dynamic schoolCode for back button */}
+                {/* ✅ FIXED: Dynamic back button */}
                 <a
-                  href={route(`schools.${schoolCode.toLowerCase()}.programs.index`)}
+                  href={getBackRoute()}
                   className="mt-4 sm:mt-0 px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
                 >
                   Back to Programs
