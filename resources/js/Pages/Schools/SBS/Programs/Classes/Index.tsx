@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react"
 import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
+import Pagination from "@/Components/Pagination"
 import { toast } from "react-hot-toast"
 import {
   Users,
@@ -56,12 +57,23 @@ interface Semester {
   is_active: boolean
 }
 
+interface PaginationData {
+  current_page: number
+  last_page: number
+  per_page: number
+  total: number
+  from: number
+  to: number
+  data: Class[]
+  links: Array<{
+    url: string | null
+    label: string
+    active: boolean
+  }>
+}
+
 interface PageProps {
-  classes: {
-    data: Class[]
-    links: any[]
-    meta: any
-  }
+  classes: PaginationData
   program: Program
   schoolCode: string
   semesters: Semester[]
@@ -107,6 +119,7 @@ const ProgramClassesIndex: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState(filters.search || '')
   const [semesterFilter, setSemesterFilter] = useState<number | string>(filters.semester_id || 'all')
   const [yearLevelFilter, setYearLevelFilter] = useState<number | string>(filters.year_level || 'all')
+  const [perPage, setPerPage] = useState(filters.per_page || 15)
   const [loading, setLoading] = useState(false)
 
   // Modal states
@@ -137,7 +150,9 @@ const ProgramClassesIndex: React.FC = () => {
   }, [errors, flash])
 
   const handleFilter = () => {
-    const params: any = {}
+    const params: any = {
+      per_page: perPage
+    }
     
     if (searchTerm) params.search = searchTerm
     if (semesterFilter !== 'all') params.semester_id = semesterFilter
@@ -145,7 +160,7 @@ const ProgramClassesIndex: React.FC = () => {
     
     router.get(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes`, params, {
       preserveState: true,
-      replace: true
+      replace: false
     })
   }
 
@@ -153,10 +168,40 @@ const ProgramClassesIndex: React.FC = () => {
     setSearchTerm('')
     setSemesterFilter('all')
     setYearLevelFilter('all')
-    router.get(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes`, {}, {
+    router.get(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes`, {
+      per_page: perPage
+    }, {
       preserveState: true,
-      replace: true
+      replace: false
     })
+  }
+
+  // Pagination handlers
+  const handlePerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newPerPage = Number(e.target.value)
+    setPerPage(newPerPage)
+    
+    const params: any = {
+      per_page: newPerPage
+    }
+    
+    if (searchTerm) params.search = searchTerm
+    if (semesterFilter !== 'all') params.semester_id = semesterFilter
+    if (yearLevelFilter !== 'all') params.year_level = yearLevelFilter
+    
+    router.get(`/schools/${schoolCode.toLowerCase()}/programs/${program.id}/classes`, params, {
+      preserveState: true,
+      replace: false
+    })
+  }
+
+  const handlePaginationClick = (url: string | null) => {
+    if (url) {
+      router.get(url, {}, {
+        preserveState: true,
+        replace: false
+      })
+    }
   }
 
   const handleCreateClass = () => {
@@ -265,6 +310,7 @@ const ProgramClassesIndex: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center mb-2">
+                    
                     <a
                       href={`/schools/${schoolCode.toLowerCase()}/programs`}
                       className="mr-4 p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -287,7 +333,7 @@ const ProgramClassesIndex: React.FC = () => {
                   </p>
                   <div className="flex items-center gap-4 mt-4">
                     <div className="text-sm text-slate-600">
-                      Total Classes: <span className="font-semibold">{classes.data.length}</span>
+                      Total Classes: <span className="font-semibold">{classes.total}</span>
                     </div>
                     <div className="text-sm text-slate-600">
                       Active: <span className="font-semibold">{classes.data.filter(c => c.is_active).length}</span>
@@ -370,6 +416,27 @@ const ProgramClassesIndex: React.FC = () => {
 
           {/* Classes Table */}
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200/50 overflow-hidden">
+            {/* Per-Page Selector */}
+            <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-700">Classes</h3>
+              <div className="flex items-center gap-2">
+                <label htmlFor="perPage" className="text-sm text-gray-600">
+                  Items per page:
+                </label>
+                <select
+                  id="perPage"
+                  value={perPage}
+                  onChange={handlePerPageChange}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                </select>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-50">
@@ -485,6 +552,23 @@ const ProgramClassesIndex: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Pagination */}
+            {classes.data.length > 0 && (
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-sm text-gray-700">
+                    Showing <span className="font-medium">{classes.from || 0}</span> to{' '}
+                    <span className="font-medium">{classes.to || 0}</span> of{' '}
+                    <span className="font-medium">{classes.total || 0}</span> classes
+                  </div>
+                  <Pagination 
+                    links={classes.links} 
+                    onPageChange={handlePaginationClick} 
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Create Modal */}

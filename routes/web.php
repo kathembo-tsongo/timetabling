@@ -1,5 +1,6 @@
 <?php
 
+
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
@@ -26,6 +27,11 @@ use App\Http\Controllers\DynamicRoleController;
 use App\Http\Controllers\DynamicPermissionController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ClassTimeSlotController;
+use App\Http\Controllers\Controller;
+
+// ✅ ADD THIS LINE - Import the ElectiveController
+use App\Http\Controllers\ElectiveController;
+
 use App\Models\ClassModel;
 use App\Models\Program;
 use App\Models\Unit;
@@ -33,7 +39,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-
 // Load module routes
 $moduleRoutes = glob(base_path('Modules/*/routes/web.php'));
 foreach ($moduleRoutes as $routeFile) {
@@ -800,6 +805,33 @@ Route::middleware(['auth'])->group(function () {
     // SHSS SCHOOL ROUTES (School of Humanities & Social Sciences)
     // ============================================
     Route::prefix('schools/shss')->name('schools.shss.')->middleware(['auth'])->group(function () {    
+        
+         Route::prefix('electives')->name('electives.')->group(function () {
+        Route::get('/', [ElectiveController::class, 'index'])
+            ->middleware(['permission:view-programs'])  // ✅ Add permission
+            ->name('index');
+        
+        Route::post('/', [ElectiveController::class, 'store'])
+            ->middleware(['permission:create-programs'])  // ✅ Add permission
+            ->name('store');
+        
+        Route::get('/{elective}', [ElectiveController::class, 'show'])
+            ->middleware(['permission:view-programs'])
+            ->name('show');
+        
+        Route::put('/{elective}', [ElectiveController::class, 'update'])
+            ->middleware(['permission:edit-programs'])
+            ->name('update');
+        
+        Route::patch('/{elective}/toggle-status', [ElectiveController::class, 'toggleStatus'])
+            ->middleware(['permission:edit-programs'])
+            ->name('toggle-status');
+        
+        Route::delete('/{elective}', [ElectiveController::class, 'destroy'])
+            ->middleware(['permission:delete-programs'])
+            ->name('destroy');
+    });
+        
         Route::prefix('programs')->name('programs.')->middleware(['permission:view-programs'])->group(function () {
             Route::get('/', function(Request $request) {
                 return app(ProgramController::class)->index($request, 'SHSS');
@@ -832,6 +864,7 @@ Route::middleware(['auth'])->group(function () {
             Route::delete('/{program}', function(Program $program) {
                 return app(ProgramController::class)->destroy('SHSS', $program);
             })->middleware(['permission:delete-programs'])->name('destroy');
+            
 
             Route::prefix('{program}')->group(function () {            
                 // UNITS

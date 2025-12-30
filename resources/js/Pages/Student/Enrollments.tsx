@@ -9,6 +9,8 @@ interface Unit {
   code: string;
   name: string;
   credit_hours?: number;
+  is_elective?: boolean;
+  elective_category?: 'language' | 'other';
   school?: {
     id: number;
     name: string;
@@ -84,6 +86,17 @@ interface EnrollmentFormData {
   status: 'enrolled' | 'dropped' | 'completed';
 }
 
+interface ElectiveFormData {
+  student_code: string;
+  school_id: number | '';
+  program_id: number | '';
+  class_id: number | '';
+  semester_id: number | '';
+  language_elective_id: number | '';
+  other_elective_id: number | '';
+  status: 'enrolled' | 'dropped' | 'completed';
+}
+
 interface Props {
   enrollments?: {
     data?: Enrollment[];
@@ -126,6 +139,7 @@ export default function Enrollments({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [enrollingUnits, setEnrollingUnits] = useState<Set<number>>(new Set());
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+  const [isElectiveModalOpen, setIsElectiveModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   
   // Form state for enrollment modal
@@ -139,9 +153,26 @@ export default function Enrollments({
     status: 'enrolled'
   });
 
+  // Form state for elective enrollment
+  const [electiveFormData, setElectiveFormData] = useState<ElectiveFormData>({
+    student_code: auth?.user?.code || '',
+    school_id: '',
+    program_id: '',
+    class_id: '',
+    semester_id: '',
+    language_elective_id: '',
+    other_elective_id: '',
+    status: 'enrolled'
+  });
+
   // Available data for enrollment
   const [availableClasses, setAvailableClasses] = useState<Class[]>([]);
   const [availableUnitsForClass, setAvailableUnitsForClass] = useState<Unit[]>([]);
+  
+  // Available electives
+  const [availableLanguageElectives, setAvailableLanguageElectives] = useState<Unit[]>([]);
+  const [availableOtherElectives, setAvailableOtherElectives] = useState<Unit[]>([]);
+  const [availableElectiveClasses, setAvailableElectiveClasses] = useState<Class[]>([]);
 
   // Extract unique semesters for filter
   const enrollmentSemesters = [...new Set(enrollments.data?.map(e => e.semester.name) || [])];
@@ -177,6 +208,10 @@ export default function Enrollments({
     !formData.school_id || program.school_id === formData.school_id
   );
 
+  const filteredElectivePrograms = programs.filter(program => 
+    !electiveFormData.school_id || program.school_id === electiveFormData.school_id
+  );
+
   // Get page title and icon based on user role
   const getPageInfo = () => {
     if (isAdmin) return { title: "All Enrollments", subtitle: "Manage student enrollments across all units", icon: "👥" };
@@ -208,7 +243,7 @@ export default function Enrollments({
         throw new Error('Failed to fetch classes');
       }
       const data = await response.json();
-      console.log('Fetched classes:', data); // Debug log
+      console.log('Fetched classes:', data);
       setAvailableClasses(data);
     } catch (error) {
       console.error('Failed to fetch classes:', error);
@@ -229,7 +264,7 @@ export default function Enrollments({
         throw new Error('Failed to fetch units');
       }
       const data = await response.json();
-      console.log('Fetched units:', data); // Debug log
+      console.log('Fetched units:', data);
       setAvailableUnitsForClass(data);
     } catch (error) {
       console.error('Failed to fetch units:', error);
@@ -238,9 +273,60 @@ export default function Enrollments({
     }
   };
 
+  // API calls for electives
+  const fetchElectiveClasses = async () => {
+    if (!electiveFormData.program_id || !electiveFormData.semester_id) {
+      setAvailableElectiveClasses([]);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/student/api/classes/by-program-semester?program_id=${electiveFormData.program_id}&semester_id=${electiveFormData.semester_id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch classes');
+      }
+      const data = await response.json();
+      console.log('Fetched elective classes:', data);
+      setAvailableElectiveClasses(data);
+    } catch (error) {
+      console.error('Failed to fetch classes:', error);
+      toast.error('Failed to load classes');
+      setAvailableElectiveClasses([]);
+    }
+  };
+
+  const fetchElectivesForClass = async () => {
+    if (!electiveFormData.class_id || !electiveFormData.semester_id) {
+      setAvailableLanguageElectives([]);
+      setAvailableOtherElectives([]);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/student/api/electives/by-class?class_id=${electiveFormData.class_id}&semester_id=${electiveFormData.semester_id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch electives');
+      }
+      const data = await response.json();
+      console.log('Fetched electives:', data);
+      
+      // Separate electives by category
+      const languageElectives = data.filter((unit: Unit) => unit.elective_category === 'language');
+      const otherElectives = data.filter((unit: Unit) => unit.elective_category === 'other');
+      
+      setAvailableLanguageElectives(languageElectives);
+      setAvailableOtherElectives(otherElectives);
+    } catch (error) {
+      console.error('Failed to fetch electives:', error);
+      toast.error('Failed to load electives');
+      setAvailableLanguageElectives([]);
+      setAvailableOtherElectives([]);
+    }
+  };
+
   // Effects for enrollment form - UPDATED
   useEffect(() => {
-    console.log('Program/Semester changed:', formData.program_id, formData.semester_id); // Debug log
+    console.log('Program/Semester changed:', formData.program_id, formData.semester_id);
     if (formData.program_id && formData.semester_id) {
       fetchClasses();
     } else {
@@ -250,7 +336,7 @@ export default function Enrollments({
   }, [formData.program_id, formData.semester_id]);
 
   useEffect(() => {
-    console.log('Class changed:', formData.class_id); // Debug log
+    console.log('Class changed:', formData.class_id);
     if (formData.class_id && formData.semester_id) {
       setFormData(prev => ({ ...prev, unit_ids: [] }));
       fetchUnitsForClass();
@@ -274,7 +360,7 @@ export default function Enrollments({
     }
   }, [formData.school_id]);
 
-  // Reset class when program changes (but not when semester changes)
+  // Reset class when program changes
   useEffect(() => {
     setFormData(prev => ({ 
       ...prev, 
@@ -284,6 +370,58 @@ export default function Enrollments({
     setAvailableClasses([]);
     setAvailableUnitsForClass([]);
   }, [formData.program_id]);
+
+  // Effects for elective form
+  useEffect(() => {
+    console.log('Elective Program/Semester changed:', electiveFormData.program_id, electiveFormData.semester_id);
+    if (electiveFormData.program_id && electiveFormData.semester_id) {
+      fetchElectiveClasses();
+    } else {
+      setAvailableElectiveClasses([]);
+      setElectiveFormData(prev => ({ ...prev, class_id: '', language_elective_id: '', other_elective_id: '' }));
+    }
+  }, [electiveFormData.program_id, electiveFormData.semester_id]);
+
+  useEffect(() => {
+    console.log('Elective Class changed:', electiveFormData.class_id);
+    if (electiveFormData.class_id && electiveFormData.semester_id) {
+      setElectiveFormData(prev => ({ ...prev, language_elective_id: '', other_elective_id: '' }));
+      fetchElectivesForClass();
+    } else {
+      setAvailableLanguageElectives([]);
+      setAvailableOtherElectives([]);
+      setElectiveFormData(prev => ({ ...prev, language_elective_id: '', other_elective_id: '' }));
+    }
+  }, [electiveFormData.class_id, electiveFormData.semester_id]);
+
+  // Reset program when school changes (elective)
+  useEffect(() => {
+    if (electiveFormData.school_id) {
+      setElectiveFormData(prev => ({ 
+        ...prev, 
+        program_id: '', 
+        class_id: '', 
+        language_elective_id: '', 
+        other_elective_id: '' 
+      }));
+      setAvailableElectiveClasses([]);
+      setAvailableLanguageElectives([]);
+      setAvailableOtherElectives([]);
+    }
+  }, [electiveFormData.school_id]);
+
+  // Reset class when program changes (elective)
+  useEffect(() => {
+    setElectiveFormData(prev => ({ 
+      ...prev, 
+      class_id: '', 
+      language_elective_id: '', 
+      other_elective_id: '' 
+    }));
+    setAvailableElectiveClasses([]);
+    setAvailableLanguageElectives([]);
+    setAvailableOtherElectives([]);
+  }, [electiveFormData.program_id]);
 
   // Handle opening enrollment modal
   const handleOpenEnrollModal = () => {
@@ -299,6 +437,24 @@ export default function Enrollments({
     setAvailableClasses([]);
     setAvailableUnitsForClass([]);
     setIsEnrollModalOpen(true);
+  };
+
+  // Handle opening elective enrollment modal
+  const handleOpenElectiveModal = () => {
+    setElectiveFormData({
+      student_code: auth?.user?.code || '',
+      school_id: '',
+      program_id: '',
+      class_id: '',
+      semester_id: currentSemester?.id || '',
+      language_elective_id: '',
+      other_elective_id: '',
+      status: 'enrolled'
+    });
+    setAvailableElectiveClasses([]);
+    setAvailableLanguageElectives([]);
+    setAvailableOtherElectives([]);
+    setIsElectiveModalOpen(true);
   };
 
   const handleUnitToggle = (unitId: number) => {
@@ -354,6 +510,61 @@ export default function Enrollments({
       },
       onError: (errors) => {
         toast.error(errors.error || 'Failed to complete enrollment');
+      },
+      onFinish: () => {
+        setLoading(false);
+      }
+    });
+  };
+
+  const handleSubmitElectiveEnrollment = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!electiveFormData.class_id) {
+      toast.error('Please select a class');
+      return;
+    }
+    
+    if (!electiveFormData.language_elective_id && !electiveFormData.other_elective_id) {
+      toast.error('Please select at least one elective');
+      return;
+    }
+
+    setLoading(true);
+
+    // Prepare data with only selected electives
+    const electiveIds = [];
+    if (electiveFormData.language_elective_id) electiveIds.push(electiveFormData.language_elective_id);
+    if (electiveFormData.other_elective_id) electiveIds.push(electiveFormData.other_elective_id);
+
+    const submitData = {
+      student_code: electiveFormData.student_code,
+      class_id: electiveFormData.class_id,
+      semester_id: electiveFormData.semester_id,
+      unit_ids: electiveIds,
+      status: electiveFormData.status
+    };
+
+    router.post('/student/enrollments/electives', submitData, {
+      onSuccess: (response) => {
+        toast.success('Elective enrollment completed successfully!');
+        setIsElectiveModalOpen(false);
+        setElectiveFormData({
+          student_code: auth?.user?.code || '',
+          school_id: '',
+          program_id: '',
+          class_id: '',
+          semester_id: '',
+          language_elective_id: '',
+          other_elective_id: '',
+          status: 'enrolled'
+        });
+        setAvailableElectiveClasses([]);
+        setAvailableLanguageElectives([]);
+        setAvailableOtherElectives([]);
+      },
+      onError: (errors) => {
+        toast.error(errors.error || 'Failed to complete elective enrollment');
       },
       onFinish: () => {
         setLoading(false);
@@ -428,12 +639,6 @@ export default function Enrollments({
                     <div className="text-2xl font-bold">{stats.uniqueSemesters}</div>
                     <div className="text-xs opacity-90">Semesters</div>
                   </div>
-                  {/* {stats.availableUnits !== null && (
-                    <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-xl p-4 text-white text-center">
-                      <div className="text-2xl font-bold">{stats.availableUnits}</div>
-                      <div className="text-xs opacity-90">Available</div>
-                    </div>
-                  )} */}
                 </div>
               </div>
             </div>
@@ -441,7 +646,8 @@ export default function Enrollments({
 
           {/* Enrollment Call-to-Action Section */}
           {isStudent && (
-            <div className="mb-8">
+            <div className="mb-8 space-y-4">
+              {/* Regular Enrollment */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl shadow-lg border border-green-200 p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center space-x-4 mb-4 sm:mb-0">
@@ -466,6 +672,36 @@ export default function Enrollments({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                       </svg>
                       Enroll in Units
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Elective Enrollment */}
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl shadow-lg border border-amber-200 p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center space-x-4 mb-4 sm:mb-0">
+                    <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-amber-800">Enroll in Electives</h3>
+                      <p className="text-amber-600 text-sm">
+                        Choose language and other elective units for your class
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={handleOpenElectiveModal}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white font-medium rounded-xl hover:from-amber-700 hover:to-orange-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                      </svg>
+                      Enroll in Electives
                     </button>
                   </div>
                 </div>
@@ -602,12 +838,12 @@ export default function Enrollments({
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-2">No Current Enrollments</h3>
               <p className="text-gray-500 mb-6 max-w-md mx-auto">
-                You are not currently enrolled in any units. Click the button below to start enrolling.
+                You are not currently enrolled in any units. Click the button above to start enrolling.
               </p>
             </div>
           )}         
 
-          {/* Enrollment Modal */}
+          {/* Regular Enrollment Modal */}
           {isEnrollModalOpen && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -683,7 +919,6 @@ export default function Enrollments({
                     </select>
                   </div>
 
-
                   {/* Program Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Program *</label>
@@ -707,7 +942,7 @@ export default function Enrollments({
                     </select>
                   </div>
 
-                  {/* Class Selection - FIXED */}
+                  {/* Class Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Class *</label>
                     {(!formData.program_id || !formData.semester_id) ? (
@@ -755,23 +990,27 @@ export default function Enrollments({
                   {formData.class_id && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Select Units to Enroll *</label>
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-4">
                         {availableUnitsForClass.length > 0 ? (
                           availableUnitsForClass.map(unit => (
-                            <label key={unit.id} className="flex items-center gap-2">
+                            <label key={unit.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={formData.unit_ids.includes(unit.id)}
                                 onChange={() => handleUnitToggle(unit.id)}
-                                className="form-checkbox h-4 w-4 text-green-600"
+                                className="form-checkbox h-5 w-5 text-green-600 rounded"
                               />
-                              <span>
-                                {unit.code} - {unit.name} ({unit.credit_hours} credits)
+                              <span className="flex-1">
+                                <span className="font-medium text-gray-900">{unit.code}</span>
+                                {' - '}
+                                <span className="text-gray-700">{unit.name}</span>
+                                {' '}
+                                <span className="text-gray-500 text-sm">({unit.credit_hours} credits)</span>
                               </span>
                             </label>
                           ))
                         ) : (
-                          <p className="mt-2 text-xs text-gray-500">
+                          <p className="text-sm text-gray-500 text-center py-4">
                             No units available for this class, semester, and program.
                           </p>
                         )}
@@ -781,14 +1020,14 @@ export default function Enrollments({
                           <button
                             type="button"
                             onClick={handleSelectAllUnits}
-                            className="px-2 py-1 text-xs bg-green-100 rounded hover:bg-green-200"
+                            className="px-3 py-1.5 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
                           >
                             Select All
                           </button>
                           <button
                             type="button"
                             onClick={handleClearAllUnits}
-                            className="px-2 py-1 text-xs bg-gray-100 rounded hover:bg-gray-200"
+                            className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
                           >
                             Clear All
                           </button>
@@ -813,6 +1052,242 @@ export default function Enrollments({
                     >
                       {loading ? 'Processing...' : 
                        `Enroll in ${formData.unit_ids.length} Unit${formData.unit_ids.length !== 1 ? 's' : ''}`}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Elective Enrollment Modal */}
+          {isElectiveModalOpen && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-orange-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-semibold text-white">Enroll in Electives</h3>
+                      <p className="text-amber-100 text-sm mt-1">Select language and other elective units</p>
+                    </div>
+                    <button
+                      onClick={() => setIsElectiveModalOpen(false)}
+                      className="text-white hover:text-gray-200 transition-colors"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSubmitElectiveEnrollment} className="p-6 space-y-6">
+                  {/* Student Code (Pre-filled) */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Student Number</label>
+                    <input
+                      type="text"
+                      value={electiveFormData.student_code}
+                      disabled
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600"
+                    />
+                  </div>
+
+                  {/* School Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">School *</label>
+                    <select
+                      value={electiveFormData.school_id}
+                      onChange={(e) => setElectiveFormData(prev => ({ 
+                        ...prev, 
+                        school_id: e.target.value ? parseInt(e.target.value) : '',
+                        program_id: '',
+                        class_id: ''
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      required
+                    >
+                      <option value="">Select School</option>
+                      {schools.map(school => (
+                        <option key={school.id} value={school.id}>
+                          {school.code} - {school.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Semester Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Semester *</label>
+                    <select
+                      value={electiveFormData.semester_id}
+                      onChange={(e) => setElectiveFormData(prev => ({ 
+                        ...prev, 
+                        semester_id: e.target.value ? parseInt(e.target.value) : '',
+                        class_id: '',
+                        language_elective_id: '',
+                        other_elective_id: ''
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      required
+                    >
+                      <option value="">Select Semester</option>
+                      {semesters.map(semester => (
+                        <option key={semester.id} value={semester.id}>
+                          {semester.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Program Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Program *</label>
+                    <select
+                      value={electiveFormData.program_id}
+                      onChange={(e) => setElectiveFormData(prev => ({ 
+                        ...prev, 
+                        program_id: e.target.value ? parseInt(e.target.value) : '',
+                        class_id: ''
+                      }))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      required
+                      disabled={!electiveFormData.school_id}
+                    >
+                      <option value="">Select Program</option>
+                      {filteredElectivePrograms.map(program => (
+                        <option key={program.id} value={program.id}>
+                          {program.code} - {program.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Class Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Class *</label>
+                    {(!electiveFormData.program_id || !electiveFormData.semester_id) ? (
+                      <select
+                        disabled
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-500"
+                      >
+                        <option value="">Select Class</option>
+                      </select>
+                    ) : availableElectiveClasses.length === 0 ? (
+                      <div className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-yellow-50">
+                        <div className="flex items-center">
+                          <svg className="w-4 h-4 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z" />
+                          </svg>
+                          <span className="text-yellow-800 text-sm">No classes available for this program and semester</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <select
+                        value={electiveFormData.class_id}
+                        onChange={(e) => setElectiveFormData(prev => ({ 
+                          ...prev, 
+                          class_id: e.target.value ? parseInt(e.target.value) : ''
+                        }))}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        required
+                      >
+                        <option value="">Select Class</option>
+                        {availableElectiveClasses.map(cls => (
+                          <option key={cls.id} value={cls.id}>
+                            {cls.display_name || `${cls.name} Section ${cls.section}`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {(!electiveFormData.program_id || !electiveFormData.semester_id) && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Select program and semester first to see classes
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Electives Selection */}
+                  {electiveFormData.class_id && (
+                    <div className="space-y-6">
+                      {/* Language Electives */}
+                      <div className="border-2 border-blue-200 rounded-xl p-4 bg-blue-50">
+                        <div className="flex items-center mb-3">
+                          <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                          </svg>
+                          <label className="text-sm font-semibold text-blue-900">Language Elective</label>
+                        </div>
+                        {availableLanguageElectives.length > 0 ? (
+                          <select
+                            value={electiveFormData.language_elective_id}
+                            onChange={(e) => setElectiveFormData(prev => ({ 
+                              ...prev, 
+                              language_elective_id: e.target.value ? parseInt(e.target.value) : ''
+                            }))}
+                            className="w-full px-4 py-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                          >
+                            <option value="">Select Language Elective (Optional)</option>
+                            {availableLanguageElectives.map(unit => (
+                              <option key={unit.id} value={unit.id}>
+                                {unit.code} - {unit.name} ({unit.credit_hours} credits)
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-sm text-blue-700 py-2">
+                            No language electives available for this class
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Other Electives */}
+                      <div className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50">
+                        <div className="flex items-center mb-3">
+                          <svg className="w-5 h-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                          <label className="text-sm font-semibold text-purple-900">Other Elective</label>
+                        </div>
+                        {availableOtherElectives.length > 0 ? (
+                          <select
+                            value={electiveFormData.other_elective_id}
+                            onChange={(e) => setElectiveFormData(prev => ({ 
+                              ...prev, 
+                              other_elective_id: e.target.value ? parseInt(e.target.value) : ''
+                            }))}
+                            className="w-full px-4 py-3 border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white"
+                          >
+                            <option value="">Select Other Elective (Optional)</option>
+                            {availableOtherElectives.map(unit => (
+                              <option key={unit.id} value={unit.id}>
+                                {unit.code} - {unit.name} ({unit.credit_hours} credits)
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-sm text-purple-700 py-2">
+                            No other electives available for this class
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Form Actions */}
+                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setIsElectiveModalOpen(false)}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading || (!electiveFormData.language_elective_id && !electiveFormData.other_elective_id) || !electiveFormData.class_id}
+                      className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Processing...' : 'Enroll in Electives'}
                     </button>
                   </div>
                 </form>

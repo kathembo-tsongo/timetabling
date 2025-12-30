@@ -387,6 +387,17 @@ const SCESProgramsManagement: React.FC = () => {
                       Create Program
                     </button>
                   )}
+
+                  {/* NEW: Elective Management Link */}
+        {!isClassTimetableOffice && !isExamTimetableOffice && (
+          <a
+            href={route('schools.shss.electives.index')}
+            className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-500 via-purple-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-purple-600 hover:via-purple-700 hover:to-indigo-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+          >
+            <Settings className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-300" />
+            Elective Management
+          </a>
+        )}
                 </div>
               </div>
             </div>
