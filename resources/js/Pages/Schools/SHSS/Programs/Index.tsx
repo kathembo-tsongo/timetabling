@@ -27,7 +27,7 @@ import {
   Calendar,
   ClipboardList,
   Settings,
-  Star  
+  Star
 } from "lucide-react"
 import { route } from 'ziggy-js';
 
@@ -57,6 +57,12 @@ interface Program {
     exam_timetables: string
     unit_assignment: string
   }
+  classes?: Array<{
+    id: number
+    name: string
+    section: string
+    year_level: number
+  }>
 }
 
 interface School {
@@ -121,6 +127,15 @@ const SCESProgramsManagement: React.FC = () => {
   const isSBSAdminOffice = isRole('Faculty Admin - SCES')
   const isSCESAdminOffice = isRole('Faculty Admin - SBS')
   
+  // ✅ NEW: Elective Enrollment Modal state with student code input approach
+  const [isElectiveEnrollModalOpen, setIsElectiveEnrollModalOpen] = useState(false)
+  const [electiveStudentCode, setElectiveStudentCode] = useState("")
+  const [selectedStudent, setSelectedStudent] = useState<any>(null)
+  const [allElectives, setAllElectives] = useState<any[]>([])
+  const [availableLanguageElectives, setAvailableLanguageElectives] = useState<any[]>([])
+  const [availableOtherElectives, setAvailableOtherElectives] = useState<any[]>([])
+  const [selectedElectives, setSelectedElectives] = useState<number[]>([])
+  const [loadingElectives, setLoadingElectives] = useState(false)
 
   // State management
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -170,6 +185,118 @@ const SCESProgramsManagement: React.FC = () => {
       toast.success(flash.success)
     }
   }, [errors, flash])
+
+  // ✅ NEW: Elective enrollment handlers
+  const handleOpenElectiveEnrollment = () => {
+    setIsElectiveEnrollModalOpen(true)
+    setElectiveStudentCode("")
+    setSelectedStudent(null)
+    setAllElectives([])
+    setAvailableLanguageElectives([])
+    setAvailableOtherElectives([])
+    setSelectedElectives([])
+    
+    // Load all available electives immediately
+    loadAllElectives()
+  }
+
+  // ✅ Load all electives from all schools
+  const loadAllElectives = async () => {
+    try {
+      const response = await fetch('/admin/api/electives/all')
+      if (!response.ok) throw new Error('Failed to load electives')
+      const data = await response.json()
+      setAllElectives(data.electives || [])
+    } catch (error: any) {
+      console.error('Electives API error:', error)
+      toast.error(error.message || 'Failed to load electives')
+    }
+  }
+
+  // ✅ Handle student code search
+  const handleSearchStudent = async () => {
+    if (!electiveStudentCode.trim()) {
+      toast.error('Please enter a student code')
+      return
+    }
+    
+    setLoadingElectives(true)
+    setSelectedStudent(null)
+    setAvailableLanguageElectives([])
+    setAvailableOtherElectives([])
+    setSelectedElectives([])
+    
+    try {
+      const response = await fetch(`/admin/api/student-enrollment-details?student_code=${electiveStudentCode}`)
+      if (!response.ok) throw new Error('Student not found or has no active enrollments')
+      const data = await response.json()
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to fetch student details')
+      }
+      
+      setSelectedStudent(data.student)
+      
+      // Filter electives - show only those the student is NOT enrolled in
+      const enrolledUnitIds = data.student.enrolled_units || []
+      
+      const availableElectives = allElectives.filter(
+        elective => !enrolledUnitIds.includes(elective.unit_id)
+      )
+      
+      const language = availableElectives.filter(e => e.category === 'language')
+      const other = availableElectives.filter(e => e.category === 'other')
+      
+      setAvailableLanguageElectives(language)
+      setAvailableOtherElectives(other)
+      setSelectedElectives([])
+      
+      toast.success('Student found! Select electives below.')
+      
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to fetch student information')
+      setSelectedStudent(null)
+    } finally {
+      setLoadingElectives(false)
+    }
+  }
+
+  // ✅ Toggle elective selection
+  const handleToggleElective = (electiveId: number) => {
+    setSelectedElectives(prev =>
+      prev.includes(electiveId)
+        ? prev.filter(id => id !== electiveId)
+        : [...prev, electiveId]
+    )
+  }
+
+  // ✅ Handle enrollment submission
+  const handleSubmitElectiveEnrollment = () => {
+    if (!selectedStudent || selectedElectives.length === 0) {
+      toast.error("Please select at least one elective.")
+      return
+    }
+    
+    setLoading(true)
+    
+    router.post('/admin/electives/enroll', {
+      student_id: selectedStudent.id,
+      elective_ids: selectedElectives
+    }, {
+      onSuccess: () => {
+        toast.success('Student enrolled in electives successfully!')
+        setIsElectiveEnrollModalOpen(false)
+        setElectiveStudentCode("")
+        setSelectedStudent(null)
+        setSelectedElectives([])
+      },
+      onError: (errors) => {
+        console.error('Enrollment error:', errors)
+        toast.error(errors.error || 'Failed to enroll student in electives')
+      },
+      onFinish: () => setLoading(false)
+    })
+  }
 
   // Filtered and sorted programs
   const filteredPrograms = programs.filter(program => {
@@ -287,7 +414,7 @@ const SCESProgramsManagement: React.FC = () => {
 
     const method = selectedProgram ? "put" : "post"
 
-    router[method](url, formData, {
+    router[method](url, formData as any, {
       onSuccess: () => {
         toast.success(`Program ${selectedProgram ? "updated" : "created"} successfully!`)
         setIsCreateModalOpen(false)
@@ -342,7 +469,7 @@ const SCESProgramsManagement: React.FC = () => {
   }, [])
 
   return (
-    <AuthenticatedLayout>
+   <AuthenticatedLayout>
       <Head title={`${school.code} Programs Management`} />
       
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 py-8">
@@ -391,18 +518,18 @@ const SCESProgramsManagement: React.FC = () => {
                     </button>
                   )}
 
-                  {/* ✅ FIXED: Added opening <a> tag */}
+                  {/* Elective Enrollment Button - Opens Modal */}
                   {school.code === 'SHSS' && can.create && !isClassTimetableOffice && !isExamTimetableOffice && (
-                    <a
-                      href={route('admin.enrollments.index')}
+                    <button
+                      onClick={handleOpenElectiveEnrollment}
                       className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-amber-600 hover:via-amber-700 hover:to-orange-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
                     >
                       <Star className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
                       Enroll Electives
-                    </a>
+                    </button>
                   )}
 
-                  {/* ✅ FIXED: Added opening <a> tag */}
+                  {/* Elective Management Link */}
                   {school.code === 'SHSS' && !isClassTimetableOffice && !isExamTimetableOffice && (
                     <a
                       href={route('schools.shss.electives.index')}
@@ -597,116 +724,107 @@ const SCESProgramsManagement: React.FC = () => {
                         </td>
                       </tr>
 
-                  {/* Expanded row content */}
-                  {expandedRows.has(program.id) && (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-6 bg-gradient-to-br from-indigo-50/80 via-cyan-50/50 to-white">
-                        <div className="space-y-6">
-                          
-                          {/* 🔥 UPDATED: Program Management Section - Now matches SBS pattern */}
-                          {program.routes && (
-                            <div className="mb-6">
-                              <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
-                                <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
-                                Program Management
-                              </h3>
-                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                                
-                                {/* Units Card - Blue */}
-                                {!isClassTimetableOffice && !isExamTimetableOffice && (
-                                  <a
-                                    href={program.routes.units}
-                                    className="group relative p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                  >
-                                    <div className="flex flex-col items-center text-center">
-                                      <BookOpen className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                      <div className="text-xs font-bold text-white mb-1">Units</div>
-                                      <div className="text-xl font-bold text-white">{program.units_count || 0}</div>
-                                    </div>
-                                  </a>
-                                )}
+                      {/* Expanded row content */}
+                      {expandedRows.has(program.id) && (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-6 bg-gradient-to-br from-indigo-50/80 via-cyan-50/50 to-white">
+                            <div className="space-y-6">
+                              {/* Program Management Section */}
+                              {program.routes && (
+                                <div>
+                                  <h3 className="text-lg font-semibold text-slate-800 mb-4">Quick Actions</h3>
+                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                                    
+                                    {/* Units Card - Blue */}
+                                    {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                      <a
+                                        href={program.routes.units}
+                                        className="group relative p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                      >
+                                        <div className="flex flex-col items-center text-center">
+                                          <BookOpen className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                          <div className="text-xs font-bold text-white mb-1">Units</div>
+                                          <div className="text-xl font-bold text-white">{program.units_count || 0}</div>
+                                        </div>
+                                      </a>
+                                    )}
 
-                                {/* Unit Assignment Card - Indigo - NOW ALWAYS VISIBLE */}
-                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
-                                <a
-                                  href={program.routes.unit_assignment}
-                                  className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                >
-                                  <div className="flex flex-col items-center text-center">
-                                    <Settings className="w-8 h-8 text-white mb-2 group-hover:rotate-90 transition-transform duration-300" />
-                                    <div className="text-xs font-bold text-white mb-1">Unit Assignment</div>
-                                    <div className="text-xs text-white/90">Manage</div>
+                                    {/* Unit Assignment Card - Indigo */}
+                                    {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                      <a
+                                        href={program.routes.unit_assignment}
+                                        className="group relative p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                      >
+                                        <div className="flex flex-col items-center text-center">
+                                          <Settings className="w-8 h-8 text-white mb-2 group-hover:rotate-90 transition-transform duration-300" />
+                                          <div className="text-xs font-bold text-white mb-1">Unit Assignment</div>
+                                          <div className="text-xs text-white/90">Manage</div>
+                                        </div>
+                                      </a>
+                                    )}
+
+                                    {/* Classes Card - Green */}
+                                    {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                      <a
+                                        href={program.routes.classes}
+                                        className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                      >
+                                        <div className="flex flex-col items-center text-center">
+                                          <Users className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                          <div className="text-xs font-bold text-white mb-1">Classes</div>
+                                          <div className="text-xs text-white/90">Manage</div>
+                                        </div>
+                                      </a>
+                                    )}
+
+                                    {/* Enrollments Card - Orange */}
+                                    {!isClassTimetableOffice && !isExamTimetableOffice && (
+                                      <a
+                                        href={program.routes.enrollments}
+                                        className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                      >
+                                        <div className="flex flex-col items-center text-center">
+                                          <GraduationCap className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                          <div className="text-xs font-bold text-white mb-1">Enrollments</div>
+                                          <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
+                                        </div>
+                                      </a>
+                                    )}
+
+                                    {/* Class Timetable Card - Cyan */}
+                                    {!isExamTimetableOffice && (
+                                      <a
+                                        href={program.routes.class_timetables}
+                                        className="group relative p-4 bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                      >
+                                        <div className="flex flex-col items-center text-center">
+                                          <Calendar className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                          <div className="text-xs font-bold text-white mb-1">Class Timetable</div>
+                                          <div className="text-xs text-white/90">Schedule</div>
+                                        </div>
+                                      </a>
+                                    )}
+
+                                    {/* Exam Timetable Card */}
+                                    {!isClassTimetableOffice && (
+                                      <a
+                                        href={program.routes.exam_timetables}
+                                        className="group relative p-4 bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
+                                      >
+                                        <div className="flex flex-col items-center text-center">
+                                          <ClipboardList className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
+                                          <div className="text-xs font-bold text-white mb-1">Exam Timetable</div>
+                                          <div className="text-xs text-white/90">Schedule</div>
+                                        </div>
+                                      </a>
+                                    )}
                                   </div>
-                                </a>
-                                )}
-
-                                {/* Classes Card - Green */}
-                                 {!isClassTimetableOffice && !isExamTimetableOffice && (
-                                  <a
-                                    href={program.routes.classes}
-                                    className="group relative p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                  >
-                                    <div className="flex flex-col items-center text-center">
-                                      <Users className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                      <div className="text-xs font-bold text-white mb-1">Classes</div>
-                                      <div className="text-xs text-white/90">Manage</div>
-                                    </div>
-                                  </a>
-                                )}
-
-                                {/* Enrollments Card - Orange */}
-                                {!isClassTimetableOffice && !isExamTimetableOffice && (
-                                  <a
-                                    href={program.routes.enrollments}
-                                    className="group relative p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                  >
-                                    <div className="flex flex-col items-center text-center">
-                                      <GraduationCap className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                      <div className="text-xs font-bold text-white mb-1">Enrollments</div>
-                                      <div className="text-xl font-bold text-white">{program.enrollments_count || 0}</div>
-                                    </div>
-                                  </a>
-                                )}
-
-                                {/* Class Timetable Card - Cyan */}
-                                {!isExamTimetableOffice && (
-                                <a
-                                  href={program.routes.class_timetables}
-                                  className="group relative p-4 bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                >
-                                  <div className="flex flex-col items-center text-center">
-                                    <Calendar className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                    <div className="text-xs font-bold text-white mb-1">Class Timetable</div>
-                                    <div className="text-xs text-white/90">Schedule</div>
-                                  </div>
-                                </a>
-                                )}
-
-                                {/* Exam Timetable Card */}
-                                {!isClassTimetableOffice && (
-                                  <a
-                                    href={program.routes.exam_timetables}
-                                    className="group relative p-4 bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-xl shadow-lg hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300"
-                                  >
-                                    <div className="flex flex-col items-center text-center">
-                                      <ClipboardList className="w-8 h-8 text-white mb-2 group-hover:scale-110 transition-transform" />
-                                      <div className="text-xs font-bold text-white mb-1">Exam Timetable</div>
-                                      <div className="text-xs text-white/90">Schedule</div>
-                                    </div>
-                                  </a>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </div>
-                          )}
-
-                          {/* Existing Details Section - Keep as is */}
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {/* ... rest of the details section ... */}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
+                          </td>
+                        </tr>
+                      )}
                     </React.Fragment>
                   ))}
                 </tbody>
@@ -1036,6 +1154,272 @@ const SCESProgramsManagement: React.FC = () => {
                   >
                     Close
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ NEW: Elective Enrollment Modal - Matches Self-Enrollment Design */}
+          {isElectiveEnrollModalOpen && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-orange-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-2xl font-bold text-white">Enroll in Electives</h3>
+                      <p className="text-amber-100 text-sm mt-1">Select language and other elective units</p>
+                    </div>
+                    <button
+                      onClick={() => setIsElectiveEnrollModalOpen(false)}
+                      className="text-white hover:text-gray-200 transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  
+                  {/* Student Code Input */}
+                  {!selectedStudent && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Student Code *
+                      </label>
+                      <div className="flex gap-3">
+                        <input
+                          type="text"
+                          value={electiveStudentCode}
+                          onChange={(e) => setElectiveStudentCode(e.target.value.toUpperCase())}
+                          onKeyPress={(e) => e.key === 'Enter' && handleSearchStudent()}
+                          placeholder="Enter student code (e.g., BBIT0001)"
+                          className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSearchStudent}
+                          disabled={loadingElectives || !electiveStudentCode.trim()}
+                          className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        >
+                          {loadingElectives ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Searching...
+                            </>
+                          ) : (
+                            <>
+                              <Search className="w-4 h-4 mr-2" />
+                              Search
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">
+                        Enter the student code to load their enrollment details
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Student Enrollment Details */}
+                  {selectedStudent && (
+                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border-2 border-blue-200">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-semibold text-blue-900">Your Enrollment Details</h4>
+                        <button
+                          onClick={() => {
+                            setSelectedStudent(null)
+                            setElectiveStudentCode("")
+                            setAvailableLanguageElectives([])
+                            setAvailableOtherElectives([])
+                            setSelectedElectives([])
+                          }}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          Change Student
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-blue-600 font-medium block mb-1">Student:</span>
+                          <p className="text-blue-900 font-semibold">{selectedStudent.name} ({selectedStudent.code})</p>
+                        </div>
+                        <div>
+                          <span className="text-blue-600 font-medium block mb-1">School:</span>
+                          <p className="text-blue-900">{selectedStudent.school}</p>
+                        </div>
+                        <div>
+                          <span className="text-blue-600 font-medium block mb-1">Program:</span>
+                          <p className="text-blue-900">{selectedStudent.program}</p>
+                        </div>
+                        <div>
+                          <span className="text-blue-600 font-medium block mb-1">Class:</span>
+                          <p className="text-blue-900">{selectedStudent.class}</p>
+                        </div>
+                        <div>
+                          <span className="text-blue-600 font-medium block mb-1">Year Level:</span>
+                          <p className="text-blue-900">Year {selectedStudent.year_level}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Language Elective Section */}
+                  {selectedStudent && (
+                    <div className="border-2 border-blue-200 rounded-xl p-5 bg-blue-50">
+                      <div className="flex items-center mb-4">
+                        <svg className="w-6 h-6 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                        </svg>
+                        <label className="text-base font-semibold text-blue-900">Language Elective</label>
+                      </div>
+                      
+                      {availableLanguageElectives.length > 0 ? (
+                        <select
+                          onChange={(e) => {
+                            const unitId = parseInt(e.target.value)
+                            if (unitId) {
+                              handleToggleElective(unitId)
+                            }
+                          }}
+                          className="w-full px-4 py-3 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        >
+                          <option value="">Select Language Elective (Optional)</option>
+                          {availableLanguageElectives.map(elective => (
+                            <option 
+                              key={elective.unit_id} 
+                              value={elective.unit_id}
+                              disabled={selectedElectives.includes(elective.unit_id)}
+                            >
+                              {elective.code} - {elective.name} ({elective.credit_hours} credits)
+                              {selectedElectives.includes(elective.unit_id) ? ' ✓ Selected' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                          <p className="text-sm text-yellow-800">No language electives available or you're already enrolled in all available language electives.</p>
+                        </div>
+                      )}
+                      
+                      {selectedElectives.some(id => availableLanguageElectives.find(e => e.unit_id === id)) && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedElectives
+                            .filter(id => availableLanguageElectives.find(e => e.unit_id === id))
+                            .map(electiveId => {
+                              const elective = availableLanguageElectives.find(e => e.unit_id === electiveId)
+                              return elective ? (
+                                <span key={electiveId} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-600 text-white">
+                                  {elective.code}
+                                  <button
+                                    onClick={() => handleToggleElective(electiveId)}
+                                    className="ml-2 hover:bg-blue-700 rounded-full p-0.5"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ) : null
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Other Elective Section */}
+                  {selectedStudent && (
+                    <div className="border-2 border-purple-200 rounded-xl p-5 bg-purple-50">
+                      <div className="flex items-center mb-4">
+                        <svg className="w-6 h-6 text-purple-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                        <label className="text-base font-semibold text-purple-900">Other Elective</label>
+                      </div>
+                      
+                      {availableOtherElectives.length > 0 ? (
+                        <select
+                          onChange={(e) => {
+                            const unitId = parseInt(e.target.value)
+                            if (unitId) {
+                              handleToggleElective(unitId)
+                            }
+                          }}
+                          className="w-full px-4 py-3 border-2 border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white"
+                        >
+                          <option value="">Select Other Elective (Optional)</option>
+                          {availableOtherElectives.map(elective => (
+                            <option 
+                              key={elective.unit_id} 
+                              value={elective.unit_id}
+                              disabled={selectedElectives.includes(elective.unit_id)}
+                            >
+                              {elective.code} - {elective.name} ({elective.credit_hours} credits)
+                              {selectedElectives.includes(elective.unit_id) ? ' ✓ Selected' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                          <p className="text-sm text-yellow-800">No other electives available or you're already enrolled in all available other electives.</p>
+                        </div>
+                      )}
+                      
+                      {selectedElectives.some(id => availableOtherElectives.find(e => e.unit_id === id)) && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedElectives
+                            .filter(id => availableOtherElectives.find(e => e.unit_id === id))
+                            .map(electiveId => {
+                              const elective = availableOtherElectives.find(e => e.unit_id === electiveId)
+                              return elective ? (
+                                <span key={electiveId} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-purple-600 text-white">
+                                  {elective.code}
+                                  <button
+                                    onClick={() => handleToggleElective(electiveId)}
+                                    className="ml-2 hover:bg-purple-700 rounded-full p-0.5"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ) : null
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* No Electives Message */}
+                  {selectedStudent && availableLanguageElectives.length === 0 && availableOtherElectives.length === 0 && (
+                    <div className="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4">
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-yellow-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-1.964-1.333-2.732 0L3.732 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span className="text-yellow-800 font-medium">This student is already enrolled in all available electives.</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Form Actions */}
+                  <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setIsElectiveEnrollModalOpen(false)}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSubmitElectiveEnrollment}
+                      disabled={loading || selectedElectives.length === 0 || !selectedStudent}
+                      className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Processing...' : 
+                       selectedElectives.length === 0 ? 'Select at least one elective' :
+                       `Enroll in Electives (${selectedElectives.length} selected)`}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

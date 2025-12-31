@@ -806,32 +806,46 @@ Route::middleware(['auth'])->group(function () {
     // ============================================
     Route::prefix('schools/shss')->name('schools.shss.')->middleware(['auth'])->group(function () {    
         
-         Route::prefix('electives')->name('electives.')->group(function () {
-        Route::get('/', [ElectiveController::class, 'index'])
-            ->middleware(['permission:view-programs'])  // ✅ Add permission
-            ->name('index');
-        
-        Route::post('/', [ElectiveController::class, 'store'])
-            ->middleware(['permission:create-programs'])  // ✅ Add permission
-            ->name('store');
-        
-        Route::get('/{elective}', [ElectiveController::class, 'show'])
-            ->middleware(['permission:view-programs'])
-            ->name('show');
-        
-        Route::put('/{elective}', [ElectiveController::class, 'update'])
-            ->middleware(['permission:edit-programs'])
-            ->name('update');
-        
-        Route::patch('/{elective}/toggle-status', [ElectiveController::class, 'toggleStatus'])
-            ->middleware(['permission:edit-programs'])
-            ->name('toggle-status');
-        
-        Route::delete('/{elective}', [ElectiveController::class, 'destroy'])
-            ->middleware(['permission:delete-programs'])
-            ->name('destroy');
-    });
-        
+        Route::prefix('electives')->name('electives.')->group(function () {
+            Route::get('/', [ElectiveController::class, 'index'])
+                ->middleware(['permission:view-programs'])
+                ->name('index');
+            
+            // ✅ ADD THIS NEW ROUTE
+            Route::get('/available', [ElectiveController::class, 'getAvailableElectivesForStudent'])
+                ->middleware(['permission:view-programs'])
+                ->name('available');
+            
+            // ✅ ADD THIS NEW ROUTE FOR ENROLLMENT
+            Route::post('/enroll', [ElectiveController::class, 'enrollStudentInElectives'])
+                ->middleware(['permission:create-enrollments'])
+                ->name('enroll');
+            
+            Route::post('/', [ElectiveController::class, 'store'])
+                ->middleware(['permission:create-programs'])
+                ->name('store');
+            
+            Route::get('/{elective}', [ElectiveController::class, 'show'])
+                ->middleware(['permission:view-programs'])
+                ->name('show');
+            
+            Route::put('/{elective}', [ElectiveController::class, 'update'])
+                ->middleware(['permission:edit-programs'])
+                ->name('update');
+            
+            Route::patch('/{elective}/toggle-status', [ElectiveController::class, 'toggleStatus'])
+                ->middleware(['permission:edit-programs'])
+                ->name('toggle-status');
+            
+            Route::delete('/{elective}', [ElectiveController::class, 'destroy'])
+                ->middleware(['permission:delete-programs'])
+                ->name('destroy');
+        });
+
+       
+
+        // PROGRAMS - PERMISSION-BASED
+
         Route::prefix('programs')->name('programs.')->middleware(['permission:view-programs'])->group(function () {
             Route::get('/', function(Request $request) {
                 return app(ProgramController::class)->index($request, 'SHSS');
