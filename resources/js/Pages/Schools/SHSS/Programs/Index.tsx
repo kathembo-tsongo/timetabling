@@ -26,7 +26,8 @@ import {
   Building2,
   Calendar,
   ClipboardList,
-  Settings
+  Settings,
+  Star  
 } from "lucide-react"
 import { route } from 'ziggy-js';
 
@@ -377,7 +378,9 @@ const SCESProgramsManagement: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end">
+                
+                {/* Header buttons */}
+                <div className="mt-6 sm:mt-0 flex-shrink-0 flex items-center justify-end gap-3">
                   {can.create && !isClassTimetableOffice && (
                     <button
                       onClick={handleCreateProgram}
@@ -388,16 +391,27 @@ const SCESProgramsManagement: React.FC = () => {
                     </button>
                   )}
 
-                  {/* NEW: Elective Management Link */}
-        {!isClassTimetableOffice && !isExamTimetableOffice && (
-          <a
-            href={route('schools.shss.electives.index')}
-            className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-500 via-purple-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-purple-600 hover:via-purple-700 hover:to-indigo-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
-          >
-            <Settings className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-300" />
-            Elective Management
-          </a>
-        )}
+                  {/* ✅ FIXED: Added opening <a> tag */}
+                  {school.code === 'SHSS' && can.create && !isClassTimetableOffice && !isExamTimetableOffice && (
+                    <a
+                      href={route('admin.enrollments.index')}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-amber-600 hover:via-amber-700 hover:to-orange-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <Star className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
+                      Enroll Electives
+                    </a>
+                  )}
+
+                  {/* ✅ FIXED: Added opening <a> tag */}
+                  {school.code === 'SHSS' && !isClassTimetableOffice && !isExamTimetableOffice && (
+                    <a
+                      href={route('schools.shss.electives.index')}
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-500 via-purple-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-purple-600 hover:via-purple-700 hover:to-indigo-700 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <Settings className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-300" />
+                      Elective Management
+                    </a>
+                  )}
                 </div>
               </div>
             </div>

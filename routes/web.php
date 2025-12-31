@@ -2256,6 +2256,15 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/download-examtimetable', [ExamTimetableController::class, 'downloadAllPDF'])->name('student.examtimetable.download');
         Route::get('/profile', [StudentController::class, 'profile'])->name('student.profile');
 
+        // Student elective enrollment
+        Route::get('/electives/available', [StudentController::class, 'availableElectives'])
+            ->name('student.electives.available');
+        
+        Route::post('/electives/enroll', [StudentController::class, 'enrollInElective'])
+            ->name('student.electives.enroll');
+            
+        
+        // API routes for student
         Route::prefix('api')->group(function () {
             Route::get('/classes/by-program-semester', function(Request $request) {
                 $request->validate([

@@ -791,4 +791,204 @@ class StudentController extends Controller
             return back()->withErrors(['error' => 'Failed to drop unit: ' . $e->getMessage()]);
         }
     }
+
+    // Electives management methods
+    /**
+ * Get available electives for the student
+ */
+   /**
+ * Get available electives for the student
+ */
+public function availableElectives(Request $request)
+{
+    $student = auth()->user();
+    
+    // Get student's current enrollment
+    $currentEnrollment = \App\Models\Enrollment::where('student_code', $student->code)
+        ->where('status', 'enrolled')
+        ->with(['class.program.school', 'class', 'semester'])
+        ->first();
+    
+    if (!$currentEnrollment) {
+        return response()->json([
+            'success' => false,
+            'message' => 'You must be enrolled in at least one unit to access electives'
+        ], 400);
+    }
+    
+    $class = $currentEnrollment->class;
+    $program = $class->program;
+    $school = $program->school;
+    $semester = $currentEnrollment->semester;
+    
+    // Determine year level from class
+    $yearLevel = $class->year_level;
+    
+    // If year_level is not set in class, try to extract from class name
+    if (!$yearLevel) {
+        if (preg_match('/\d+/', $class->name, $matches)) {
+            $yearLevel = (int)$matches[0];
+        }
+    }
+    
+    // Default to 1 if still not determined
+    $yearLevel = $yearLevel ?: 1;
+    
+    // ✅ FIXED: Get active electives for this year level from ALL schools
+    // Remove the school filter to allow cross-school elective enrollment
+    $electives = \App\Models\Elective::where('is_active', true)
+        ->where('year_level', $yearLevel)
+        ->with('unit.school')
+        ->get();
+    
+    \Log::info('Electives available for student', [
+        'student_code' => $student->code,
+        'student_school' => $school->code,
+        'year_level' => $yearLevel,
+        'total_electives' => $electives->count(),
+        'by_school' => $electives->groupBy('unit.school.code')->map->count()
+    ]);
+    
+    // Separate by category
+    $languageElectives = $electives->where('category', 'language')->values()->map(function($elective) {
+        return [
+            'id' => $elective->unit_id,
+            'code' => $elective->unit->code,
+            'name' => $elective->unit->name,
+            'credit_hours' => $elective->unit->credit_hours ?? 0,
+            'school' => $elective->unit->school->code ?? 'N/A', // Show which school it's from
+        ];
+    });
+    
+    $otherElectives = $electives->where('category', 'other')->values()->map(function($elective) {
+        return [
+            'id' => $elective->unit_id,
+            'code' => $elective->unit->code,
+            'name' => $elective->unit->name,
+            'credit_hours' => $elective->unit->credit_hours ?? 0,
+            'school' => $elective->unit->school->code ?? 'N/A', // Show which school it's from
+        ];
+    });
+    
+    // Get existing electives
+    $electiveUnitIds = \App\Models\Elective::pluck('unit_id')->toArray();
+    
+    $existingElectives = \App\Models\Enrollment::where('student_code', $student->code)
+        ->whereIn('unit_id', $electiveUnitIds)
+        ->pluck('unit_id')
+        ->toArray();
+    
+    return response()->json([
+        'success' => true,
+        'student' => [
+            'code' => $student->code,
+            'name' => $student->first_name . ' ' . $student->last_name,
+            'school' => $school->name,
+            'program' => $program->name,
+            'class' => $class->name . ' Section ' . $class->section,
+            'year_level' => $yearLevel,
+        ],
+        'language_electives' => $languageElectives,
+        'other_electives' => $otherElectives,
+        'existing_electives' => $existingElectives,
+    ]);
+}
+
+    /**
+     * Enroll student in elective(s)
+     */
+    public function enrollInElective(Request $request)
+    {
+        $validated = $request->validate([
+            'elective_ids' => 'required|array|min:1',
+            'elective_ids.*' => 'required|exists:units,id',
+        ]);
+        
+        $student = auth()->user();
+        
+        // Get student's current class and semester
+        $currentEnrollment = \App\Models\Enrollment::where('student_code', $student->code)
+            ->where('status', 'enrolled')
+            ->with(['class', 'semester'])
+            ->first();
+        
+        if (!$currentEnrollment) {
+            return back()->withErrors(['error' => 'You must be enrolled in a class first']);
+        }
+        
+        $class = $currentEnrollment->class;
+        $semester = $currentEnrollment->semester;
+        
+        try {
+            $enrolledCount = 0;
+            $errors = [];
+            
+            foreach ($validated['elective_ids'] as $unitId) {
+                // ✅ FIXED: Check if the unit is an elective by looking in electives table
+                $elective = \App\Models\Elective::where('unit_id', $unitId)
+                    ->where('is_active', true)
+                    ->first();
+                
+                if (!$elective) {
+                    $unit = \App\Models\Unit::find($unitId);
+                    $unitName = $unit ? $unit->name : "Unit ID {$unitId}";
+                    $errors[] = "{$unitName} is not an available elective";
+                    continue;
+                }
+                
+                $unit = $elective->unit;
+                
+                // Check if already enrolled
+                $existing = \App\Models\Enrollment::where('student_code', $student->code)
+                    ->where('unit_id', $unitId)
+                    ->where('semester_id', $semester->id)
+                    ->first();
+                
+                if ($existing) {
+                    $errors[] = "Already enrolled in {$unit->name}";
+                    continue;
+                }
+                
+                // Check capacity
+                if ($elective->max_students) {
+                    $currentCount = \App\Models\Enrollment::where('unit_id', $unitId)
+                        ->where('semester_id', $semester->id)
+                        ->where('status', 'enrolled')
+                        ->count();
+                    
+                    if ($currentCount >= $elective->max_students) {
+                        $errors[] = "{$unit->name} is full";
+                        continue;
+                    }
+                }
+                
+                // Create enrollment
+                \App\Models\Enrollment::create([
+                    'student_code' => $student->code,
+                    'unit_id' => $unitId,
+                    'class_id' => $class->id,
+                    'semester_id' => $semester->id,
+                    'group_id' => $class->id,
+                    'status' => 'enrolled',
+                    'enrolled_at' => now(),
+                ]);
+                
+                $enrolledCount++;
+            }
+            
+            if ($enrolledCount > 0) {
+                $message = "Successfully enrolled in {$enrolledCount} elective(s)";
+                if (count($errors) > 0) {
+                    $message .= ". Some enrollments failed: " . implode(', ', $errors);
+                }
+                return back()->with('success', $message);
+            } else {
+                return back()->withErrors(['error' => implode(', ', $errors)]);
+            }
+            
+        } catch (\Exception $e) {
+            \Log::error('Elective enrollment error: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to enroll in electives: ' . $e->getMessage()]);
+        }
+    }
 }
