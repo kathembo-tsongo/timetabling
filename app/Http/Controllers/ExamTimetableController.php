@@ -23,117 +23,483 @@ use Carbon\Carbon;
 
 class ExamTimetableController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index(Request $request)
+
+    public function getUnitsForBulkScheduling(Request $request, Program $program, $schoolCode)
     {
-        $user = auth()->user();
-
-        Log::info('Accessing /examtimetable', [
-            'user_id' => $user->id,
-            'roles' => $user->getRoleNames(),
-            'permissions' => $user->getAllPermissions()->pluck('name'),
-        ]);
-
-        if (!$user->can('manage-examtimetables')) {
-            abort(403, 'Unauthorized action.');
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
         }
 
-        $perPage = $request->input('per_page', 10);
-        $search = $request->input('search', '');
+        try {
+            $semesterId = $request->get('semester_id');
 
-        $examTimetables = ExamTimetable::query()
+            Log::info('🔍 Fetching units for bulk scheduling', [
+                'program_id' => $program->id,
+                'semester_id' => $semesterId
+            ]);
+
+            // ✅ Try BOTH possible FK names (class_id and group_id)
+            // First, let's check which column exists
+            $enrollmentColumns = DB::select("SHOW COLUMNS FROM enrollments");
+            $hasGroupId = collect($enrollmentColumns)->contains('Field', 'group_id');
+            $hasClassId = collect($enrollmentColumns)->contains('Field', 'class_id');
+            
+            $classFKColumn = $hasGroupId ? 'group_id' : 'class_id';
+            
+            Log::info('📊 Enrollments table structure', [
+                'has_group_id' => $hasGroupId,
+                'has_class_id' => $hasClassId,
+                'using_column' => $classFKColumn
+            ]);
+
+            // ✅ Query with correct FK column
+            $units = DB::table('enrollments')
+                ->join('classes', "enrollments.{$classFKColumn}", '=', 'classes.id')
+                ->join('units', 'enrollments.unit_id', '=', 'units.id')
+                ->where('units.program_id', $program->id)
+                ->where('enrollments.semester_id', $semesterId)
+                ->where('enrollments.status', 'enrolled')
+                ->select(
+                    'units.id as unit_id',
+                    'units.code as unit_code',
+                    'units.name as unit_name',
+                    'enrollments.lecturer_code',
+                    "enrollments.{$classFKColumn} as class_id",
+                    'classes.name as class_name',
+                    'classes.section as class_section',
+                    DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
+                )
+                ->groupBy(
+                    'units.id',
+                    'units.code',
+                    'units.name',
+                    'enrollments.lecturer_code',
+                    "enrollments.{$classFKColumn}",
+                    'classes.name',
+                    'classes.section'
+                )
+                ->having('student_count', '>', 0)
+                ->orderBy('units.code')
+                ->orderBy('classes.name')
+                ->orderBy('classes.section')
+                ->get();
+
+            Log::info('✅ Found units for scheduling', [
+                'count' => $units->count(),
+                'sample' => $units->take(2)->toArray()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'units' => $units->map(function($unit) {
+                    $lecturerName = $this->getLecturerName($unit->lecturer_code);
+                    
+                    return [
+                        'unit_id' => $unit->unit_id,
+                        'class_id' => $unit->class_id,
+                        'unit_code' => $unit->unit_code,
+                        'unit_name' => $unit->unit_name,
+                        'class_name' => $unit->class_name,
+                        'class_section' => $unit->class_section ?? 'N/A',
+                        'student_count' => (int)$unit->student_count,
+                        'lecturer_code' => $unit->lecturer_code ?? 'N/A',
+                        'lecturer_name' => $lecturerName,
+                        'display_name' => sprintf(
+                            '%s - %s | %s (Sec %s) | %s [%d students]',
+                            $unit->unit_code,
+                            $unit->unit_name,
+                            $unit->class_name,
+                            $unit->class_section ?? 'N/A',
+                            $lecturerName,
+                            $unit->student_count
+                        )
+                    ];
+                })
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('❌ Failed to fetch units for bulk scheduling', [
+                'program_id' => $program->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch units: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * ✅ FIXED: Bulk store - properly populate group_name
+     */
+    public function bulkStore(Request $request, Program $program, $schoolCode)
+    {
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $validated = $request->validate([
+            'selections' => 'required|array|min:1',
+            'selections.*.unit_id' => 'required|exists:units,id',
+            'selections.*.class_id' => 'required|exists:classes,id',
+            'date' => 'required|date',
+            'start_time' => 'required|date_format:H:i',
+            'duration_hours' => 'required|integer|min:1|max:8',
+            'venue' => 'required|string|max:255',
+            'location' => 'nullable|string|max:255',
+            'chief_invigilator' => 'required|string|max:255',
+            'semester_id' => 'required|exists:semesters,id',
+        ]);
+
+        // ✅ Detect which FK column to use
+        $enrollmentColumns = DB::select("SHOW COLUMNS FROM enrollments");
+        $hasGroupId = collect($enrollmentColumns)->contains('Field', 'group_id');
+        $classFKColumn = $hasGroupId ? 'group_id' : 'class_id';
+
+        DB::beginTransaction();
+        
+        try {
+            $created = 0;
+            $errors = [];
+            $endTime = date('H:i', strtotime($validated['start_time']) + ($validated['duration_hours'] * 3600));
+
+            Log::info('📝 Starting bulk exam creation', [
+                'selections_count' => count($validated['selections']),
+                'semester' => $validated['semester_id'],
+                'using_fk_column' => $classFKColumn
+            ]);
+
+            foreach ($validated['selections'] as $selection) {
+                $unitId = $selection['unit_id'];
+                $classId = $selection['class_id'];
+
+                // ✅ Get class with section
+                $class = Classes::findOrFail($classId);
+                
+                Log::info('Processing selection', [
+                    'unit_id' => $unitId,
+                    'class_id' => $classId,
+                    'class_name' => $class->name,
+                    'class_section' => $class->section
+                ]);
+                
+                // ✅ Count students using correct FK
+                $enrolledCount = DB::table('enrollments')
+                    ->where('unit_id', $unitId)
+                    ->where($classFKColumn, $classId)
+                    ->where('semester_id', $validated['semester_id'])
+                    ->where('status', 'enrolled')
+                    ->distinct('student_code')
+                    ->count('student_code');
+
+                if ($enrolledCount === 0) {
+                    $unit = Unit::find($unitId);
+                    $errors[] = "No enrolled students for {$unit->code} in {$class->name}";
+                    continue;
+                }
+
+                // Get lecturer
+                $lecturerCode = DB::table('enrollments')
+                    ->where('unit_id', $unitId)
+                    ->where($classFKColumn, $classId)
+                    ->where('semester_id', $validated['semester_id'])
+                    ->value('lecturer_code');
+
+                $chiefInvigilator = $validated['chief_invigilator'];
+                if ($lecturerCode) {
+                    $lecturer = DB::table('users')->where('code', $lecturerCode)->first();
+                    if ($lecturer) {
+                        $chiefInvigilator = trim("{$lecturer->first_name} {$lecturer->last_name}");
+                    }
+                }
+
+                // ✅ CRITICAL: Set group_name to class section
+                $groupName = $class->section ?? null;
+                
+                Log::info('Creating exam with group_name', [
+                    'class_id' => $classId,
+                    'class_name' => $class->name,
+                    'class_section' => $class->section,
+                    'group_name' => $groupName,
+                    'student_count' => $enrolledCount
+                ]);
+
+                $examData = [
+                    'unit_id' => $unitId,
+                    'class_id' => $classId,
+                    'semester_id' => $validated['semester_id'],
+                    'program_id' => $program->id,
+                    'school_id' => $program->school_id,
+                    'group_name' => $groupName, // ✅ This should now be populated!
+                    'date' => $validated['date'],
+                    'day' => date('l', strtotime($validated['date'])),
+                    'start_time' => $validated['start_time'],
+                    'end_time' => $endTime,
+                    'venue' => $validated['venue'],
+                    'location' => $validated['location'] ?? 'Main Campus',
+                    'no' => $enrolledCount,
+                    'chief_invigilator' => $chiefInvigilator,
+                ];
+
+                $exam = ExamTimetable::create($examData);
+                $created++;
+
+                Log::info('✅ Exam created', [
+                    'exam_id' => $exam->id,
+                    'group_name' => $exam->group_name,
+                    'student_count' => $exam->no
+                ]);
+            }
+
+            DB::commit();
+
+            if ($created > 0) {
+                $message = "Successfully created {$created} exam schedule(s).";
+                if (!empty($errors)) {
+                    $message .= " " . count($errors) . " failed.";
+                }
+                
+                return redirect()
+                    ->route('programs.exam-timetables.index', [$program->id, $schoolCode])
+                    ->with('success', $message);
+            } else {
+                DB::rollBack();
+                return back()
+                    ->withErrors(['error' => 'No exams were created. ' . implode(' ', $errors)])
+                    ->withInput();
+            }
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Bulk exam creation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return back()
+                ->withErrors(['error' => 'Failed to create exam timetables: ' . $e->getMessage()])
+                ->withInput();
+        }
+    }
+
+    /**
+     * ✅ FIXED: Store single exam with group_name
+     */
+    public function store(Request $request, Program $program, $schoolCode)
+    {
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $validated = $request->validate([
+            'unit_id' => 'required|exists:units,id',
+            'class_id' => 'required|exists:classes,id',
+            'semester_id' => 'required|exists:semesters,id',
+            'date' => 'required|date',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i|after:start_time',
+            'venue' => 'required|string|max:255',
+            'location' => 'nullable|string|max:255',
+            'no' => 'required|integer|min:1',
+            'chief_invigilator' => 'required|string|max:255',
+        ]);
+
+        try {
+            // ✅ Get class with section
+            $class = Classes::findOrFail($validated['class_id']);
+            
+            Log::info('Creating single exam', [
+                'class_id' => $validated['class_id'],
+                'class_name' => $class->name,
+                'class_section' => $class->section
+            ]);
+            
+            // ✅ CRITICAL: Set group_name
+            $groupName = $class->section ?? null;
+            
+            $examTimetable = ExamTimetable::create([
+                'unit_id' => $validated['unit_id'],
+                'class_id' => $validated['class_id'],
+                'semester_id' => $validated['semester_id'],
+                'program_id' => $program->id,
+                'school_id' => $program->school_id,
+                'group_name' => $groupName, // ✅ Set section here!
+                'date' => $validated['date'],
+                'day' => date('l', strtotime($validated['date'])),
+                'start_time' => $validated['start_time'],
+                'end_time' => $validated['end_time'],
+                'venue' => $validated['venue'],
+                'location' => $validated['location'],
+                'no' => $validated['no'],
+                'chief_invigilator' => $validated['chief_invigilator'],
+            ]);
+
+            Log::info('✅ Exam created successfully', [
+                'exam_id' => $examTimetable->id,
+                'group_name' => $examTimetable->group_name
+            ]);
+
+            return redirect()
+                ->route('programs.exam-timetables.index', [$program->id, $schoolCode])
+                ->with('success', 'Exam timetable created successfully.');
+
+        } catch (\Exception $e) {
+            Log::error('❌ Failed to create exam timetable', [
+                'error' => $e->getMessage(),
+                'data' => $validated
+            ]);
+
+            return back()
+                ->withErrors(['error' => 'Failed to create exam timetable: ' . $e->getMessage()])
+                ->withInput();
+        }
+    }
+
+    private function getLecturerName($lecturerCode): string
+    {
+        if (!$lecturerCode) return 'Not Assigned';
+        
+        $lecturer = DB::table('users')
+            ->where('code', $lecturerCode)
+            ->first();
+            
+        return $lecturer 
+            ? trim(($lecturer->first_name ?? '') . ' ' . ($lecturer->last_name ?? ''))
+            : 'Not Assigned';
+    }
+
+
+
+
+     
+
+
+    
+    
+
+    /**
+     * Check for scheduling conflicts
+     */
+    private function checkConflicts(array $examData, ?int $excludeId = null, int $programId): array
+    {
+        $conflicts = [];
+        $startTime = $examData['start_time'];
+        $endTime = $examData['end_time'];
+        $date = $examData['date'];
+
+        $query = ExamTimetable::where('date', $date)
+            ->where('program_id', $programId)
+            ->where(function ($q) use ($startTime, $endTime) {
+                $q->whereBetween('start_time', [$startTime, $endTime])
+                  ->orWhereBetween('end_time', [$startTime, $endTime])
+                  ->orWhere(function ($q2) use ($startTime, $endTime) {
+                      $q2->where('start_time', '<=', $startTime)
+                         ->where('end_time', '>=', $endTime);
+                  });
+            });
+
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        // Check venue conflict
+        if ((clone $query)->where('venue', $examData['venue'])->exists()) {
+            $conflicts[] = [
+                'type' => 'venue',
+                'severity' => 'error',
+                'message' => 'Venue already booked for this time slot'
+            ];
+        }
+
+        // Check class + section conflict
+        if ((clone $query)
+            ->where('class_id', $examData['class_id'])
+            ->where('group_name', $examData['group_name'] ?? null)
+            ->exists()) {
+            $conflicts[] = [
+                'type' => 'class',
+                'severity' => 'error',
+                'message' => 'Class section already has an exam scheduled'
+            ];
+        }
+
+        // Check unit + class + section conflict
+        if ((clone $query)
+            ->where('unit_id', $examData['unit_id'])
+            ->where('class_id', $examData['class_id'])
+            ->where('group_name', $examData['group_name'] ?? null)
+            ->exists()) {
+            $conflicts[] = [
+                'type' => 'unit',
+                'severity' => 'error',
+                'message' => 'This unit for this class section already has an exam'
+            ];
+        }
+
+        return $conflicts;
+    }
+
+    /**
+     * ✅ CORRECTED: Index with proper joins using group_id
+     */
+    public function index(Request $request, Program $program, $schoolCode)
+    {
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $query = ExamTimetable::query()
             ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
             ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
             ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+            ->where('exam_timetables.program_id', $program->id)
             ->select(
-                'exam_timetables.id',
-                'exam_timetables.date',
-                'exam_timetables.day',
-                'exam_timetables.start_time',
-                'exam_timetables.end_time',
-                'exam_timetables.venue',
-                'exam_timetables.location',
-                'exam_timetables.no',
-                'exam_timetables.chief_invigilator',
-                'exam_timetables.unit_id',
-                'exam_timetables.semester_id',
-                'exam_timetables.class_id',
+                'exam_timetables.*',
                 'units.name as unit_name',
                 'units.code as unit_code',
                 'classes.name as class_name',
-                // Generate class_code from name field since 'code' column doesn't exist
+                'classes.section as class_section',
+                'exam_timetables.group_name',
                 DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
                 'semesters.name as semester_name'
-            )
-            ->when($request->has('search') && $request->search !== '', function ($query) use ($request) {
-                $search = $request->search;
-                $query->where('exam_timetables.day', 'like', "%{$search}%")
-                    ->orWhere('exam_timetables.date', 'like', "%{$search}%")
-                    ->orWhere('units.code', 'like', "%{$search}%")
-                    ->orWhere('units.name', 'like', "%{$search}%");
-            })
-            ->orderBy('exam_timetables.date')
-            ->paginate($request->get('per_page', 10));
+            );
 
-        $lecturers = User::role('Lecturer')
-            ->select('id', 'code', DB::raw("CONCAT(first_name, ' ', last_name) as name"))
-            ->get();
+        // Get lecturer info from enrollments using group_id
+        $examTimetables = $query->orderBy('exam_timetables.date')
+            ->orderBy('exam_timetables.start_time')
+            ->orderBy('classes.section')
+            ->paginate($request->get('per_page', 15));
 
-        $semesters = Semester::all();
-        $examrooms = Examroom::all();
-        $timeSlots = TimeSlot::all();
-        $examTimeSlots = ExamTimeSlot::where('is_active', 1)->get();
-        $classes = ClassModel::all();
-
-        $hierarchicalData = $this->buildHierarchicalData();
-
-        $classesBySemester = [];
-        $unitsByClass = [];
-        $allUnits = collect();
-
-        foreach ($hierarchicalData as $semesterData) {
-            $classesBySemester[$semesterData['id']] = $semesterData['classes'];
-            
-            foreach ($semesterData['classes'] as $classData) {
-                $unitsByClass[$classData['id']] = $classData['units'];
+        // ✅ Add lecturer names from enrollments
+        foreach ($examTimetables as $exam) {
+            $lecturerCode = DB::table('enrollments')
+                ->where('unit_id', $exam->unit_id)
+                ->where('group_id', $exam->class_id) // ✅ group_id = class_id
+                ->where('semester_id', $exam->semester_id)
+                ->value('lecturer_code');
                 
-                foreach ($classData['units'] as $unitData) {
-                    $allUnits->push((object) $unitData);
-                }
+            if ($lecturerCode) {
+                $exam->lecturer_code = $lecturerCode;
+                $exam->lecturer_name = $this->getLecturerName($lecturerCode);
             }
         }
 
-        Log::info('Hierarchical data structure:', [
-            'semesters_count' => count($hierarchicalData),
-            'total_units' => $allUnits->count(),
-            'sample_structure' => array_slice($hierarchicalData, 0, 1)
-        ]);
-
-        return Inertia::render('ExamTimetables/Index', [
+        return inertia('ExamTimetable/Index', [
             'examTimetables' => $examTimetables,
-            'lecturers' => $lecturers,
-            'perPage' => $perPage,
-            'search' => $search,
-            'semesters' => $semesters,
-            'classes' => $classes,
-            'examrooms' => $examrooms,
-            'timeSlots' => $timeSlots,
-            'examTimeSlots' => $examTimeSlots,
-            'hierarchicalData' => $hierarchicalData,
-            'classesBySemester' => $classesBySemester,
-            'unitsByClass' => $unitsByClass,
+            'program' => $program,
+            'semesters' => Semester::all(),
+            'schoolCode' => $schoolCode,
+            'filters' => $request->only(['search', 'semester_id', 'per_page']),
             'can' => [
-                'create' => $user->can('create-exam-timetables'),
-                'edit' => $user->can('edit-exam-timetables'),
-                'delete' => $user->can('delete-exam-timetables'),
-                'process' => $user->can('process-exam-timetables'),
-                'solve_conflicts' => $user->can('solve-exam-conflicts'),
-                'download' => $user->can('download-exam-timetables'),
+                'create' => auth()->user()->can('create-exam-timetables'),
+                'edit' => auth()->user()->can('edit-exam-timetables'),
+                'delete' => auth()->user()->can('delete-exam-timetables'),
             ],
         ]);
     }
+
 
     /**
      * Build hierarchical data structure
@@ -434,73 +800,7 @@ class ExamTimetableController extends Controller
         }
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        $validated = $request->validate([
-            'day' => 'required|string',
-            'date' => 'required|date',
-            'unit_id' => 'required|exists:units,id',
-            'semester_id' => 'required|exists:semesters,id',
-            'class_id' => 'required|exists:classes,id',
-            'no' => 'required|integer',
-            'chief_invigilator' => 'required|string',
-            'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i',
-            'venue' => 'nullable|string',
-            'location' => 'nullable|string',
-        ]);
-
-        try {
-            $class = ClassModel::findOrFail($validated['class_id']);
-            $program = Program::find($class->program_id);
-
-            $venueAssignment = null;
-            if (!isset($validated['venue'])) {
-                $venueAssignment = $this->assignSmartVenue(
-                    $validated['no'],
-                    $validated['date'],
-                    $validated['start_time'],
-                    $validated['end_time']
-                );
-
-                if (!$venueAssignment['success']) {
-                    return redirect()->back()->withErrors([
-                        'venue' => $venueAssignment['message']
-                    ])->withInput();
-                }
-            }
-
-            $examTimetable = ExamTimetable::create([
-                'unit_id' => $validated['unit_id'],
-                'semester_id' => $validated['semester_id'],
-                'class_id' => $validated['class_id'],
-                'program_id' => $program ? $program->id : null,
-                'school_id' => $program ? $program->school_id : null,
-                'date' => $validated['date'],
-                'day' => $validated['day'],
-                'start_time' => $validated['start_time'],
-                'end_time' => $validated['end_time'],
-                'venue' => $validated['venue'] ?? $venueAssignment['venue'],
-                'location' => $validated['location'] ?? ($venueAssignment['location'] ?? 'Main Campus'),
-                'no' => $validated['no'],
-                'chief_invigilator' => $validated['chief_invigilator'],
-            ]);
-
-            $successMessage = 'Exam timetable created successfully.';
-            if ($venueAssignment) {
-                $successMessage .= ' ' . $venueAssignment['message'];
-            }
-            
-            return redirect()->back()->with('success', $successMessage);
-        } catch (\Exception $e) {
-            \Log::error('Failed to create exam timetable: ' . $e->getMessage());
-            return redirect()->back()->with('error', 'Failed to create exam timetable: ' . $e->getMessage());
-        }
-    }
-
+   
     /**
      * Update the specified resource in storage.
      */
@@ -780,39 +1080,38 @@ class ExamTimetableController extends Controller
             }
 
             $query = ExamTimetable::query()
-                ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
-                ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
-                ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
-                ->whereIn('exam_timetables.unit_id', $enrollments->pluck('unit_id'))
-                ->whereIn('exam_timetables.semester_id', $enrollments->pluck('semester_id'))
-                ->select(
-                    'exam_timetables.id',
-                    'exam_timetables.date',
-                    'exam_timetables.day',
-                    'exam_timetables.start_time',
-                    'exam_timetables.end_time',
-                    'exam_timetables.venue',
-                    'exam_timetables.location',
-                    'exam_timetables.no',
-                    'exam_timetables.chief_invigilator',
-                    'exam_timetables.unit_id',
-                    'exam_timetables.semester_id',
-                    'exam_timetables.class_id',
-                    'units.name as unit_name',
-                    'units.code as unit_code',
-                    'classes.name as class_name',
-                    // Generate class_code from name field since 'code' column doesn't exist
-                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
-                    'semesters.name as semester_name'
-                )
-                ->orderBy('exam_timetables.date')
-                ->orderBy('exam_timetables.start_time');
+        ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+        ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+        ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+        ->where('units.program_id', $program->id)
+        ->select(
+            'exam_timetables.id',
+            'exam_timetables.date',
+            'exam_timetables.day',
+            'exam_timetables.start_time',
+            'exam_timetables.end_time',
+            'exam_timetables.venue',
+            'exam_timetables.location',
+            'exam_timetables.no',
+            'exam_timetables.chief_invigilator',
+            'exam_timetables.unit_id',
+            'exam_timetables.semester_id',
+            'exam_timetables.class_id',
+            'units.name as unit_name',
+            'units.code as unit_code',
+            'classes.name as class_name',
+            'classes.section as class_section', // ✅ ADD THIS LINE
+            DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+            'semesters.name as semester_name'
+        )         
+                        ->orderBy('exam_timetables.date')
+                        ->orderBy('exam_timetables.start_time');
 
-            if ($selectedSemesterId) {
-                $query->where('exam_timetables.semester_id', $selectedSemesterId);
-            }
+                        if ($selectedSemesterId) {
+                            $query->where('exam_timetables.semester_id', $selectedSemesterId);
+                        }
 
-            $examTimetables = $query->get();
+                        $examTimetables = $query->get();
 
             return Inertia::render('Student/ExamTimetable', [
                 'examTimetables' => $examTimetables,
@@ -944,13 +1243,10 @@ class ExamTimetableController extends Controller
      * ✅ FIXED: Store a new exam timetable for a specific program
      */
   
-public function storeProgramExamTimetable(Program $program, Request $request, $schoolCode)
+    public function storeProgramExamTimetable(Program $program, Request $request, $schoolCode)
 {
     \Log::info('=== EXAM TIMETABLE STORE REQUEST ===', [
         'program_id' => $program->id,
-        'program_name' => $program->name,
-        'school_id' => $program->school_id,
-        'school_code' => $schoolCode,
         'request_data' => $request->all(),
     ]);
 
@@ -963,162 +1259,140 @@ public function storeProgramExamTimetable(Program $program, Request $request, $s
         'start_time' => 'required|date_format:H:i',
         'end_time' => 'required|date_format:H:i|after:start_time',
         'chief_invigilator' => 'required|string|max:255',
-        'no' => 'required|integer|min:1',
         'venue' => 'nullable|string|max:255',
         'location' => 'nullable|string|max:255',
-    ], [
-        'semester_id.required' => 'Please select a semester',
-        'class_id.required' => 'Please select a class',
-        'unit_id.required' => 'Please select a unit',
-        'no.required' => 'Number of students is required',
-        'no.min' => 'Number of students must be at least 1',
     ]);
 
     try {
-        // ✅ STEP 1: Calculate ACTUAL total student count across ALL classes taking this unit
-        $totalStudentsCalculated = DB::table('enrollments')
-            ->join('classes', 'enrollments.class_id', '=', 'classes.id')
-            ->where('enrollments.unit_id', $validatedData['unit_id'])
-            ->where('enrollments.semester_id', $validatedData['semester_id'])
-            ->where('classes.program_id', $program->id) // ✅ Only count students in this program
-            ->distinct('enrollments.student_code')
-            ->count('enrollments.student_code');
-
-        // Get class breakdown for logging
-        $classBreakdown = DB::table('enrollments')
-            ->join('classes', 'enrollments.class_id', '=', 'classes.id')
+        // ✅ CORRECT: Use group_id to identify individual sections
+        $sectionsWithStudents = DB::table('enrollments')
+            ->join('classes', 'enrollments.group_id', '=', 'classes.id') // ✅ KEY FIX: group_id!
             ->where('enrollments.unit_id', $validatedData['unit_id'])
             ->where('enrollments.semester_id', $validatedData['semester_id'])
             ->where('classes.program_id', $program->id)
+            ->where('enrollments.status', 'enrolled')
             ->select(
                 'classes.id as class_id',
                 'classes.name as class_name',
-                // Generate class_code from name field since 'code' column doesn't exist
-                DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+                'classes.section as class_section',
+                'classes.year_level',
                 DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
             )
-            ->groupBy('classes.id', 'classes.name')
+            ->groupBy('classes.id', 'classes.name', 'classes.section', 'classes.year_level')
+            ->having('student_count', '>', 0)
+            ->orderBy('classes.year_level')
+            ->orderBy('classes.section')
             ->get();
 
-        \Log::info('✅ Calculated student count for exam', [
-            'unit_id' => $validatedData['unit_id'],
-            'semester_id' => $validatedData['semester_id'],
-            'program_id' => $program->id,
-            'total_students_calculated' => $totalStudentsCalculated,
-            'user_provided_count' => $validatedData['no'],
-            'class_breakdown' => $classBreakdown->toArray(),
-            'classes_count' => $classBreakdown->count()
-        ]);
-
-        // ✅ STEP 2: Use calculated count (allow user override if they manually changed it)
-        // If user's count matches or is close to calculated, use calculated
-        // If significantly different, respect user's override but log a warning
-        $studentCount = $validatedData['no'];
-        
-        if (abs($totalStudentsCalculated - $validatedData['no']) > 5) {
-            \Log::warning('⚠️ User-provided student count differs significantly from calculated', [
-                'calculated' => $totalStudentsCalculated,
-                'user_provided' => $validatedData['no'],
-                'difference' => abs($totalStudentsCalculated - $validatedData['no'])
-            ]);
-        } else {
-            // Use calculated count if close enough
-            $studentCount = $totalStudentsCalculated;
+        if ($sectionsWithStudents->isEmpty()) {
+            return redirect()->back()
+                ->withErrors(['error' => 'No students enrolled in this unit for any class section'])
+                ->withInput();
         }
 
-        // Ensure we have at least 1 student
-        $studentCount = max($studentCount, 1);
+        \Log::info('📊 Individual class sections for this unit:', [
+            'unit_id' => $validatedData['unit_id'],
+            'semester_id' => $validatedData['semester_id'],
+            'sections_found' => $sectionsWithStudents->count(),
+            'breakdown' => $sectionsWithStudents->map(function($s) {
+                return [
+                    'class_id' => $s->class_id,
+                    'name' => $s->class_name,
+                    'section' => $s->class_section,
+                    'students' => $s->student_count
+                ];
+            })->toArray()
+        ]);
 
-        // ✅ STEP 3: Smart venue assignment with CORRECT student count
-        if (empty($validatedData['venue'])) {
+        // ✅ Schedule EACH section separately
+        $scheduledExams = [];
+        $failedSections = [];
+
+        foreach ($sectionsWithStudents as $section) {
+            $fullClassName = trim($section->class_name . ' ' . ($section->class_section ?? ''));
+            
+            \Log::info("📝 Scheduling section: {$fullClassName}", [
+                'class_id' => $section->class_id,
+                'students' => $section->student_count
+            ]);
+
+            // Find venue for THIS section only
             $venueResult = $this->assignSmartVenue(
-                $studentCount, // ✅ Use accurate total count
+                $section->student_count,
                 $validatedData['date'],
                 $validatedData['start_time'],
                 $validatedData['end_time']
             );
 
-            if ($venueResult['success']) {
-                // Assign venue and location from smart assignment
-                $validatedData['venue'] = $venueResult['venue'];
-                $validatedData['location'] = $venueResult['location'];
-                
-                \Log::info('✅ Venue assigned from smart assignment', [
-                    'venue' => $venueResult['venue'],
-                    'location' => $venueResult['location'],
-                    'capacity' => $venueResult['capacity']
-                ]);
-            } else {
-                // Venue assignment failed
-                \Log::error('❌ Venue assignment failed', [
-                    'message' => $venueResult['message']
-                ]);
-                
-                return redirect()->back()->withErrors([
-                    'venue' => $venueResult['message']
-                ])->withInput();
+            if (!$venueResult['success']) {
+                $failedSections[] = [
+                    'class' => $fullClassName,
+                    'students' => $section->student_count,
+                    'reason' => $venueResult['message']
+                ];
+                continue;
             }
-        }
 
-        // Set default location if still empty
-        if (empty($validatedData['location'])) {
-            $validatedData['location'] = $validatedData['venue'] === 'Remote' ? 'Online' : 'Main Campus';
-        }
+            // Create exam for this section
+            $examData = [
+                'unit_id' => $validatedData['unit_id'],
+                'semester_id' => $validatedData['semester_id'],
+                'class_id' => $section->class_id, // Individual section ID
+                'program_id' => $program->id,
+                'school_id' => $program->school_id,
+                'date' => $validatedData['date'],
+                'day' => $validatedData['day'],
+                'start_time' => $validatedData['start_time'],
+                'end_time' => $validatedData['end_time'],
+                'venue' => $venueResult['venue'],
+                'location' => $venueResult['location'] ?? 'Main Campus',
+                'no' => $section->student_count, // Individual count
+                'chief_invigilator' => $validatedData['chief_invigilator'],
+            ];
 
-        // ✅ STEP 4: Create exam timetable with ALL required fields
-        $examData = [
-            'unit_id' => $validatedData['unit_id'],
-            'semester_id' => $validatedData['semester_id'],
-            'class_id' => $validatedData['class_id'], // Primary class (usually first one)
-            'program_id' => $program->id,
-            'school_id' => $program->school_id,
-            'date' => $validatedData['date'],
-            'day' => $validatedData['day'],
-            'start_time' => $validatedData['start_time'],
-            'end_time' => $validatedData['end_time'],
-            'venue' => $validatedData['venue'],
-            'location' => $validatedData['location'],
-            'no' => $studentCount, // ✅ Use calculated accurate count
-            'chief_invigilator' => $validatedData['chief_invigilator'],
-        ];
-
-        \Log::info('📝 Creating exam timetable with data:', $examData);
-
-        $examTimetable = ExamTimetable::create($examData);
-
-        \Log::info('✅ Exam timetable created successfully', [
-            'exam_timetable_id' => $examTimetable->id,
-            'unit_code' => DB::table('units')->where('id', $examTimetable->unit_id)->value('code'),
-            'program_id' => $examTimetable->program_id,
-            'school_id' => $examTimetable->school_id,
-            'student_count' => $examTimetable->no,
-            'venue' => $examTimetable->venue,
-            'classes_involved' => $classBreakdown->count()
-        ]);
-
-        return redirect()
-            ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
-            ->with('success', "Exam timetable created successfully for {$program->name}! Scheduled for {$studentCount} students across {$classBreakdown->count()} class(es).");
-
-    } catch (\Illuminate\Validation\ValidationException $e) {
-        \Log::error('❌ Validation error in exam timetable creation', [
-            'errors' => $e->errors(),
-        ]);
-        
-        return redirect()->back()
-            ->withErrors($e->errors())
-            ->withInput();
+            $createdExam = ExamTimetable::create($examData);
             
-    } catch (\Exception $e) {
-        \Log::error('❌ Error creating exam timetable', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
-            'program_id' => $program->id,
-            'request_data' => $validatedData ?? $request->all()
-        ]);
+            $scheduledExams[] = [
+                'exam_id' => $createdExam->id,
+                'class' => $fullClassName,
+                'students' => $section->student_count,
+                'venue' => $venueResult['venue'],
+            ];
 
+            \Log::info('✅ Exam scheduled', [
+                'class' => $fullClassName,
+                'students' => $section->student_count,
+                'venue' => $venueResult['venue']
+            ]);
+        }
+
+        if (!empty($scheduledExams)) {
+            $message = "✅ Scheduled " . count($scheduledExams) . " section(s):\n\n";
+            
+            foreach ($scheduledExams as $exam) {
+                $message .= "• {$exam['class']}: {$exam['students']} students → {$exam['venue']}\n";
+            }
+
+            if (!empty($failedSections)) {
+                $message .= "\n⚠️ Failed:\n";
+                foreach ($failedSections as $failed) {
+                    $message .= "• {$failed['class']}: {$failed['reason']}\n";
+                }
+            }
+
+            return redirect()
+                ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
+                ->with('success', $message);
+        } else {
+            return redirect()->back()
+                ->withErrors(['error' => 'Failed to schedule any sections'])
+                ->withInput();
+        }
+
+    } catch (\Exception $e) {
+        \Log::error('Error:', ['message' => $e->getMessage()]);
         return redirect()->back()
-            ->withErrors(['error' => 'Failed to create exam timetable: ' . $e->getMessage()])
+            ->withErrors(['error' => $e->getMessage()])
             ->withInput();
     }
 }
@@ -1212,95 +1486,96 @@ public function storeProgramExamTimetable(Program $program, Request $request, $s
     /**
  * ✅ FIXED: Update exam timetable for a specific program
  */
-public function updateProgramExamTimetable(Program $program, $timetable, Request $request, $schoolCode)
-{
-    $examTimetable = ExamTimetable::findOrFail($timetable);
-    
-    \Log::info('=== EXAM TIMETABLE UPDATE REQUEST ===', [
-        'exam_id' => $examTimetable->id,
-        'program_id' => $program->id,
-        'school_id' => $program->school_id,
-    ]);
-    
-    $validatedData = $request->validate([
-        'semester_id' => 'required|integer|exists:semesters,id',
-        'class_id' => 'required|integer|exists:classes,id',
-        'unit_id' => 'required|integer|exists:units,id',
-        'date' => 'required|date|date_format:Y-m-d',
-        'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
-        'start_time' => 'required|date_format:H:i',
-        'end_time' => 'required|date_format:H:i|after:start_time',
-        'chief_invigilator' => 'required|string|max:255',
-        'no' => 'required|integer|min:1',
-        'venue' => 'nullable|string|max:255',
-        'location' => 'nullable|string|max:255',
-    ]);
+    public function updateProgramExamTimetable(Program $program, $timetable, Request $request, $schoolCode)
+    {
+        $examTimetable = ExamTimetable::findOrFail($timetable);
+        
+        $validatedData = $request->validate([
+            'semester_id' => 'required|integer|exists:semesters,id',
+            'class_id' => 'required|integer|exists:classes,id',
+            'unit_id' => 'required|integer|exists:units,id',
+            'date' => 'required|date|date_format:Y-m-d',
+            'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i|after:start_time',
+            'chief_invigilator' => 'required|string|max:255',
+            'no' => 'required|integer|min:1',
+            'venue' => 'nullable|string|max:255',
+            'location' => 'nullable|string|max:255',
+        ]);
 
-    try {
-        if (empty($validatedData['venue'])) {
-            $venueResult = $this->assignSmartVenue(
-                $validatedData['no'],
-                $validatedData['date'],
-                $validatedData['start_time'],
-                $validatedData['end_time'],
-                $examTimetable->id
-            );
+        try {
+            // ✅ Get student count for THIS specific class
+            $studentCount = DB::table('enrollments')
+                ->where('unit_id', $validatedData['unit_id'])
+                ->where('semester_id', $validatedData['semester_id'])
+                ->where('class_id', $validatedData['class_id'])
+                ->where('status', 'enrolled')
+                ->distinct('student_code')
+                ->count('student_code');
 
-            if ($venueResult['success']) {
-                $validatedData['venue'] = $venueResult['venue'];
-                $validatedData['location'] = $venueResult['location'];
-            } else {
-                $validatedData['venue'] = 'TBD';
-                $validatedData['location'] = 'TBD';
+            if ($studentCount === 0) {
+                return redirect()->back()
+                    ->withErrors(['error' => 'No students enrolled for this class in this unit'])
+                    ->withInput();
             }
+
+            // Override user input with actual enrollment count
+            $validatedData['no'] = $studentCount;
+
+            if (empty($validatedData['venue'])) {
+                $venueResult = $this->assignSmartVenue(
+                    $validatedData['no'],
+                    $validatedData['date'],
+                    $validatedData['start_time'],
+                    $validatedData['end_time'],
+                    $examTimetable->id
+                );
+
+                if ($venueResult['success']) {
+                    $validatedData['venue'] = $venueResult['venue'];
+                    $validatedData['location'] = $venueResult['location'];
+                } else {
+                    return redirect()->back()
+                        ->withErrors(['venue' => $venueResult['message']])
+                        ->withInput();
+                }
+            }
+
+            if (empty($validatedData['location'])) {
+                $validatedData['location'] = $validatedData['venue'] === 'Remote' ? 'Online' : 'Main Campus';
+            }
+
+            $updateData = [
+                'unit_id' => $validatedData['unit_id'],
+                'semester_id' => $validatedData['semester_id'],
+                'class_id' => $validatedData['class_id'],
+                'program_id' => $program->id,
+                'school_id' => $program->school_id,
+                'date' => $validatedData['date'],
+                'day' => $validatedData['day'],
+                'start_time' => $validatedData['start_time'],
+                'end_time' => $validatedData['end_time'],
+                'venue' => $validatedData['venue'],
+                'location' => $validatedData['location'],
+                'no' => $validatedData['no'],
+                'chief_invigilator' => $validatedData['chief_invigilator'],
+            ];
+
+            $examTimetable->update($updateData);
+
+            return redirect()
+                ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
+                ->with('success', "Exam timetable updated successfully for {$program->name}!");
+
+        } catch (\Exception $e) {
+            \Log::error('Error updating program exam timetable: ' . $e->getMessage());
+
+            return redirect()->back()
+                ->withErrors(['error' => 'Failed to update exam timetable: ' . $e->getMessage()])
+                ->withInput();
         }
-
-        if (empty($validatedData['location'])) {
-            $validatedData['location'] = $validatedData['venue'] === 'Remote' ? 'Online' : 'Main Campus';
-        }
-
-        // ✅✅✅ CRITICAL FIX: Add program_id and school_id to update
-        $updateData = [
-            'unit_id' => $validatedData['unit_id'],
-            'semester_id' => $validatedData['semester_id'],
-            'class_id' => $validatedData['class_id'],
-            'program_id' => $program->id,  // ✅ THIS IS THE FIX
-            'school_id' => $program->school_id,  // ✅ THIS IS THE FIX
-            'date' => $validatedData['date'],
-            'day' => $validatedData['day'],
-            'start_time' => $validatedData['start_time'],
-            'end_time' => $validatedData['end_time'],
-            'venue' => $validatedData['venue'],
-            'location' => $validatedData['location'],
-            'no' => $validatedData['no'],
-            'chief_invigilator' => $validatedData['chief_invigilator'],
-        ];
-
-        \Log::info('Updating exam timetable with data:', $updateData);
-
-        $examTimetable->update($updateData);
-
-        \Log::info('Program exam timetable updated successfully', [
-            'exam_timetable_id' => $examTimetable->id,
-            'program_id' => $examTimetable->program_id,
-            'school_id' => $examTimetable->school_id,
-        ]);
-
-        return redirect()
-            ->route('schools.' . strtolower($schoolCode) . '.programs.exam-timetables.index', $program)
-            ->with('success', 'Exam timetable updated successfully for ' . $program->name . '!');
-
-    } catch (\Exception $e) {
-        \Log::error('Error updating program exam timetable: ' . $e->getMessage(), [
-            'exam_timetable_id' => $examTimetable->id,
-            'exception' => $e->getTraceAsString()
-        ]);
-
-        return redirect()->back()
-            ->withErrors(['error' => 'Failed to update exam timetable: ' . $e->getMessage()])
-            ->withInput();
     }
-}
 
     /**
      * Get classes with their units for bulk scheduling
@@ -2048,245 +2323,160 @@ private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $
         'remaining_capacity' => $bestVenue['space_left_after']
     ];
 }
-/**
- * Update venue capacity usage (3D tracking: venue -> date -> time_slot)
- */
-private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $examDate, $timeSlotKey, $studentCount)
-{
-    if (!isset($venueCapacityUsage[$venueName])) {
-        $venueCapacityUsage[$venueName] = [];
-    }
-    
-    if (!isset($venueCapacityUsage[$venueName][$examDate])) {
-        $venueCapacityUsage[$venueName][$examDate] = [];
-    }
-    
-    if (!isset($venueCapacityUsage[$venueName][$examDate][$timeSlotKey])) {
-        $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] = 0;
-    }
-    
-    $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] += $studentCount;
-}
-
-/**
- * ✅ CORRECTED: Smart venue assignment - NO SPLITTING ALLOWED
- * 
- * Rules:
- * 1. Find ONE venue that can accommodate ALL students
- * 2. Consider existing exams at the same time
- * 3. If no single venue exists → REJECT with clear message
- * 4. Never split students across multiple venues
- */
-private function assignSmartVenue($studentCount, $date, $startTime, $endTime, $excludeExamId = null)
-{
-    \Log::info('🔍 Smart venue assignment requested', [
-        'student_count' => $studentCount,
-        'date' => $date,
-        'time' => "{$startTime} - {$endTime}"
-    ]);
-
-    try {
-        // Get all available exam rooms
-        $examrooms = Examroom::where('is_active', true)
-            ->orderBy('capacity', 'asc') // Start with smallest suitable room
-            ->get();
-        
-        if ($examrooms->isEmpty()) {
-            return [
-                'success' => false,
-                'message' => 'No exam rooms configured in the system'
-            ];
+    /**
+     * Update venue capacity usage (3D tracking: venue -> date -> time_slot)
+     */
+    private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $examDate, $timeSlotKey, $studentCount)
+    {
+        if (!isset($venueCapacityUsage[$venueName])) {
+            $venueCapacityUsage[$venueName] = [];
         }
-
-        // Parse the time range
-        $examStartTime = Carbon::parse($date . ' ' . $startTime);
-        $examEndTime = Carbon::parse($date . ' ' . $endTime);
-
-        // ✅ CRITICAL: Find venues that can fit ALL students in ONE room
-        $suitableVenues = [];
         
-        foreach ($examrooms as $room) {
-            // ✅ FIX 1: Skip rooms that are too small for ALL students
-            if ($room->capacity < $studentCount) {
-                \Log::debug("  ⛔ {$room->name} too small", [
-                    'capacity' => $room->capacity,
-                    'required' => $studentCount,
-                    'shortfall' => $studentCount - $room->capacity
-                ]);
-                continue;
-            }
+        if (!isset($venueCapacityUsage[$venueName][$examDate])) {
+            $venueCapacityUsage[$venueName][$examDate] = [];
+        }
+        
+        if (!isset($venueCapacityUsage[$venueName][$examDate][$timeSlotKey])) {
+            $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] = 0;
+        }
+        
+        $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] += $studentCount;
+    }
 
-            // Check existing exams in this venue at this time
-            $existingExamsQuery = ExamTimetable::where('venue', $room->name)
-                ->where('date', $date);
+    private function assignSmartVenue($studentCount, $date, $startTime, $endTime, $excludeExamId = null)
+    {
+        \Log::info('🔍 Smart venue assignment requested', [
+            'student_count' => $studentCount,
+            'date' => $date,
+            'time' => "{$startTime} - {$endTime}"
+        ]);
+
+        try {
+            // Get all active exam rooms sorted by capacity (smallest first for efficiency)
+            $examrooms = Examroom::where('is_active', true)
+                ->orderBy('capacity', 'asc')
+                ->get();
             
-            // Exclude current exam if updating
-            if ($excludeExamId) {
-                $existingExamsQuery->where('id', '!=', $excludeExamId);
-            }
-            
-            $existingExams = $existingExamsQuery->get();
-
-            // Calculate total students already scheduled at overlapping times
-            $occupiedCapacity = 0;
-            foreach ($existingExams as $exam) {
-                $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
-                $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
-
-                // Check for time overlap
-                if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
-                    $occupiedCapacity += $exam->no;
-                }
-            }
-
-            // ✅ FIX 2: Calculate ACTUAL remaining capacity
-            $remainingCapacity = $room->capacity - $occupiedCapacity;
-
-            \Log::debug("  📊 {$room->name} analysis", [
-                'total_capacity' => $room->capacity,
-                'occupied' => $occupiedCapacity,
-                'remaining' => $remainingCapacity,
-                'required' => $studentCount,
-                'can_fit_all' => $remainingCapacity >= $studentCount ? 'YES ✅' : 'NO ❌'
-            ]);
-
-            // ✅ FIX 3: ONLY accept if venue can fit ALL students
-            if ($remainingCapacity >= $studentCount) {
-                $utilizationAfterBooking = (($occupiedCapacity + $studentCount) / $room->capacity) * 100;
-                
-                $suitableVenues[] = [
-                    'room' => $room,
-                    'total_capacity' => $room->capacity,
-                    'occupied_capacity' => $occupiedCapacity,
-                    'remaining_capacity' => $remainingCapacity,
-                    'utilization_after' => $utilizationAfterBooking,
-                    'space_left_after' => $remainingCapacity - $studentCount
+            if ($examrooms->isEmpty()) {
+                return [
+                    'success' => false,
+                    'message' => 'No exam rooms configured in the system'
                 ];
-                
-                \Log::info("  ✅ {$room->name} is suitable", [
-                    'will_accommodate' => $studentCount . ' students',
-                    'space_remaining_after' => $remainingCapacity - $studentCount,
-                    'utilization_after' => round($utilizationAfterBooking, 1) . '%'
-                ]);
-            } else {
-                \Log::debug("  ❌ {$room->name} insufficient capacity", [
-                    'remaining' => $remainingCapacity,
-                    'required' => $studentCount,
-                    'shortfall' => $studentCount - $remainingCapacity
-                ]);
             }
-        }
 
-        // ✅ FIX 4: If no suitable venue found, provide detailed error
-        if (empty($suitableVenues)) {
-            // Generate helpful error message
-            $largestRoom = $examrooms->sortByDesc('capacity')->first();
-            $largestAvailable = 0;
+            $examStartTime = Carbon::parse($date . ' ' . $startTime);
+            $examEndTime = Carbon::parse($date . ' ' . $endTime);
+
+            $suitableVenues = [];
             
             foreach ($examrooms as $room) {
-                $existingExams = ExamTimetable::where('venue', $room->name)
-                    ->where('date', $date)
-                    ->when($excludeExamId, function($q) use ($excludeExamId) {
-                        return $q->where('id', '!=', $excludeExamId);
-                    })
-                    ->get();
+                // ✅ STRICT RULE: Room must fit ALL students
+                if ($room->capacity < $studentCount) {
+                    \Log::debug("  ⛔ {$room->name} too small", [
+                        'capacity' => $room->capacity,
+                        'required' => $studentCount
+                    ]);
+                    continue;
+                }
+
+                // Check existing exams in this venue at this time
+                $existingExamsQuery = ExamTimetable::where('venue', $room->name)
+                    ->where('date', $date);
                 
+                if ($excludeExamId) {
+                    $existingExamsQuery->where('id', '!=', $excludeExamId);
+                }
+                
+                $existingExams = $existingExamsQuery->get();
+
+                // Calculate occupied capacity at this time
                 $occupiedCapacity = 0;
                 foreach ($existingExams as $exam) {
                     $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
                     $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
-                    
+
+                    // Check for time overlap
                     if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
                         $occupiedCapacity += $exam->no;
                     }
                 }
-                
+
                 $remainingCapacity = $room->capacity - $occupiedCapacity;
-                if ($remainingCapacity > $largestAvailable) {
-                    $largestAvailable = $remainingCapacity;
+
+                \Log::debug("  📊 {$room->name} analysis", [
+                    'total_capacity' => $room->capacity,
+                    'occupied' => $occupiedCapacity,
+                    'remaining' => $remainingCapacity,
+                    'required' => $studentCount,
+                    'can_fit' => $remainingCapacity >= $studentCount ? 'YES ✅' : 'NO ❌'
+                ]);
+
+                // ✅ STRICT RULE: Must have enough remaining capacity for ALL students
+                if ($remainingCapacity >= $studentCount) {
+                    $utilizationAfter = (($occupiedCapacity + $studentCount) / $room->capacity) * 100;
+                    
+                    $suitableVenues[] = [
+                        'room' => $room,
+                        'total_capacity' => $room->capacity,
+                        'occupied_capacity' => $occupiedCapacity,
+                        'remaining_capacity' => $remainingCapacity,
+                        'utilization_after' => $utilizationAfter,
+                        'space_left_after' => $remainingCapacity - $studentCount
+                    ];
                 }
             }
-            
-            \Log::error('❌ No single venue can accommodate all students', [
-                'required_capacity' => $studentCount,
-                'largest_room_capacity' => $largestRoom->capacity,
-                'largest_available_capacity' => $largestAvailable,
-                'date' => $date,
-                'time' => "{$startTime} - {$endTime}",
-                'recommendation' => $largestAvailable > 0 
-                    ? "Try splitting into smaller groups or choosing a different time slot"
-                    : "All venues are fully booked at this time"
+
+            // ✅ No suitable venue found
+            if (empty($suitableVenues)) {
+                $largestRoom = $examrooms->sortByDesc('capacity')->first();
+                
+                return [
+                    'success' => false,
+                    'message' => "❌ No single exam room available with capacity for {$studentCount} students at {$startTime}-{$endTime}.\n\n" .
+                            "Largest room: {$largestRoom->name} ({$largestRoom->capacity} seats).\n\n" .
+                            "💡 Suggestions:\n" .
+                            "• Choose a different time slot\n" .
+                            "• Select a different date",
+                    'required_capacity' => $studentCount
+                ];
+            }
+
+            // ✅ Sort by efficiency (prefer smallest room that fits = less waste)
+            usort($suitableVenues, function($a, $b) {
+                return $a['space_left_after'] <=> $b['space_left_after'];
+            });
+
+            $bestVenue = $suitableVenues[0];
+
+            \Log::info('✅ Venue assigned successfully', [
+                'venue' => $bestVenue['room']->name,
+                'location' => $bestVenue['room']->location,
+                'students_accommodated' => $studentCount,
+                'remaining_after' => $bestVenue['space_left_after'],
+                'utilization' => round($bestVenue['utilization_after'], 1) . '%'
             ]);
-            
+
+            return [
+                'success' => true,
+                'venue' => $bestVenue['room']->name,
+                'location' => $bestVenue['room']->location,
+                'capacity' => $bestVenue['room']->capacity,
+                'remaining_capacity' => $bestVenue['space_left_after'],
+                'utilization' => round($bestVenue['utilization_after'], 1),
+                'message' => "✅ Assigned {$bestVenue['room']->name} ({$studentCount}/{$bestVenue['room']->capacity} seats)"
+            ];
+
+        } catch (\Exception $e) {
+            \Log::error('❌ Error in smart venue assignment', [
+                'error' => $e->getMessage()
+            ]);
+
             return [
                 'success' => false,
-                'message' => "❌ No single exam room available with capacity for {$studentCount} students.\n\n" .
-                           "📊 Analysis:\n" .
-                           "• Required capacity: {$studentCount} students\n" .
-                           "• Largest room: {$largestRoom->name} ({$largestRoom->capacity} seats)\n" .
-                           "• Largest available space at {$startTime}-{$endTime}: {$largestAvailable} seats\n\n" .
-                           "💡 Suggestions:\n" .
-                           ($largestAvailable > 0 
-                               ? "• Split class into smaller groups\n• Choose a different time slot\n• Select a different date"
-                               : "• All venues are fully booked at this time\n• Choose a different time slot or date"),
-                'required_capacity' => $studentCount,
-                'largest_available' => $largestAvailable,
-                'largest_room' => $largestRoom->name,
-                'largest_room_capacity' => $largestRoom->capacity
+                'message' => 'System error during venue assignment: ' . $e->getMessage()
             ];
         }
-
-        // ✅ FIX 5: Sort by efficiency (prefer smallest room that fits all students)
-        usort($suitableVenues, function($a, $b) {
-            // Primary: Prefer room with less wasted space
-            $wasteA = $a['space_left_after'];
-            $wasteB = $b['space_left_after'];
-            
-            if ($wasteA !== $wasteB) {
-                return $wasteA <=> $wasteB; // Less waste is better
-            }
-            
-            // Secondary: If same waste, prefer lower utilization
-            return $a['utilization_after'] <=> $b['utilization_after'];
-        });
-
-        // Select the best venue
-        $bestVenue = $suitableVenues[0];
-
-        \Log::info('✅ Venue assigned successfully', [
-            'venue' => $bestVenue['room']->name,
-            'location' => $bestVenue['room']->location,
-            'total_capacity' => $bestVenue['room']->capacity,
-            'students_to_accommodate' => $studentCount,
-            'remaining_after_booking' => $bestVenue['space_left_after'],
-            'utilization_after' => round($bestVenue['utilization_after'], 1) . '%',
-            'efficiency' => $bestVenue['space_left_after'] < 10 ? 'Excellent (minimal waste)' : 'Good'
-        ]);
-
-        return [
-            'success' => true,
-            'venue' => $bestVenue['room']->name,
-            'location' => $bestVenue['room']->location,
-            'capacity' => $bestVenue['room']->capacity,
-            'remaining_capacity' => $bestVenue['space_left_after'],
-            'utilization' => round($bestVenue['utilization_after'], 1),
-            'message' => "✅ Assigned {$bestVenue['room']->name} (capacity: {$bestVenue['room']->capacity}, " .
-                        "will use {$studentCount} seats, {$bestVenue['space_left_after']} remaining)"
-        ];
-
-    } catch (\Exception $e) {
-        \Log::error('❌ Error in smart venue assignment', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-
-        return [
-            'success' => false,
-            'message' => 'System error during venue assignment: ' . $e->getMessage()
-        ];
     }
-}
-
 // ============================================================
 // 1. UPDATE downloadPDF() METHOD (around line 700)
 // ============================================================
@@ -2521,10 +2711,91 @@ public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
     }
 }
 
+/**
+     * Download student exam timetable PDF
+     */
+    public function downloadStudentExamTimetablePDF(Request $request)
+    {
+        $user = auth()->user();
 
-// ============================================================
-// 4. UPDATE downloadAllPDF() METHOD (around line 1700)
-// ============================================================
+        try {
+            $enrollments = Enrollment::where('student_code', $user->code)
+                ->where('status', 'enrolled')
+                ->with(['semester', 'unit', 'class'])
+                ->get();
+
+            if ($enrollments->isEmpty()) {
+                return redirect()->back()->with('error', 'No enrollments found.');
+            }
+
+            $query = ExamTimetable::query()
+                ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+                ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+                ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+                ->whereIn('exam_timetables.unit_id', $enrollments->pluck('unit_id'))
+                ->whereIn('exam_timetables.semester_id', $enrollments->pluck('semester_id'))
+                ->select(
+                    'exam_timetables.*',
+                    'units.name as unit_name',
+                    'units.code as unit_code',
+                    'classes.name as class_name',
+                    'classes.section as class_section', // ✅ Include section
+                    'exam_timetables.group_name', // ✅ Include group_name
+                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+                    'semesters.name as semester_name'
+                )
+                ->orderBy('exam_timetables.date')
+                ->orderBy('exam_timetables.start_time');
+
+            if ($request->has('semester_id') && $request->semester_id) {
+                $query->where('exam_timetables.semester_id', $request->semester_id);
+            }
+
+            $examTimetables = $query->get();
+
+            // Convert logo to base64
+            $logoPath = public_path('images/strathmore.png');
+            $logoBase64 = '';
+            if (file_exists($logoPath)) {
+                $logoData = base64_encode(file_get_contents($logoPath));
+                $logoBase64 = 'data:image/png;base64,' . $logoData;
+            }
+
+            $data = [
+                'examTimetables' => $examTimetables,
+                'student' => $user,
+                'currentSemester' => $request->semester_id 
+                    ? Semester::find($request->semester_id) 
+                    : $enrollments->first()->semester,
+                'title' => 'Student Exam Timetable',
+                'generatedAt' => now()->format('F j, Y \a\t g:i A'),
+                'studentName' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')),
+                'studentId' => $user->student_id ?? $user->code ?? $user->id,
+                'logoBase64' => $logoBase64,
+            ];
+
+            $pdf = PDF::loadView('examtimetables.student', $data);
+            $pdf->setPaper('a4', 'portrait');
+
+            $studentId = $user->student_id ?? $user->code ?? $user->id;
+            $filename = "exam-timetable-{$studentId}-" . now()->format('Y-m-d') . ".pdf";
+
+            return $pdf->download($filename);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to generate student exam timetable PDF', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
+        }
+    }
+
+
+    // ============================================================
+    // 4. UPDATE downloadAllPDF() METHOD (around line 1700)
+    // ============================================================
 
 public function downloadAllPDF()
 {

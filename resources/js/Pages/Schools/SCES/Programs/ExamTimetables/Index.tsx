@@ -62,9 +62,9 @@ interface ExamTimetable {
   unit_code: string
   class_name: string
   class_code: string
+  class_section?: string  // ✅ ADD THIS LINE
   semester_name: string
 }
-
 interface Program {
   id: number
   code: string
@@ -249,7 +249,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
   }
 
   const formatTime = (time: string) => {
-    console.log('formatTime received:', time) // ADD THIS TOO
+    console.log('formatTime received:', time) 
     const parts = time.split(':')
     const hours = parseInt(parts[0])
     const minutes = parts[1]
@@ -258,7 +258,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
     return `${displayHours}:${minutes} ${ampm}`
   }
   
-  // ... rest of your code
+
   const hasConflicts = conflicts.length > 0
   const errorConflicts = conflicts.filter(c => c.severity === 'error')
   const warningConflicts = conflicts.filter(c => c.severity === 'warning')
@@ -358,13 +358,27 @@ const ExamCard: React.FC<ExamCardProps> = ({
               <h3 className="text-lg font-bold text-gray-900 mb-1">{exam.unit_name}</h3>
               <p className={`text-sm font-bold ${theme.iconColor} mb-2`}>{exam.unit_code}</p>
               {exam.class_name && (
-                <div className="flex items-center mt-2 text-sm">
-                  <School className="w-4 h-4 text-gray-500 mr-2" />
-                  <span className="font-semibold text-gray-700">{exam.class_name}</span>
-                  <span className="mx-2 text-gray-400">•</span>
-                  <span className="text-gray-600 font-medium">{exam.class_code}</span>
-                </div>
-              )}
+  <div className="mt-2 p-2 bg-white rounded-lg border-2 border-indigo-200">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center">
+        <School className="w-4 h-4 text-indigo-600 mr-2" />
+        <div>
+          <span className="font-bold text-gray-900">{exam.class_name}</span>
+          {exam.class_section && (  // ✅ This will now work
+            <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">
+              Section {exam.class_section}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center text-purple-600">
+        <Users className="w-4 h-4 mr-1" />
+        <span className="font-bold">{exam.no}</span>
+      </div>
+    </div>
+  </div>
+)}
+
             </div>
           </div>
         </div>
