@@ -191,9 +191,9 @@ Route::middleware(['auth'])->group(function () {
         })->name('api.classrooms');
         
         // ✅ ADD THIS - Bulk Schedule API endpoint
+        // ✅ FIXED:
         Route::post('/exams/bulk-schedule', function(Request $request) {
             try {
-                // Get the program and determine school
                 $programId = $request->input('program_id');
                 
                 if (!$programId) {
@@ -220,21 +220,17 @@ Route::middleware(['auth'])->group(function () {
                     'data' => $request->all()
                 ]);
                 
-                // Route to the appropriate controller method
-                return app(ExamTimetableController::class)->bulkScheduleExams($program, $request, $schoolCode);
+                // ✅ PASS REQUEST FIRST!
+                return app(ExamTimetableController::class)->bulkScheduleExams($request, $program, $schoolCode);
                 
             } catch (\Exception $e) {
-                \Log::error('Bulk schedule API error: ' . $e->getMessage(), [
-                    'trace' => $e->getTraceAsString()
-                ]);
+                \Log::error('Bulk schedule API error: ' . $e->getMessage());
                 return response()->json([
                     'success' => false,
                     'message' => 'Failed to schedule exams: ' . $e->getMessage()
                 ], 500);
             }
         })->middleware(['permission:create-exam-timetables'])->name('api.exams.bulk-schedule');
-        
-        
         // Exam Timetable APIs (your existing code)
         Route::prefix('exam-timetables')->group(function () {
             Route::get('/classes-by-semester/{semesterId}', 

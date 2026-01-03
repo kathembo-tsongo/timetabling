@@ -522,14 +522,16 @@ const ExamTableView: React.FC<{
           })
         }
 
-        if (otherExam.chief_invigilator === exam.chief_invigilator && exam.chief_invigilator !== 'No lecturer assigned') {
-          conflicts.push({
-            type: 'lecturer',
-            severity: 'error',
-            message: `${exam.chief_invigilator} is already invigilating ${otherExam.unit_code} at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
-            conflictingExam: otherExam
-          })
-        }
+        if (otherExam.chief_invigilator === exam.chief_invigilator && 
+    exam.chief_invigilator !== 'No lecturer assigned' &&
+    otherExam.unit_id !== exam.unit_id) { // ← KEY FIX: Only conflict if DIFFERENT units
+  conflicts.push({
+    type: 'lecturer',
+    severity: 'error',
+    message: `${exam.chief_invigilator} is invigilating a different unit (${otherExam.unit_code}) at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
+    conflictingExam: otherExam
+  })
+}
 
         if (otherExam.venue === exam.venue) {
   const classroom = classrooms.find(c => c.name === exam.venue)
@@ -1888,7 +1890,7 @@ useEffect(() => {
     }
   }, [bulkFormState.semester_id])
 
-  const handleBulkProgramChange = useCallback(async (programId: number | string) => {
+const handleBulkProgramChange = useCallback(async (programId: number | string) => {
   const numericProgramId = programId === "" ? null : Number(programId)
 
   setBulkFormState(prev => ({
@@ -1911,7 +1913,7 @@ useEffect(() => {
       program_id: numericProgramId
     })
 
-    // ✅ Get classes
+    // ✅ Get all classes for this program/semester
     const classesResponse = await axios.get(
       `/api/exam-timetables/classes-by-semester/${bulkFormState.semester_id}?program_id=${numericProgramId}`
     )
@@ -1924,9 +1926,9 @@ useEffect(() => {
     }
 
     const classes = classesResponse.data.classes
-    console.log(`✅ Found ${classes.length} classes`)
+    console.log(`✅ Found ${classes.length} classes/sections`)
     
-    // ✅ Get ALL units across all classes and group by unit_id
+    // ✅ Get units for EACH class/section separately
     const allUnitsPromises = classes.map(async (classItem: any) => {
       try {
         const unitsResponse = await axios.get(
@@ -1935,11 +1937,19 @@ useEffect(() => {
         
         const units = Array.isArray(unitsResponse.data) ? unitsResponse.data : []
         
+        // ✅ Backend now returns units with class_section already included!
         return units.map((unit: any) => ({
-          ...unit,
-          class_id: classItem.id,
-          class_name: classItem.name,
-          class_code: classItem.code
+          id: unit.id,
+          code: unit.code,
+          name: unit.name,
+          lecturer_name: unit.lecturer_name || 'No lecturer assigned',
+          lecturer_code: unit.lecturer_code || '',
+          // ✅ Each unit already has its specific class/section info from backend
+          class_id: unit.class_id || classItem.id,
+          class_name: unit.class_name || classItem.name,
+          class_section: unit.class_section || classItem.section || 'N/A',
+          // ✅ student_count is already per-section from backend
+          student_count: unit.student_count || 0
         }))
       } catch (error) {
         console.error(`❌ Error fetching units for class ${classItem.id}:`, error)
@@ -1948,56 +1958,14 @@ useEffect(() => {
     })
 
     const allUnitsArrays = await Promise.all(allUnitsPromises)
-    const allUnits = allUnitsArrays.flat()
+    // ✅ Flat array - each entry is ONE section with its units
+    const sectionUnitCombinations = allUnitsArrays.flat()
     
-    // ✅ Group units by unit_id (same unit across multiple classes)
-    const unitMap = new Map<number, {
-      unit: any
-      classes: Array<{ id: number; name: string; code: string }>
-      total_students: number
-    }>()
-
-    allUnits.forEach((unit: any) => {
-      if (!unitMap.has(unit.id)) {
-        unitMap.set(unit.id, {
-          unit: {
-            id: unit.id,
-            code: unit.code,
-            name: unit.name,
-            lecturer_name: unit.lecturer_name,
-            lecturer_code: unit.lecturer_code
-          },
-          classes: [],
-          total_students: 0
-        })
-      }
-      
-      const unitData = unitMap.get(unit.id)!
-      unitData.classes.push({
-        id: unit.class_id,
-        name: unit.class_name,
-        code: unit.class_code
-      })
-      unitData.total_students += unit.student_count || 0
-    })
-
-    // ✅ Convert to array format for display
-    const groupedUnits = Array.from(unitMap.values()).map(({ unit, classes, total_students }) => ({
-      id: unit.id,
-      code: unit.code,
-      name: unit.name,
-      lecturer_name: unit.lecturer_name || 'No lecturer assigned',
-      lecturer_code: unit.lecturer_code || '',
-      classes: classes,
-      class_count: classes.length,
-      total_students: total_students
-    }))
-
-    setAvailableClassesWithUnits(groupedUnits)
+    setAvailableClassesWithUnits(sectionUnitCombinations)
     
-    if (groupedUnits.length > 0) {
-      console.log(`✅ Grouped ${groupedUnits.length} unique units across ${classes.length} classes`)
-      toast.success(`Found ${groupedUnits.length} units across ${classes.length} classes`)
+    if (sectionUnitCombinations.length > 0) {
+      console.log(`✅ Found ${sectionUnitCombinations.length} section-unit combinations`)
+      toast.success(`Found ${sectionUnitCombinations.length} section-unit combinations`)
     } else {
       console.warn('No units found')
       toast.warning("No units found for this program")
@@ -2011,6 +1979,8 @@ useEffect(() => {
     setLoadingClassesWithUnits(false)
   }
 }, [bulkFormState.semester_id])
+
+
   
 const handleBulkSchedule = useCallback(async () => {
   if (!bulkFormState.semester_id || !bulkFormState.school_id || !bulkFormState.program_id) {
@@ -2775,65 +2745,69 @@ const calculateRequiredCapacity = () => {
 {availableClassesWithUnits.length > 0 && (
   <div>
     <label className="block text-sm font-medium text-gray-700 mb-2">
-      Select Units to Schedule <span className="text-red-500">*</span>
+      Select Section-Unit Combinations <span className="text-red-500">*</span>
       <span className="text-green-600 text-xs ml-2">
         ({bulkFormState.selected_class_units.length} selected)
       </span>
     </label>
     
-    {/* ✅ ADD: Select All / Deselect All for entire list */}
+    {/* Select All / Deselect All */}
     <div className="flex justify-end mb-2">
       <button
         type="button"
         onClick={() => {
-          const allSelected = availableClassesWithUnits.every(unitData =>
-            bulkFormState.selected_class_units.some(cu => cu.unit_id === unitData.id)
+          const allSelected = availableClassesWithUnits.every(item =>
+            bulkFormState.selected_class_units.some(cu => 
+              cu.unit_id === item.id && cu.class_id === item.class_id
+            )
           )
 
           if (allSelected) {
-            // Deselect all
             setBulkFormState(prev => ({
               ...prev,
               selected_class_units: []
             }))
-            toast.success('Deselected all units')
+            toast.success('Deselected all')
           } else {
-            // Select all units
-            const allSelections = availableClassesWithUnits.map(unitData => ({
-              class_id: unitData.classes[0].id, // Use first class as primary
-              class_name: unitData.classes.map(c => c.name).join(', '),
-              class_code: unitData.classes.map(c => c.code).join(', '),
-              unit_id: unitData.id,
-              unit_code: unitData.code,
-              unit_name: unitData.name,
-              student_count: unitData.total_students,
-              lecturer: unitData.lecturer_name || 'TBD'
+            const allSelections = availableClassesWithUnits.map(item => ({
+              class_id: item.class_id,
+              class_name: item.class_name,
+              class_code: item.class_code || `CLASS-${item.class_id}`,
+              class_section: item.class_section,
+              unit_id: item.id,
+              unit_code: item.code,
+              unit_name: item.name,
+              student_count: item.student_count, // ✅ Per-section count!
+              lecturer: item.lecturer_name || 'TBD'
             }))
 
             setBulkFormState(prev => ({
               ...prev,
               selected_class_units: allSelections
             }))
-            toast.success(`Selected all ${allSelections.length} units`)
+            toast.success(`Selected all ${allSelections.length} combinations`)
           }
         }}
         className="text-xs text-blue-600 hover:underline font-medium"
       >
-        {availableClassesWithUnits.every(unitData =>
-          bulkFormState.selected_class_units.some(cu => cu.unit_id === unitData.id)
+        {availableClassesWithUnits.every(item =>
+          bulkFormState.selected_class_units.some(cu => 
+            cu.unit_id === item.id && cu.class_id === item.class_id
+          )
         ) ? 'Deselect All' : 'Select All'}
       </button>
     </div>
     
     <div className="border rounded p-3 max-h-80 overflow-y-auto space-y-2">
-      {availableClassesWithUnits.map(unitData => {
+      {availableClassesWithUnits.map((item, index) => {
+        const uniqueKey = `${item.id}-${item.class_id}`
         const isSelected = bulkFormState.selected_class_units.some(cu =>
-          cu.unit_id === unitData.id
+          cu.unit_id === item.id && cu.class_id === item.class_id
         )
 
         return (
           <label
-            key={unitData.id}
+            key={uniqueKey}
             className={`flex items-start text-sm p-3 rounded cursor-pointer border-2 transition-all ${
               isSelected
                 ? 'bg-green-50 border-green-300 shadow-sm'
@@ -2850,14 +2824,15 @@ const calculateRequiredCapacity = () => {
                     selected_class_units: [
                       ...prev.selected_class_units,
                       {
-                        class_id: unitData.classes[0].id, // Use first class as primary
-                        class_name: unitData.classes.map(c => c.name).join(', '),
-                        class_code: unitData.classes.map(c => c.code).join(', '),
-                        unit_id: unitData.id,
-                        unit_code: unitData.code,
-                        unit_name: unitData.name,
-                        student_count: unitData.total_students,
-                        lecturer: unitData.lecturer_name || 'TBD'
+                        class_id: item.class_id,
+                        class_name: item.class_name,
+                        class_code: item.class_code || `CLASS-${item.class_id}`,
+                        class_section: item.class_section,
+                        unit_id: item.id,
+                        unit_code: item.code,
+                        unit_name: item.name,
+                        student_count: item.student_count, // ✅ Per-section!
+                        lecturer: item.lecturer_name || 'TBD'
                       }
                     ]
                   }))
@@ -2865,44 +2840,58 @@ const calculateRequiredCapacity = () => {
                   setBulkFormState(prev => ({
                     ...prev,
                     selected_class_units: prev.selected_class_units.filter(cu =>
-                      cu.unit_id !== unitData.id
+                      !(cu.unit_id === item.id && cu.class_id === item.class_id)
                     )
                   }))
                 }
               }}
               className="mt-1 mr-3"
             />
+            
             <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-900">{unitData.code}</span>
-                {isSelected && <CheckCircle className="w-4 h-4 text-green-600" />}
+              {/* ✅ Unit Header */}
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <span className="font-bold text-gray-900 text-base">{item.code}</span>
+                  <span className="text-gray-600 ml-2">-</span>
+                  <span className="text-gray-700 ml-2">{item.name}</span>
+                </div>
+                {isSelected && <CheckCircle className="w-5 h-5 text-green-600" />}
               </div>
-              <div className="text-gray-700 font-medium mt-0.5">{unitData.name}</div>
               
-              {/* ✅ Show which classes this unit spans */}
-              <div className="mt-2 text-xs text-gray-600">
-                <div className="flex items-center">
-                  <School className="w-3 h-3 mr-1" />
-                  <span className="font-medium">Classes:</span>
-                  <span className="ml-1">
-                    {unitData.classes.map(c => `${c.name} (${c.code})`).join(', ')}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-1.5 flex items-center gap-4 text-xs">
-                <div className="flex items-center text-purple-600">
-                  <Users className="w-3 h-3 mr-1" />
-                  <span className="font-semibold">{unitData.total_enrolled} students</span>
-                  <span className="text-gray-500 ml-1">across {unitData.class_count} class{unitData.class_count > 1 ? 'es' : ''}</span>
-                </div>
-                {unitData.lecturer_name && (
-                  <div className="flex items-center text-orange-600">
-                    <User className="w-3 h-3 mr-1" />
-                    <span>{unitData.lecturer_name}</span>
+              {/* ✅ SECTION INFO - CLEARLY DISPLAYED */}
+              <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg mb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <School className="w-4 h-4 text-indigo-600 mr-2" />
+                    <div>
+                      <span className="font-bold text-indigo-900">{item.class_name}</span>
+                      {/* ✅ SECTION BADGE - VERY VISIBLE */}
+                      {item.class_section && item.class_section !== 'N/A' && (
+                        <span className="ml-2 px-2 py-1 bg-indigo-600 text-white text-xs font-bold rounded">
+                          Section {item.class_section}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
+                  
+                  {/* ✅ STUDENT COUNT - PER SECTION */}
+                  <div className="flex items-center bg-purple-100 px-2 py-1 rounded">
+                    <Users className="w-4 h-4 text-purple-600 mr-1" />
+                    <span className="font-bold text-purple-900 text-sm">
+                      {item.student_count}
+                    </span>
+                  </div>
+                </div>
               </div>
+              
+              {/* ✅ Lecturer Info */}
+              {item.lecturer_name && (
+                <div className="flex items-center text-xs text-orange-600 mt-1">
+                  <User className="w-3 h-3 mr-1" />
+                  <span>{item.lecturer_name}</span>
+                </div>
+              )}
             </div>
           </label>
         )
@@ -2912,15 +2901,43 @@ const calculateRequiredCapacity = () => {
     {/* ✅ ADD: Summary of selection */}
     {bulkFormState.selected_class_units.length > 0 && (
       <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
-        <div className="font-medium text-blue-900 mb-1">
+        <div className="font-medium text-blue-900 mb-2">
           📋 Selection Summary:
         </div>
-        <div className="text-blue-800">
-          • {bulkFormState.selected_class_units.length} unit{bulkFormState.selected_class_units.length > 1 ? 's' : ''} selected
-          <br />
-          • {bulkFormState.selected_class_units.reduce((sum, cu) => sum + cu.student_count, 0)} total students
-          <br />
-          • Each exam will cover all students across multiple classes for that unit
+        <div className="text-blue-800 space-y-1">
+          <div>
+            • {bulkFormState.selected_class_units.length} section-unit combination{bulkFormState.selected_class_units.length > 1 ? 's' : ''} selected
+          </div>
+          <div>
+            • {bulkFormState.selected_class_units.reduce((sum, cu) => sum + cu.student_count, 0)} total students
+          </div>
+          
+          {/* ✅ Show breakdown by section */}
+          <div className="mt-2 pt-2 border-t border-blue-300">
+            <div className="font-semibold text-blue-900 mb-1">Section Breakdown:</div>
+            {(() => {
+              // Group by unit to show sections
+              const groupedByUnit = bulkFormState.selected_class_units.reduce((acc, cu) => {
+                const key = `${cu.unit_code}-${cu.unit_name}`
+                if (!acc[key]) {
+                  acc[key] = []
+                }
+                acc[key].push(cu)
+                return acc
+              }, {} as Record<string, typeof bulkFormState.selected_class_units>)
+              
+              return Object.entries(groupedByUnit).map(([unitKey, sections]) => (
+                <div key={unitKey} className="ml-2 mb-1 text-xs">
+                  <div className="font-medium text-blue-900">{unitKey}:</div>
+                  {sections.map((sec, idx) => (
+                    <div key={idx} className="ml-3 text-blue-700">
+                      → {sec.class_name} Sec {sec.class_section}: {sec.student_count} students
+                    </div>
+                  ))}
+                </div>
+              ))
+            })()}
+          </div>
         </div>
       </div>
     )}
