@@ -313,7 +313,7 @@ class ExamTimetableController extends Controller
 
         try {
             // ✅ Get class with section
-            $class = Classes::findOrFail($validated['class_id']);
+            $class = ClassModel::findOrFail($validated['class_id']);
             
             Log::info('Creating single exam', [
                 'class_id' => $validated['class_id'],
@@ -374,15 +374,6 @@ class ExamTimetableController extends Controller
             ? trim(($lecturer->first_name ?? '') . ' ' . ($lecturer->last_name ?? ''))
             : 'Not Assigned';
     }
-
-
-
-
-     
-
-
-    
-    
 
     /**
      * Check for scheduling conflicts
@@ -1826,7 +1817,6 @@ public function destroy($id)
 public function bulkScheduleExams(Request $request, Program $program, $schoolCode)
 {
     try {
-        // Validate request
         $validated = $request->validate([
             'semester_id' => 'required|integer',
             'school_id' => 'required|integer',
@@ -1841,7 +1831,7 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'selected_examrooms' => 'required|array|min:1',
         ]);
 
-        Log::info('🔵 Starting bulk exam scheduling with unit grouping', [
+        Log::info('🎓 Starting INTELLIGENT bulk exam scheduling', [
             'total_selections' => count($validated['selected_class_units']),
             'date_range' => $validated['start_date'] . ' to ' . $validated['end_date']
         ]);
@@ -1853,188 +1843,242 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ->whereIn('id', $validated['selected_examrooms'])
             ->get();
 
-        // Generate available dates
+        // ✅ STEP 1: Analyze student workload PER CLASS
+        $classWorkloads = $this->analyzeClassWorkloads(
+            $validated['selected_class_units'],
+            $validated['semester_id']
+        );
+
+        Log::info('📊 Class workload analysis', [
+            'classes_analyzed' => count($classWorkloads),
+            'breakdown' => array_map(function($class) {
+                return [
+                    'class_id' => $class['class_id'],
+                    'class_name' => $class['class_name'],
+                    'total_units' => $class['total_units'],
+                    'policy' => $class['policy'],
+                    'week1_max' => $class['week1_max'] ?? 'N/A',
+                    'min_gap_days' => $class['min_gap_days'] ?? 'N/A'
+                ];
+            }, $classWorkloads)
+        ]);
+
+        // ✅ STEP 2: Generate available dates
         $availableDates = $this->generateAvailableDates(
             $validated['start_date'],
             $validated['end_date'],
             $validated['excluded_days'] ?? []
         );
 
-        // ✅ STEP 1: GROUP by unit_id + lecturer_code
-        $unitGroups = collect($validated['selected_class_units'])->groupBy(function($item) {
-            return $item['unit_id'] . '|' . ($item['lecturer_code'] ?? 'NO_LECTURER');
-        });
+        // ✅ STEP 3: Split dates into weeks
+        $week1Dates = [];
+        $week2Dates = [];
+        
+        $startCarbon = Carbon::parse($validated['start_date']);
+        $week1End = $startCarbon->copy()->addDays(6); // First 7 days
+        
+        foreach ($availableDates as $date) {
+            $dateCarbon = Carbon::parse($date);
+            if ($dateCarbon->lte($week1End)) {
+                $week1Dates[] = $date;
+            } else {
+                $week2Dates[] = $date;
+            }
+        }
 
-        Log::info('📦 Grouped selections', [
-            'original_count' => count($validated['selected_class_units']),
-            'grouped_count' => $unitGroups->count(),
-            'groups' => $unitGroups->map(function($group) {
-                return [
-                    'unit' => $group[0]['unit_code'],
-                    'lecturer' => $group[0]['lecturer'],
-                    'sections' => $group->pluck('class_section')->toArray(),
-                    'total_students' => $group->sum('student_count')
-                ];
-            })->values()
+        Log::info('📅 Week distribution', [
+            'week1_dates' => count($week1Dates),
+            'week2_dates' => count($week2Dates),
+            'week1' => $week1Dates,
+            'week2' => array_slice($week2Dates, 0, 5) // Sample
         ]);
 
-        $dateIndex = 0;
-        $examsScheduledToday = 0;
+        // ✅ STEP 4: Sort selections BY CLASS first, then by unit
+        // This ensures we process all units for one class before moving to the next
+        $sortedSelections = collect($validated['selected_class_units'])
+            ->sortBy([
+                ['class_id', 'asc'],
+                ['unit_id', 'asc']
+            ])
+            ->values();
 
-        // ✅ STEP 2: Schedule EACH UNIT GROUP (all sections together)
-        foreach ($unitGroups as $groupKey => $sections) {
-            $firstSection = $sections->first();
-            
-            // Calculate TOTAL students across ALL sections
-            $totalStudents = $sections->sum('student_count');
-            $sectionNames = $sections->pluck('class_section')->join(', ');
-            
-            Log::info('🎯 Scheduling unit group', [
-                'unit' => $firstSection['unit_code'],
-                'lecturer' => $firstSection['lecturer'],
-                'sections' => $sectionNames,
-                'total_students' => $totalStudents,
-                'section_count' => $sections->count()
+        Log::info('📦 Sorted selections by class', [
+            'total' => $sortedSelections->count(),
+            'by_class' => $sortedSelections->groupBy('class_id')->map->count()->toArray()
+        ]);
+
+        // ✅ STEP 5: Initialize tracking per class
+        $classScheduleTracking = [];
+        foreach ($classWorkloads as $classId => $workload) {
+            $classScheduleTracking[$classId] = [
+                'policy' => $workload['policy'],
+                'total_units' => $workload['total_units'],
+                'week1_scheduled' => 0,
+                'week2_scheduled' => 0,
+                'week1_max' => $workload['week1_max'] ?? PHP_INT_MAX,
+                'min_gap_days' => $workload['min_gap_days'] ?? 0,
+                'last_exam_date' => null,
+                'scheduled_dates' => []
+            ];
+        }
+
+        $venueCapacityUsage = []; // Track 3D: venue -> date -> time_slot
+
+        // ✅ STEP 6: Schedule each exam individually
+        foreach ($sortedSelections as $selection) {
+            $studentCount = $selection['student_count'];
+
+            Log::info('🎯 Processing exam', [
+                'class' => $selection['class_name'],
+                'section' => $selection['class_section'],
+                'unit' => $selection['unit_code'],
+                'students' => $studentCount
             ]);
 
-            // Move to next date if max exams reached
-            if ($examsScheduledToday >= $validated['max_exams_per_day']) {
-                $dateIndex++;
-                $examsScheduledToday = 0;
-            }
+            // ✅ Find suitable date for THIS class
+$targetDate = $this->selectDateWithSpacing(
+    collect([$selection]),
+    $classScheduleTracking,
+    $week1Dates,
+    $week2Dates
+);
 
-            // Check if we have available dates
-            if ($dateIndex >= count($availableDates)) {
-                foreach ($sections as $section) {
-                    $conflicts[] = [
-                        'unit' => $section['unit_code'],
-                        'class' => $section['class_name'],
-                        'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => 'No more available dates in range'
-                    ];
-                }
+            if (!$targetDate) {
+                $conflicts[] = [
+                    'unit' => $selection['unit_code'],
+                    'class' => $selection['class_name'],
+                    'section' => $selection['class_section'] ?? 'N/A',
+                    'reason' => 'No available date matching spacing policy'
+                ];
+                Log::warning('⚠️ No date found', [
+                    'class' => $selection['class_name'],
+                    'unit' => $selection['unit_code']
+                ]);
                 continue;
             }
 
-            $examDate = $availableDates[$dateIndex];
-            
-            // Use time from first section (all will share this time)
-            $startTime = $firstSection['assigned_start_time'] ?? $validated['start_time'];
-            $endTime = $firstSection['assigned_end_time'] ?? 
+            $startTime = $selection['assigned_start_time'] ?? $validated['start_time'];
+            $endTime = $selection['assigned_end_time'] ?? 
                 $this->calculateEndTime($startTime, $validated['exam_duration_hours']);
+            
+            $timeSlotKey = "{$startTime}-{$endTime}";
 
-            // ✅ CRITICAL: Find ONE venue that fits ALL students
-            $selectedRoom = $this->selectAppropriateVenue(
+            // ✅ Find venue
+            $venueResult = $this->findVenueWithRemainingCapacity(
                 $selectedRooms,
-                $totalStudents, // ← Combined capacity needed!
-                $examDate,
-                $startTime,
-                $endTime
+                $studentCount,
+                $targetDate,
+                $timeSlotKey,
+                $venueCapacityUsage
             );
 
-            if (!$selectedRoom) {
-                foreach ($sections as $section) {
-                    $conflicts[] = [
-                        'unit' => $section['unit_code'],
-                        'class' => $section['class_name'],
-                        'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => "No venue with capacity for {$totalStudents} students (combined sections)"
-                    ];
-                }
+            if (!$venueResult['success']) {
+                $conflicts[] = [
+                    'unit' => $selection['unit_code'],
+                    'class' => $selection['class_name'],
+                    'section' => $selection['class_section'] ?? 'N/A',
+                    'reason' => $venueResult['message']
+                ];
                 continue;
             }
 
-            // ✅ Check for conflicts (check first section only since all share time/venue)
+            // ✅ Check conflicts
             $hasConflict = $this->checkSchedulingConflicts(
                 $validated['semester_id'],
-                $firstSection['class_id'],
-                $firstSection['unit_id'],
-                $examDate,
+                $selection['class_id'],
+                $selection['unit_id'],
+                $targetDate,
                 $startTime,
                 $endTime,
-                $firstSection['lecturer']
+                $selection['lecturer']
             );
 
             if ($hasConflict) {
-                foreach ($sections as $section) {
-                    $conflicts[] = [
-                        'unit' => $section['unit_code'],
-                        'class' => $section['class_name'],
-                        'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => 'Scheduling conflict detected'
-                    ];
-                }
+                $conflicts[] = [
+                    'unit' => $selection['unit_code'],
+                    'class' => $selection['class_name'],
+                    'section' => $selection['class_section'] ?? 'N/A',
+                    'reason' => 'Scheduling conflict detected'
+                ];
                 continue;
             }
 
-            // ✅ STEP 3: CREATE EXAM ENTRY FOR **EACH SECTION** 
-            // (same time & venue, but separate records for each section)
-            foreach ($sections as $section) {
-                $classInfo = DB::table('classes')
-                    ->where('id', $section['class_id'])
-                    ->first();
+            // ✅ Create exam
+            $classInfo = DB::table('classes')->where('id', $selection['class_id'])->first();
 
-                if (!$classInfo) {
-                    Log::warning("Class not found", ['class_id' => $section['class_id']]);
-                    continue;
-                }
-
-                $examId = DB::table('exam_timetables')->insertGetId([
-                    'semester_id' => $validated['semester_id'],
-                    'class_id' => $section['class_id'],
-                    'unit_id' => $section['unit_id'],
-                    'program_id' => $validated['program_id'],
-                    'school_id' => $validated['school_id'],
-                    
-                    // ✅ SAME TIME & VENUE FOR ALL SECTIONS
-                    'date' => $examDate,
-                    'day' => Carbon::parse($examDate)->format('l'),
-                    'start_time' => $startTime,
-                    'end_time' => $endTime,
-                    'venue' => $selectedRoom->name, // ← SAME venue
-                    'location' => $selectedRoom->location ?? 'Phase 2',
-                    
-                    // ✅ Section-specific data
-                    'group_name' => $classInfo->section ?? 'N/A',
-                    'no' => $section['student_count'], // Individual section count
-                    'chief_invigilator' => $section['lecturer'] ?? 'TBD',
-                    
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $scheduled[] = [
-                    'id' => $examId,
-                    'unit_code' => $section['unit_code'],
-                    'unit_name' => $section['unit_name'],
-                    'class_name' => $classInfo->name,
-                    'class_section' => $classInfo->section ?? 'N/A',
-                    'student_count' => $section['student_count'],
-                    'date' => $examDate,
-                    'time' => "$startTime - $endTime",
-                    'venue' => $selectedRoom->name
-                ];
-
-                Log::info('✅ Section scheduled', [
-                    'exam_id' => $examId,
-                    'unit' => $section['unit_code'],
-                    'section' => $classInfo->section ?? 'N/A',
-                    'students' => $section['student_count'],
-                    'venue' => $selectedRoom->name
-                ]);
+            if (!$classInfo) {
+                Log::warning("Class not found", ['class_id' => $selection['class_id']]);
+                continue;
             }
 
-            $examsScheduledToday++;
+            $examId = DB::table('exam_timetables')->insertGetId([
+                'semester_id' => $validated['semester_id'],
+                'class_id' => $selection['class_id'],
+                'unit_id' => $selection['unit_id'],
+                'program_id' => $validated['program_id'],
+                'school_id' => $validated['school_id'],
+                'date' => $targetDate,
+                'day' => Carbon::parse($targetDate)->format('l'),
+                'start_time' => $startTime,
+                'end_time' => $endTime,
+                'venue' => $venueResult['venue'],
+                'location' => $venueResult['location'] ?? 'Phase 2',
+                'group_name' => $classInfo->section ?? 'N/A',
+                'no' => $studentCount,
+                'chief_invigilator' => $selection['lecturer'] ?? 'TBD',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // ✅ CRITICAL: Update class tracking IMMEDIATELY
+            $targetCarbon = Carbon::parse($targetDate);
+            $week1EndCarbon = Carbon::parse($validated['start_date'])->addDays(6);
+
+            if ($targetCarbon->lte($week1EndCarbon)) {
+                $classScheduleTracking[$selection['class_id']]['week1_scheduled']++;
+            } else {
+                $classScheduleTracking[$selection['class_id']]['week2_scheduled']++;
+            }
+
+            $classScheduleTracking[$selection['class_id']]['last_exam_date'] = $targetDate;
+            $classScheduleTracking[$selection['class_id']]['scheduled_dates'][] = $targetDate;
+
+            Log::info('✅ Exam created and tracking updated', [
+                'exam_id' => $examId,
+                'date' => $targetDate,
+                'class_tracking' => $classScheduleTracking[$selection['class_id']]
+            ]);
+
+            $scheduled[] = [
+                'id' => $examId,
+                'unit_code' => $selection['unit_code'],
+                'unit_name' => $selection['unit_name'],
+                'class_name' => $classInfo->name,
+                'class_section' => $classInfo->section ?? 'N/A',
+                'student_count' => $studentCount,
+                'date' => $targetDate,
+                'time' => "$startTime - $endTime",
+                'venue' => $venueResult['venue']
+            ];
+
+            // ✅ Update venue usage
+            $this->updateVenueCapacityUsage(
+                $venueCapacityUsage,
+                $venueResult['venue'],
+                $targetDate,
+                $timeSlotKey,
+                $studentCount
+            );
         }
 
-        Log::info('🎉 Bulk scheduling complete', [
+        Log::info('🎉 Intelligent bulk scheduling complete', [
             'scheduled' => count($scheduled),
             'conflicts' => count($conflicts)
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => count($scheduled) . ' exams scheduled successfully',
+            'message' => count($scheduled) . ' exams scheduled with intelligent spacing',
             'scheduled' => $scheduled,
             'conflicts' => $conflicts,
             'summary' => [
@@ -2056,178 +2100,146 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
         ], 500);
     }
 }
-
-
 /**
- * ✅ Count weekdays between two dates (excluding weekends)
- * 
- * @param Carbon $startDate Starting date
- * @param Carbon $endDate Ending date
- * @return int Number of weekdays between the dates
+ * ✅ NEW: Analyze workload per class to determine scheduling policy
  */
-private function countWeekdaysBetween(Carbon $startDate, Carbon $endDate): int
+private function analyzeClassWorkloads($selections, $semesterId)
 {
-    $weekdays = 0;
-    $current = $startDate->copy()->addDay(); // Start from next day
+    $classWorkloads = [];
     
-    while ($current->lt($endDate)) {
-        // Count only Monday-Friday (dayOfWeek: 1-5)
-        if ($current->isWeekday()) {
-            $weekdays++;
-        }
-        $current->addDay();
-    }
+    // Group by class_id
+    $byClass = collect($selections)->groupBy('class_id');
     
-    return $weekdays;
-}
-
-/**
- * ✅ Add N weekdays to a date (skipping weekends)
- * 
- * @param Carbon $date Starting date
- * @param int $weekdaysToAdd Number of weekdays to add
- * @return Carbon New date after adding weekdays
- */
-private function addWeekdays(Carbon $date, int $weekdaysToAdd): Carbon
-{
-    $result = $date->copy();
-    $added = 0;
-    
-    while ($added < $weekdaysToAdd) {
-        $result->addDay();
+    foreach ($byClass as $classId => $classSelections) {
+        $firstSelection = $classSelections->first();
         
-        // Only count weekdays
-        if ($result->isWeekday()) {
-            $added++;
-        }
-    }
-    
-    return $result;
-}
-
-/**
- * Find venue with lowest utilization for better distribution
- */
-/**
- * ✅ CORRECTED: Find venue with remaining capacity for bulk scheduling
- * NO SPLITTING - must fit ALL students in ONE venue
- */
-private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $examDate, $timeSlotKey, &$venueCapacityUsage)
-{
-    \Log::info('🔍 Searching for venue in bulk schedule', [
-        'required_capacity' => $requiredCapacity,
-        'date' => $examDate,
-        'time_slot' => $timeSlotKey,
-        'available_rooms_count' => count($examrooms)
-    ]);
-
-    $suitableVenues = [];
-    
-    foreach ($examrooms as $room) {
-        // ✅ FIX 1: Skip rooms that are physically too small
-        if ($room->capacity < $requiredCapacity) {
-            \Log::debug("  ⛔ {$room->name} physically too small", [
-                'capacity' => $room->capacity,
-                'required' => $requiredCapacity
-            ]);
-            continue;
+        // Count total units for this class in this semester
+        $totalUnits = DB::table('enrollments')
+            ->where('group_id', $classId)
+            ->where('semester_id', $semesterId)
+            ->where('status', 'enrolled')
+            ->distinct('unit_id')
+            ->count('unit_id');
+        
+        // ✅ POLICY DETERMINATION
+        if ($totalUnits >= 7) {
+            // POLICY 1: Heavy load → spread across 2 weeks
+            $policy = 'SPREAD_TWO_WEEKS';
+            $week1Max = 4; // Max 4 exams in first week
+            $minGapDays = 0; // No minimum gap needed (spreading does the job)
+        } else {
+            // POLICY 2: Light load → minimum 1-day gap
+            $policy = 'MINIMUM_GAP';
+            $week1Max = PHP_INT_MAX; // No week restriction
+            $minGapDays = 1; // At least 1 day between exams
         }
         
-        // Get current usage for this venue/date/time
-        $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
-        $remainingCapacity = $room->capacity - $usedCapacity;
-        
-        \Log::debug("  📊 Checking venue: {$room->name}", [
-            'total_capacity' => $room->capacity,
-            'used_capacity' => $usedCapacity,
-            'remaining_capacity' => $remainingCapacity,
-            'required' => $requiredCapacity,
-            'can_fit_all' => $remainingCapacity >= $requiredCapacity ? 'YES ✅' : 'NO ❌'
-        ]);
-        
-        // ✅ FIX 2: ONLY accept if remaining capacity can fit ALL students
-        if ($remainingCapacity >= $requiredCapacity) {
-            $utilization = ($usedCapacity / $room->capacity) * 100;
-            $utilizationAfter = (($usedCapacity + $requiredCapacity) / $room->capacity) * 100;
-            
-            $suitableVenues[] = [
-                'room' => $room,
-                'total_capacity' => $room->capacity,
-                'used_capacity' => $usedCapacity,
-                'remaining_capacity' => $remainingCapacity,
-                'utilization_before' => $utilization,
-                'utilization_after' => $utilizationAfter,
-                'space_left_after' => $remainingCapacity - $requiredCapacity
-            ];
-            
-            \Log::debug("    ✅ {$room->name} is suitable", [
-                'utilization_before' => round($utilization, 2) . '%',
-                'utilization_after' => round($utilizationAfter, 2) . '%',
-                'space_remaining_after' => $remainingCapacity - $requiredCapacity
-            ]);
-        }
-    }
-    
-    // ✅ FIX 3: If no suitable venue, return detailed error
-    if (empty($suitableVenues)) {
-        // Find largest available capacity
-        $largestAvailable = 0;
-        $largestRoom = null;
-        
-        foreach ($examrooms as $room) {
-            $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
-            $remainingCapacity = $room->capacity - $usedCapacity;
-            
-            if ($remainingCapacity > $largestAvailable) {
-                $largestAvailable = $remainingCapacity;
-                $largestRoom = $room;
-            }
-        }
-        
-        \Log::warning('❌ No single venue found with sufficient capacity', [
-            'required_capacity' => $requiredCapacity,
-            'largest_available' => $largestAvailable,
-            'largest_room' => $largestRoom ? $largestRoom->name : 'None',
-            'date' => $examDate,
-            'time_slot' => $timeSlotKey,
-            'shortfall' => $requiredCapacity - $largestAvailable
-        ]);
-        
-        return [
-            'success' => false,
-            'message' => "❌ No venue with capacity for {$requiredCapacity} students at {$timeSlotKey}.\n" .
-                        "Largest available: " . ($largestRoom ? "{$largestRoom->name} ({$largestAvailable} seats)" : "None") .
-                        "\nShortfall: " . ($requiredCapacity - $largestAvailable) . " seats",
-            'required' => $requiredCapacity,
-            'largest_available' => $largestAvailable
+        $classWorkloads[$classId] = [
+            'class_id' => $classId,
+            'class_name' => $firstSelection['class_name'],
+            'class_section' => $firstSelection['class_section'] ?? 'N/A',
+            'total_units' => $totalUnits,
+            'policy' => $policy,
+            'week1_max' => $week1Max,
+            'min_gap_days' => $minGapDays
         ];
     }
     
-    // ✅ FIX 4: Sort by efficiency (prefer smallest room that fits)
-    usort($suitableVenues, function($a, $b) {
-        // Prefer room with least wasted space
-        return $a['space_left_after'] <=> $b['space_left_after'];
-    });
+    return $classWorkloads;
+}
+
+/**
+ * ✅ FIXED: Select date respecting spacing policies for all affected classes
+ * Ensures ONE exam per class per day, with proper spacing
+ */
+private function selectDateWithSpacing(
+    $sections,
+    &$classScheduleTracking,
+    $week1Dates,
+    $week2Dates
+) {
+    $allDates = array_merge($week1Dates, $week2Dates);
     
-    $bestVenue = $suitableVenues[0];
-    
-    \Log::info('✅ Venue selected for bulk schedule', [
-        'venue' => $bestVenue['room']->name,
-        'capacity_allocated' => $requiredCapacity,
-        'utilization_after' => round($bestVenue['utilization_after'], 2) . '%',
-        'remaining_after' => $bestVenue['space_left_after']
+    \Log::info('🔍 Searching for suitable date', [
+        'total_available_dates' => count($allDates),
+        'week1_dates' => count($week1Dates),
+        'week2_dates' => count($week2Dates)
     ]);
     
-    return [
-        'success' => true,
-        'venue' => $bestVenue['room']->name,
-        'location' => $bestVenue['room']->location,
-        'total_capacity' => $bestVenue['room']->capacity,
-        'capacity_used' => $bestVenue['used_capacity'] + $requiredCapacity,
-        'remaining_capacity' => $bestVenue['space_left_after']
-    ];
+    // For each possible date, check if it satisfies ALL classes' policies
+    foreach ($allDates as $candidateDate) {
+        $candidateCarbon = Carbon::parse($candidateDate);
+        $isWeek1 = in_array($candidateDate, $week1Dates);
+        
+        $validForAllClasses = true;
+        
+        foreach ($sections as $section) {
+            $classId = $section['class_id'];
+            
+            if (!isset($classScheduleTracking[$classId])) {
+                continue; // Skip if not tracked
+            }
+            
+            $tracking = $classScheduleTracking[$classId];
+            
+            // ✅ CRITICAL CHECK 1: This class already has an exam on this date?
+            if (in_array($candidateDate, $tracking['scheduled_dates'])) {
+                \Log::debug("  ⛔ Class {$classId} ({$section['class_name']}) already has exam on {$candidateDate}");
+                $validForAllClasses = false;
+                break;
+            }
+            
+            // ✅ CHECK POLICY 1: Heavy load (7+ units) - spread across 2 weeks
+            if ($tracking['policy'] === 'SPREAD_TWO_WEEKS') {
+                // Week 1 quota full?
+                if ($isWeek1 && $tracking['week1_scheduled'] >= $tracking['week1_max']) {
+                    \Log::debug("  ⛔ Class {$classId} week 1 quota full ({$tracking['week1_scheduled']}/{$tracking['week1_max']})");
+                    $validForAllClasses = false;
+                    break;
+                }
+            }
+            
+            // ✅ CHECK POLICY 2: Light load (≤6 units) - minimum gap between exams
+            if ($tracking['policy'] === 'MINIMUM_GAP' && $tracking['last_exam_date']) {
+                $lastExamCarbon = Carbon::parse($tracking['last_exam_date']);
+                
+                // Calculate days between (must be positive and meet minimum)
+                if ($candidateCarbon->lte($lastExamCarbon)) {
+                    \Log::debug("  ⛔ Date {$candidateDate} is not after last exam {$tracking['last_exam_date']}");
+                    $validForAllClasses = false;
+                    break;
+                }
+                
+                $daysBetween = $lastExamCarbon->diffInDays($candidateCarbon);
+                
+                if ($daysBetween < $tracking['min_gap_days']) {
+                    \Log::debug("  ⛔ Class {$classId} needs {$tracking['min_gap_days']} day gap, only {$daysBetween} days from last exam on {$tracking['last_exam_date']}");
+                    $validForAllClasses = false;
+                    break;
+                }
+            }
+        }
+        
+        if ($validForAllClasses) {
+            \Log::info("  ✅ Selected date: {$candidateDate}", [
+                'is_week1' => $isWeek1,
+                'classes_affected' => array_map(fn($s) => $s['class_id'], $sections->toArray())
+            ]);
+            return $candidateDate;
+        }
+    }
+    
+    \Log::warning('❌ No suitable date found respecting all policies', [
+        'sections' => $sections->map(fn($s) => [
+            'class' => $s['class_name'],
+            'unit' => $s['unit_code']
+        ])->toArray()
+    ]);
+    
+    return null; // No suitable date found
 }
-    /**
+
+/**
      * Update venue capacity usage (3D tracking: venue -> date -> time_slot)
      */
     private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $examDate, $timeSlotKey, $studentCount)
@@ -2381,8 +2393,9 @@ private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $
             ];
         }
     }
+
 // ============================================================
-// 1. UPDATE downloadPDF() METHOD (around line 700)
+// PDF DOWNLOAD METHODS
 // ============================================================
 
 public function downloadPDF(Request $request)
@@ -2417,7 +2430,7 @@ public function downloadPDF(Request $request)
             ->orderBy('exam_timetables.start_time')
             ->get();
 
-        // ✅ ADD THIS: Convert logo to base64
+        // ✅ Convert logo to base64
         $logoPath = public_path('images/strathmore.png');
         $logoBase64 = '';
         if (file_exists($logoPath)) {
@@ -2429,7 +2442,7 @@ public function downloadPDF(Request $request)
             'examTimetables' => $examTimetables,
             'title' => 'Exam Timetable',
             'generatedAt' => now()->format('Y-m-d H:i:s'),
-            'logoBase64' => $logoBase64,  // ✅ ADD THIS LINE
+            'logoBase64' => $logoBase64,
         ]);
 
         $pdf->setPaper('a4', 'landscape');
@@ -2444,11 +2457,6 @@ public function downloadPDF(Request $request)
         return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
     }
 }
-
-
-// ============================================================
-// 2. UPDATE downloadStudentTimetable() METHOD (around line 800)
-// ============================================================
 
 public function downloadStudentTimetable(Request $request)
 {
@@ -2510,7 +2518,7 @@ public function downloadStudentTimetable(Request $request)
             return redirect()->back()->with('error', 'PDF template not found. Please contact the administrator.');
         }
 
-        // ✅ ADD THIS: Convert logo to base64
+        // ✅ Convert logo to base64
         $logoPath = public_path('images/strathmore.png');
         $logoBase64 = '';
         if (file_exists($logoPath)) {
@@ -2526,7 +2534,7 @@ public function downloadStudentTimetable(Request $request)
             'generatedAt' => now()->format('F j, Y \a\t g:i A'),
             'studentName' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')),
             'studentId' => $user->student_id ?? $user->code ?? $user->id,
-            'logoBase64' => $logoBase64,  // ✅ ADD THIS LINE
+            'logoBase64' => $logoBase64,
         ];
 
         $pdf = PDF::loadView('examtimetables.student', $data);
@@ -2557,11 +2565,6 @@ public function downloadStudentTimetable(Request $request)
     }
 }
 
-
-// ============================================================
-// 3. UPDATE downloadProgramExamTimetablePDF() METHOD (around line 1200)
-// ============================================================
-
 public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
 {
     if ($program->school->code !== $schoolCode) {
@@ -2590,7 +2593,7 @@ public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
             return redirect()->back()->with('error', 'PDF template not found. Please contact the administrator.');
         }
 
-        // ✅ ADD THIS: Convert logo to base64
+        // ✅ Convert logo to base64
         $logoPath = public_path('images/strathmore.png');
         $logoBase64 = '';
         if (file_exists($logoPath)) {
@@ -2603,7 +2606,7 @@ public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
             'title' => $program->name . ' - Exam Timetable',
             'program' => $program,
             'generatedAt' => now()->format('Y-m-d H:i:s'),
-            'logoBase64' => $logoBase64,  // ✅ ADD THIS LINE
+            'logoBase64' => $logoBase64,
         ]);
 
         $pdf->setPaper('a4', 'landscape');
@@ -2615,91 +2618,83 @@ public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
     }
 }
 
-/**
-     * Download student exam timetable PDF
-     */
-    public function downloadStudentExamTimetablePDF(Request $request)
-    {
-        $user = auth()->user();
+public function downloadStudentExamTimetablePDF(Request $request)
+{
+    $user = auth()->user();
 
-        try {
-            $enrollments = Enrollment::where('student_code', $user->code)
-                ->where('status', 'enrolled')
-                ->with(['semester', 'unit', 'class'])
-                ->get();
+    try {
+        $enrollments = Enrollment::where('student_code', $user->code)
+            ->where('status', 'enrolled')
+            ->with(['semester', 'unit', 'class'])
+            ->get();
 
-            if ($enrollments->isEmpty()) {
-                return redirect()->back()->with('error', 'No enrollments found.');
-            }
-
-            $query = ExamTimetable::query()
-                ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
-                ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
-                ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
-                ->whereIn('exam_timetables.unit_id', $enrollments->pluck('unit_id'))
-                ->whereIn('exam_timetables.semester_id', $enrollments->pluck('semester_id'))
-                ->select(
-                    'exam_timetables.*',
-                    'units.name as unit_name',
-                    'units.code as unit_code',
-                    'classes.name as class_name',
-                    'classes.section as class_section', // ✅ Include section
-                    'exam_timetables.group_name', // ✅ Include group_name
-                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
-                    'semesters.name as semester_name'
-                )
-                ->orderBy('exam_timetables.date')
-                ->orderBy('exam_timetables.start_time');
-
-            if ($request->has('semester_id') && $request->semester_id) {
-                $query->where('exam_timetables.semester_id', $request->semester_id);
-            }
-
-            $examTimetables = $query->get();
-
-            // Convert logo to base64
-            $logoPath = public_path('images/strathmore.png');
-            $logoBase64 = '';
-            if (file_exists($logoPath)) {
-                $logoData = base64_encode(file_get_contents($logoPath));
-                $logoBase64 = 'data:image/png;base64,' . $logoData;
-            }
-
-            $data = [
-                'examTimetables' => $examTimetables,
-                'student' => $user,
-                'currentSemester' => $request->semester_id 
-                    ? Semester::find($request->semester_id) 
-                    : $enrollments->first()->semester,
-                'title' => 'Student Exam Timetable',
-                'generatedAt' => now()->format('F j, Y \a\t g:i A'),
-                'studentName' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')),
-                'studentId' => $user->student_id ?? $user->code ?? $user->id,
-                'logoBase64' => $logoBase64,
-            ];
-
-            $pdf = PDF::loadView('examtimetables.student', $data);
-            $pdf->setPaper('a4', 'portrait');
-
-            $studentId = $user->student_id ?? $user->code ?? $user->id;
-            $filename = "exam-timetable-{$studentId}-" . now()->format('Y-m-d') . ".pdf";
-
-            return $pdf->download($filename);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to generate student exam timetable PDF', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage()
-            ]);
-
-            return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
+        if ($enrollments->isEmpty()) {
+            return redirect()->back()->with('error', 'No enrollments found.');
         }
+
+        $query = ExamTimetable::query()
+            ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+            ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+            ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+            ->whereIn('exam_timetables.unit_id', $enrollments->pluck('unit_id'))
+            ->whereIn('exam_timetables.semester_id', $enrollments->pluck('semester_id'))
+            ->select(
+                'exam_timetables.*',
+                'units.name as unit_name',
+                'units.code as unit_code',
+                'classes.name as class_name',
+                'classes.section as class_section',
+                'exam_timetables.group_name',
+                DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+                'semesters.name as semester_name'
+            )
+            ->orderBy('exam_timetables.date')
+            ->orderBy('exam_timetables.start_time');
+
+        if ($request->has('semester_id') && $request->semester_id) {
+            $query->where('exam_timetables.semester_id', $request->semester_id);
+        }
+
+        $examTimetables = $query->get();
+
+        // Convert logo to base64
+        $logoPath = public_path('images/strathmore.png');
+        $logoBase64 = '';
+        if (file_exists($logoPath)) {
+            $logoData = base64_encode(file_get_contents($logoPath));
+            $logoBase64 = 'data:image/png;base64,' . $logoData;
+        }
+
+        $data = [
+            'examTimetables' => $examTimetables,
+            'student' => $user,
+            'currentSemester' => $request->semester_id 
+                ? Semester::find($request->semester_id) 
+                : $enrollments->first()->semester,
+            'title' => 'Student Exam Timetable',
+            'generatedAt' => now()->format('F j, Y \a\t g:i A'),
+            'studentName' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')),
+            'studentId' => $user->student_id ?? $user->code ?? $user->id,
+            'logoBase64' => $logoBase64,
+        ];
+
+        $pdf = PDF::loadView('examtimetables.student', $data);
+        $pdf->setPaper('a4', 'portrait');
+
+        $studentId = $user->student_id ?? $user->code ?? $user->id;
+        $filename = "exam-timetable-{$studentId}-" . now()->format('Y-m-d') . ".pdf";
+
+        return $pdf->download($filename);
+
+    } catch (\Exception $e) {
+        Log::error('Failed to generate student exam timetable PDF', [
+            'user_id' => $user->id,
+            'error' => $e->getMessage()
+        ]);
+
+        return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
     }
-
-
-    // ============================================================
-    // 4. UPDATE downloadAllPDF() METHOD (around line 1700)
-    // ============================================================
+}
 
 public function downloadAllPDF()
 {
@@ -2743,7 +2738,7 @@ public function downloadAllPDF()
         ];
     });
 
-    // ✅ ADD THIS: Convert logo to base64
+    // ✅ Convert logo to base64
     $logoPath = public_path('images/strathmore.png');
     $logoBase64 = '';
     if (file_exists($logoPath)) {
@@ -2756,7 +2751,7 @@ public function downloadAllPDF()
         'title' => 'UNIVERSITY EXAMINATION TIMETABLE',
         'generatedAt' => now()->format('F d, Y \a\t h:i A'),
         'examTimetables' => $transformedExams,
-        'logoBase64' => $logoBase64,  // ✅ ADD THIS LINE
+        'logoBase64' => $logoBase64,
     ];
 
     // Generate PDF
@@ -2906,5 +2901,126 @@ private function checkSchedulingConflicts($semesterId, $classId, $unitId, $examD
     
     return false;
 }
+
+/**
+ * ✅ Find venue with remaining capacity for bulk scheduling
+ * NO SPLITTING - must fit ALL students in ONE venue
+ */
+private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $examDate, $timeSlotKey, &$venueCapacityUsage)
+{
+    \Log::info('🔍 Searching for venue in bulk schedule', [
+        'required_capacity' => $requiredCapacity,
+        'date' => $examDate,
+        'time_slot' => $timeSlotKey,
+        'available_rooms_count' => count($examrooms)
+    ]);
+
+    $suitableVenues = [];
+    
+    foreach ($examrooms as $room) {
+        // ✅ FIX 1: Skip rooms that are physically too small
+        if ($room->capacity < $requiredCapacity) {
+            \Log::debug("  ⛔ {$room->name} physically too small", [
+                'capacity' => $room->capacity,
+                'required' => $requiredCapacity
+            ]);
+            continue;
+        }
+        
+        // Get current usage for this venue/date/time
+        $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
+        $remainingCapacity = $room->capacity - $usedCapacity;
+        
+        \Log::debug("  📊 Checking venue: {$room->name}", [
+            'total_capacity' => $room->capacity,
+            'used_capacity' => $usedCapacity,
+            'remaining_capacity' => $remainingCapacity,
+            'required' => $requiredCapacity,
+            'can_fit_all' => $remainingCapacity >= $requiredCapacity ? 'YES ✅' : 'NO ❌'
+        ]);
+        
+        // ✅ FIX 2: ONLY accept if remaining capacity can fit ALL students
+        if ($remainingCapacity >= $requiredCapacity) {
+            $utilization = ($usedCapacity / $room->capacity) * 100;
+            $utilizationAfter = (($usedCapacity + $requiredCapacity) / $room->capacity) * 100;
+            
+            $suitableVenues[] = [
+                'room' => $room,
+                'total_capacity' => $room->capacity,
+                'used_capacity' => $usedCapacity,
+                'remaining_capacity' => $remainingCapacity,
+                'utilization_before' => $utilization,
+                'utilization_after' => $utilizationAfter,
+                'space_left_after' => $remainingCapacity - $requiredCapacity
+            ];
+            
+            \Log::debug("    ✅ {$room->name} is suitable", [
+                'utilization_before' => round($utilization, 2) . '%',
+                'utilization_after' => round($utilizationAfter, 2) . '%',
+                'space_remaining_after' => $remainingCapacity - $requiredCapacity
+            ]);
+        }
+    }
+    
+    // ✅ FIX 3: If no suitable venue, return detailed error
+    if (empty($suitableVenues)) {
+        // Find largest available capacity
+        $largestAvailable = 0;
+        $largestRoom = null;
+        
+        foreach ($examrooms as $room) {
+            $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
+            $remainingCapacity = $room->capacity - $usedCapacity;
+            
+            if ($remainingCapacity > $largestAvailable) {
+                $largestAvailable = $remainingCapacity;
+                $largestRoom = $room;
+            }
+        }
+        
+        \Log::warning('❌ No single venue found with sufficient capacity', [
+            'required_capacity' => $requiredCapacity,
+            'largest_available' => $largestAvailable,
+            'largest_room' => $largestRoom ? $largestRoom->name : 'None',
+            'date' => $examDate,
+            'time_slot' => $timeSlotKey,
+            'shortfall' => $requiredCapacity - $largestAvailable
+        ]);
+        
+        return [
+            'success' => false,
+            'message' => "❌ No venue with capacity for {$requiredCapacity} students at {$timeSlotKey}.\n" .
+                        "Largest available: " . ($largestRoom ? "{$largestRoom->name} ({$largestAvailable} seats)" : "None") .
+                        "\nShortfall: " . ($requiredCapacity - $largestAvailable) . " seats",
+            'required' => $requiredCapacity,
+            'largest_available' => $largestAvailable
+        ];
+    }
+    
+    // ✅ FIX 4: Sort by efficiency (prefer smallest room that fits)
+    usort($suitableVenues, function($a, $b) {
+        // Prefer room with least wasted space
+        return $a['space_left_after'] <=> $b['space_left_after'];
+    });
+    
+    $bestVenue = $suitableVenues[0];
+    
+    \Log::info('✅ Venue selected for bulk schedule', [
+        'venue' => $bestVenue['room']->name,
+        'capacity_allocated' => $requiredCapacity,
+        'utilization_after' => round($bestVenue['utilization_after'], 2) . '%',
+        'remaining_after' => $bestVenue['space_left_after']
+    ]);
+    
+    return [
+        'success' => true,
+        'venue' => $bestVenue['room']->name,
+        'location' => $bestVenue['room']->location,
+        'total_capacity' => $bestVenue['room']->capacity,
+        'capacity_used' => $bestVenue['used_capacity'] + $requiredCapacity,
+        'remaining_capacity' => $bestVenue['space_left_after']
+    ];
+}
+
 
 }
