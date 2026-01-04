@@ -1907,20 +1907,17 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'by_class' => $sortedSelections->groupBy('class_id')->map->count()->toArray()
         ]);
 
-        // ✅ STEP 5: Initialize tracking per class
         $classScheduleTracking = [];
-        foreach ($classWorkloads as $classId => $workload) {
-            $classScheduleTracking[$classId] = [
-                'policy' => $workload['policy'],
-                'total_units' => $workload['total_units'],
-                'week1_scheduled' => 0,
-                'week2_scheduled' => 0,
-                'week1_max' => $workload['week1_max'] ?? PHP_INT_MAX,
-                'min_gap_days' => $workload['min_gap_days'] ?? 0,
-                'last_exam_date' => null,
-                'scheduled_dates' => []
-            ];
-        }
+foreach ($classWorkloads as $classId => $workload) {
+    $classScheduleTracking[$classId] = [
+        'policy' => $workload['policy'],
+        'total_units' => $workload['total_units'],
+        'pattern' => $workload['pattern'],           // ✅ ADD THIS
+        'pattern_index' => $workload['pattern_index'], // ✅ ADD THIS
+        'exams_scheduled' => $workload['exams_scheduled'], // ✅ ADD THIS
+        'scheduled_dates' => []
+    ];
+}
 
         $venueCapacityUsage = []; // Track 3D: venue -> date -> time_slot
 
@@ -1936,12 +1933,12 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ]);
 
             // ✅ Find suitable date for THIS class
-$targetDate = $this->selectDateWithSpacing(
-    collect([$selection]),
-    $classScheduleTracking,
-    $week1Dates,
-    $week2Dates
-);
+            $targetDate = $this->selectDateWithSpacing(
+                collect([$selection]),
+                $classScheduleTracking,
+                $week1Dates,
+                $week2Dates
+            );
 
             if (!$targetDate) {
                 $conflicts[] = [
@@ -2031,17 +2028,10 @@ $targetDate = $this->selectDateWithSpacing(
             ]);
 
             // ✅ CRITICAL: Update class tracking IMMEDIATELY
-            $targetCarbon = Carbon::parse($targetDate);
-            $week1EndCarbon = Carbon::parse($validated['start_date'])->addDays(6);
-
-            if ($targetCarbon->lte($week1EndCarbon)) {
-                $classScheduleTracking[$selection['class_id']]['week1_scheduled']++;
-            } else {
-                $classScheduleTracking[$selection['class_id']]['week2_scheduled']++;
-            }
-
-            $classScheduleTracking[$selection['class_id']]['last_exam_date'] = $targetDate;
+            // ✅ PATTERN-BASED: Update tracking
             $classScheduleTracking[$selection['class_id']]['scheduled_dates'][] = $targetDate;
+            $classScheduleTracking[$selection['class_id']]['exams_scheduled']++;
+            $classScheduleTracking[$selection['class_id']]['pattern_index']++; // Move to next pattern slot
 
             Log::info('✅ Exam created and tracking updated', [
                 'exam_id' => $examId,
@@ -2101,7 +2091,7 @@ $targetDate = $this->selectDateWithSpacing(
     }
 }
 /**
- * ✅ NEW: Analyze workload per class to determine scheduling policy
+ * ✅ INTELLIGENT: Analyze workload and create optimal scheduling patterns
  */
 private function analyzeClassWorkloads($selections, $semesterId)
 {
@@ -2121,27 +2111,18 @@ private function analyzeClassWorkloads($selections, $semesterId)
             ->distinct('unit_id')
             ->count('unit_id');
         
-        // ✅ POLICY DETERMINATION
-        if ($totalUnits >= 7) {
-            // POLICY 1: Heavy load → spread across 2 weeks
-            $policy = 'SPREAD_TWO_WEEKS';
-            $week1Max = 4; // Max 4 exams in first week
-            $minGapDays = 0; // No minimum gap needed (spreading does the job)
-        } else {
-            // POLICY 2: Light load → minimum 1-day gap
-            $policy = 'MINIMUM_GAP';
-            $week1Max = PHP_INT_MAX; // No week restriction
-            $minGapDays = 1; // At least 1 day between exams
-        }
+        // ✅ INTELLIGENT PATTERN SELECTION based on workload
+        $pattern = $this->selectOptimalPattern($totalUnits);
         
         $classWorkloads[$classId] = [
             'class_id' => $classId,
             'class_name' => $firstSelection['class_name'],
             'class_section' => $firstSelection['class_section'] ?? 'N/A',
             'total_units' => $totalUnits,
-            'policy' => $policy,
-            'week1_max' => $week1Max,
-            'min_gap_days' => $minGapDays
+            'policy' => 'PATTERN_BASED',
+            'pattern' => $pattern,
+            'pattern_index' => 0, // Which slot in pattern we're at
+            'exams_scheduled' => 0
         ];
     }
     
@@ -2149,8 +2130,59 @@ private function analyzeClassWorkloads($selections, $semesterId)
 }
 
 /**
- * ✅ FIXED: Select date respecting spacing policies for all affected classes
- * Ensures ONE exam per class per day, with proper spacing
+ * ✅ NEW: Select optimal exam distribution pattern based on workload
+ */
+/**
+ * ✅ FIXED: Select optimal exam distribution pattern based on workload
+ */
+private function selectOptimalPattern($totalUnits)
+{
+    // Patterns are day-of-week based: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri
+    
+    if ($totalUnits >= 10) {
+        // Very heavy load: Use all available days
+        // Week 1: Mon, Tue, Thu, Fri | Week 2: Mon, Wed, Fri, Mon
+        return [
+            'week1' => [0, 1, 3, 4],      // Mon, Tue, Thu, Fri
+            'week2' => [0, 2, 4, 0],      // Mon, Wed, Fri, Mon
+            'name' => 'VERY_HEAVY'
+        ];
+    } elseif ($totalUnits >= 7) {
+        // Heavy load (7-9 units): Mon-Tue-Thu-Fri, Mon-Wed-Fri
+        // Week 1: Mon, Tue, Thu, Fri | Week 2: Mon, Wed, Fri
+        return [
+            'week1' => [0, 1, 3, 4],      // Mon, Tue, Thu, Fri (4 exams)
+            'week2' => [0, 2, 4],         // Mon, Wed, Fri (3 exams)
+            'name' => 'HEAVY'
+        ];
+    } elseif ($totalUnits >= 5) {
+        // ✅ FIXED: Moderate load (5-6 units): Mon-Wed-Fri across both weeks
+        // Week 1: Mon, Wed, Fri | Week 2: Mon, Wed, Fri
+        return [
+            'week1' => [0, 2, 4],         // Mon, Wed, Fri (3 exams)
+            'week2' => [0, 2, 4],         // Mon, Wed, Fri (3 exams)
+            'name' => 'MODERATE'
+        ];
+    } elseif ($totalUnits >= 3) {
+        // Light load (3-4 units): Spread with good gaps
+        // Week 1: Mon, Thu | Week 2: Tue, Fri
+        return [
+            'week1' => [0, 3],            // Mon, Thu (2 exams)
+            'week2' => [1, 4],            // Tue, Fri (2 exams)
+            'name' => 'LIGHT'
+        ];
+    } else {
+        // Very light (1-2 units): Minimal spread
+        return [
+            'week1' => [0],               // Mon (1 exam)
+            'week2' => [3],               // Thu (1 exam)
+            'name' => 'MINIMAL'
+        ];
+    }
+}
+
+/**
+ * ✅ ENHANCED: Pattern-based date selection with fallback
  */
 private function selectDateWithSpacing(
     $sections,
@@ -2158,86 +2190,116 @@ private function selectDateWithSpacing(
     $week1Dates,
     $week2Dates
 ) {
-    $allDates = array_merge($week1Dates, $week2Dates);
-    
-    \Log::info('🔍 Searching for suitable date', [
-        'total_available_dates' => count($allDates),
-        'week1_dates' => count($week1Dates),
-        'week2_dates' => count($week2Dates)
+    \Log::info('🔍 Pattern-based date selection', [
+        'week1_dates' => $week1Dates,
+        'week2_dates' => $week2Dates
     ]);
     
-    // For each possible date, check if it satisfies ALL classes' policies
-    foreach ($allDates as $candidateDate) {
-        $candidateCarbon = Carbon::parse($candidateDate);
-        $isWeek1 = in_array($candidateDate, $week1Dates);
+    foreach ($sections as $section) {
+        $classId = $section['class_id'];
         
-        $validForAllClasses = true;
+        if (!isset($classScheduleTracking[$classId])) {
+            \Log::warning("⚠️ No tracking for class {$classId}");
+            continue;
+        }
         
-        foreach ($sections as $section) {
-            $classId = $section['class_id'];
+        $tracking = $classScheduleTracking[$classId];
+        $pattern = $tracking['pattern'];
+        $currentIndex = $tracking['pattern_index'];
+        
+        \Log::info("📋 Class pattern info", [
+            'class' => $section['class_name'],
+            'pattern_name' => $pattern['name'],
+            'current_index' => $currentIndex,
+            'exams_scheduled' => $tracking['exams_scheduled'],
+            'total_units' => $tracking['total_units']
+        ]);
+        
+        // ✅ CALCULATE total pattern slots available
+        $totalPatternSlots = count($pattern['week1']) + count($pattern['week2']);
+        
+        // ✅ If we've exhausted the pattern but still have exams to schedule,
+        // cycle through the pattern again (repeat the pattern)
+        $effectiveIndex = $currentIndex % $totalPatternSlots;
+        
+        \Log::info("📍 Pattern position", [
+            'current_index' => $currentIndex,
+            'effective_index' => $effectiveIndex,
+            'total_slots' => $totalPatternSlots,
+            'is_cycling' => $currentIndex >= $totalPatternSlots
+        ]);
+        
+        // ✅ Determine which week we're in based on EFFECTIVE index
+        $week1PatternCount = count($pattern['week1']);
+        
+        if ($effectiveIndex < $week1PatternCount) {
+            // We're in week 1
+            $targetDayOfWeek = $pattern['week1'][$effectiveIndex];
+            $availableDates = $week1Dates;
+            $weekName = 'Week 1';
+        } else {
+            // We're in week 2
+            $week2Index = $effectiveIndex - $week1PatternCount;
+            $targetDayOfWeek = $pattern['week2'][$week2Index];
+            $availableDates = $week2Dates;
+            $weekName = 'Week 2';
+        }
+        
+        \Log::info("🎯 Searching for target day", [
+            'week' => $weekName,
+            'target_day_of_week' => $this->getDayName($targetDayOfWeek),
+            'effective_index' => $effectiveIndex
+        ]);
+        
+        // ✅ Find the date matching the target day of week
+        foreach ($availableDates as $candidateDate) {
+            $candidateCarbon = Carbon::parse($candidateDate);
+            $candidateDayOfWeek = $candidateCarbon->dayOfWeekIso - 1; // Convert to 0=Mon
             
-            if (!isset($classScheduleTracking[$classId])) {
-                continue; // Skip if not tracked
-            }
-            
-            $tracking = $classScheduleTracking[$classId];
-            
-            // ✅ CRITICAL CHECK 1: This class already has an exam on this date?
-            if (in_array($candidateDate, $tracking['scheduled_dates'])) {
-                \Log::debug("  ⛔ Class {$classId} ({$section['class_name']}) already has exam on {$candidateDate}");
-                $validForAllClasses = false;
-                break;
-            }
-            
-            // ✅ CHECK POLICY 1: Heavy load (7+ units) - spread across 2 weeks
-            if ($tracking['policy'] === 'SPREAD_TWO_WEEKS') {
-                // Week 1 quota full?
-                if ($isWeek1 && $tracking['week1_scheduled'] >= $tracking['week1_max']) {
-                    \Log::debug("  ⛔ Class {$classId} week 1 quota full ({$tracking['week1_scheduled']}/{$tracking['week1_max']})");
-                    $validForAllClasses = false;
-                    break;
-                }
-            }
-            
-            // ✅ CHECK POLICY 2: Light load (≤6 units) - minimum gap between exams
-            if ($tracking['policy'] === 'MINIMUM_GAP' && $tracking['last_exam_date']) {
-                $lastExamCarbon = Carbon::parse($tracking['last_exam_date']);
+            // Check if this date matches our target day and isn't already used
+            if ($candidateDayOfWeek === $targetDayOfWeek && 
+                !in_array($candidateDate, $tracking['scheduled_dates'])) {
                 
-                // Calculate days between (must be positive and meet minimum)
-                if ($candidateCarbon->lte($lastExamCarbon)) {
-                    \Log::debug("  ⛔ Date {$candidateDate} is not after last exam {$tracking['last_exam_date']}");
-                    $validForAllClasses = false;
-                    break;
-                }
+                \Log::info("✅ Found matching date", [
+                    'date' => $candidateDate,
+                    'day' => $candidateCarbon->format('l')
+                ]);
                 
-                $daysBetween = $lastExamCarbon->diffInDays($candidateCarbon);
-                
-                if ($daysBetween < $tracking['min_gap_days']) {
-                    \Log::debug("  ⛔ Class {$classId} needs {$tracking['min_gap_days']} day gap, only {$daysBetween} days from last exam on {$tracking['last_exam_date']}");
-                    $validForAllClasses = false;
-                    break;
-                }
+                return $candidateDate;
             }
         }
         
-        if ($validForAllClasses) {
-            \Log::info("  ✅ Selected date: {$candidateDate}", [
-                'is_week1' => $isWeek1,
-                'classes_affected' => array_map(fn($s) => $s['class_id'], $sections->toArray())
-            ]);
-            return $candidateDate;
+        // ✅ FALLBACK: If pattern slot is already used, find ANY available date
+        \Log::warning("⚠️ Pattern slot occupied, searching for fallback date");
+        
+        $allDates = array_merge($week1Dates, $week2Dates);
+        foreach ($allDates as $candidateDate) {
+            if (!in_array($candidateDate, $tracking['scheduled_dates'])) {
+                \Log::info("✅ Found fallback date", [
+                    'date' => $candidateDate,
+                    'note' => 'Using next available date outside pattern'
+                ]);
+                return $candidateDate;
+            }
         }
+        
+        \Log::error("❌ No dates available at all", [
+            'class' => $section['class_name'],
+            'scheduled_dates' => $tracking['scheduled_dates']
+        ]);
     }
     
-    \Log::warning('❌ No suitable date found respecting all policies', [
-        'sections' => $sections->map(fn($s) => [
-            'class' => $s['class_name'],
-            'unit' => $s['unit_code']
-        ])->toArray()
-    ]);
-    
-    return null; // No suitable date found
+    return null;
 }
+/**
+ * ✅ NEW: Helper to convert day number to name
+ */
+private function getDayName($dayOfWeek)
+{
+    $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    return $days[$dayOfWeek] ?? 'Unknown';
+}
+
 
 /**
      * Update venue capacity usage (3D tracking: venue -> date -> time_slot)
