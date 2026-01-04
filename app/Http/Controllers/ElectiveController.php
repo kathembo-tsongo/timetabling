@@ -501,4 +501,89 @@ class ElectiveController extends Controller
             ], 500);
         }
     } 
+    public function getAvailableForScheduling(Request $request)
+    {
+        try {
+            $semesterId = $request->get('semester_id');
+            $programId = $request->get('program_id');
+
+            if (!$semesterId || !$programId) {
+                return response()->json([
+                    'error' => 'semester_id and program_id are required'
+                ], 400);
+            }
+
+            // Get all elective enrollments grouped by unit and section
+            $electiveSections = DB::table('enrollments')
+                ->join('units', 'enrollments.unit_id', '=', 'units.id')
+                ->leftJoin('classes', 'enrollments.group_id', '=', 'classes.id')
+                ->where('units.program_id', $programId)
+                ->where('enrollments.semester_id', $semesterId)
+                ->where('enrollments.status', 'enrolled')
+                ->select(
+                    'units.id',
+                    'units.code',
+                    'units.name',
+                    'units.credit_hours',
+                    'enrollments.group_id as class_id',
+                    'classes.name as class_name',
+                    'classes.section as class_section',
+                    'enrollments.lecturer_code',
+                    DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
+                )
+                ->groupBy(
+                    'units.id',
+                    'units.code',
+                    'units.name',
+                    'units.credit_hours',
+                    'enrollments.group_id',
+                    'classes.name',
+                    'classes.section',
+                    'enrollments.lecturer_code'
+                )
+                ->having('student_count', '>', 0)
+                ->orderBy('units.code')
+                ->get();
+
+            // Format the response
+            $formatted = $electiveSections->map(function($section) {
+                $lecturerName = 'Not Assigned';
+                if ($section->lecturer_code) {
+                    $lecturer = DB::table('users')
+                        ->where('code', $section->lecturer_code)
+                        ->first();
+                    
+                    if ($lecturer) {
+                        $lecturerName = trim(($lecturer->first_name ?? '') . ' ' . ($lecturer->last_name ?? ''));
+                    }
+                }
+
+                return [
+                    'id' => $section->id,
+                    'code' => $section->code,
+                    'name' => $section->name,
+                    'credit_hours' => $section->credit_hours ?? 4,
+                    'class_id' => $section->class_id,
+                    'class_name' => $section->class_name ?? 'Elective Group',
+                    'class_section' => $section->class_section ?? 'N/A',
+                    'class_code' => $section->class_name ? str_replace(' ', '-', $section->class_name) : 'ELECTIVE',
+                    'student_count' => (int)$section->student_count,
+                    'lecturer_name' => $lecturerName,
+                    'lecturer_code' => $section->lecturer_code ?? ''
+                ];
+            });
+
+            return response()->json($formatted);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching electives for scheduling', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to fetch elective sections'
+            ], 500);
+        }
+    }
 }

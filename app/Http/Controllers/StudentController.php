@@ -452,29 +452,15 @@ class StudentController extends Controller
 
             $allEnrollments = Enrollment::where('student_code', $user->code)->get();
             
-            Log::info('Total enrollments found', [
-                'student_code' => $user->code,
-                'total_enrollments' => $allEnrollments->count(),
-                'unique_semesters' => $allEnrollments->pluck('semester_id')->unique()->toArray()
-            ]);
-            
             $selectedSemesterId = $request->input('semester_id');
             
             if ($selectedSemesterId) {
                 $currentSemester = Semester::find($selectedSemesterId);
-                Log::info('Using selected semester', ['semester_id' => $selectedSemesterId]);
             } else if ($allEnrollments->isNotEmpty()) {
                 $latestSemesterId = $allEnrollments->sortByDesc('created_at')->first()->semester_id;
                 $currentSemester = Semester::find($latestSemesterId);
-                Log::info('Using latest enrollment semester', [
-                    'semester_id' => $latestSemesterId,
-                    'semester_name' => $currentSemester->name ?? 'Unknown'
-                ]);
             } else {
                 $currentSemester = Semester::where('is_active', true)->latest('id')->first();
-                Log::info('Using active semester (no enrollments)', [
-                    'semester_id' => $currentSemester->id ?? null
-                ]);
             }
 
             $enrolledUnits = collect();
@@ -493,17 +479,32 @@ class StudentController extends Controller
                     'enrollments_count' => $enrolledUnits->count()
                 ]);
 
+                // ✅ NEW: Get student's class IDs for filtering
+                $studentClassIds = $enrolledUnits->pluck('class_id')->filter()->unique()->toArray();
+                
+                Log::info('Student class IDs', [
+                    'class_ids' => $studentClassIds,
+                    'count' => count($studentClassIds)
+                ]);
+
+                // ✅ NEW: Create a map of unit_id => class_id from enrollments
+                $unitClassMap = [];
+                foreach ($enrolledUnits as $enrollment) {
+                    $unitClassMap[$enrollment->unit_id] = $enrollment->class_id;
+                }
+
                 $enrolledUnitIds = $enrolledUnits->pluck('unit_id')->filter()->unique()->toArray();
 
                 Log::info('Processing unit IDs for exams', [
                     'enrolled_unit_ids' => $enrolledUnitIds,
-                    'count' => count($enrolledUnitIds)
+                    'count' => count($enrolledUnitIds),
+                    'unit_class_map' => $unitClassMap
                 ]);
 
                 if (!empty($enrolledUnitIds)) {
                     try {
-                        // ✅ FIXED: Changed 'exam_timetable' to 'exam_timetables' throughout
-                        $examQuery = DB::table('exam_timetables')
+                        // ✅ FIXED: Fetch ALL exams, then filter by matching class
+                        $allExamRecords = DB::table('exam_timetables')
                             ->join('units', 'exam_timetables.unit_id', '=', 'units.id')
                             ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
                             ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
@@ -522,6 +523,7 @@ class StudentController extends Controller
                                 'exam_timetables.location',
                                 'exam_timetables.no',
                                 'exam_timetables.chief_invigilator',
+                                'exam_timetables.group_name', // ✅ Include group_name for debugging
                                 'units.code as unit_code',
                                 'units.name as unit_name',
                                 'classes.name as class_name',
@@ -529,23 +531,44 @@ class StudentController extends Controller
                                 'semesters.name as semester_name'
                             )
                             ->orderBy('exam_timetables.date')
-                            ->orderBy('exam_timetables.start_time');
+                            ->orderBy('exam_timetables.start_time')
+                            ->get();
 
-                        Log::info('Executing exam query', [
-                            'semester_id' => $currentSemester->id,
-                            'unit_ids' => $enrolledUnitIds
+                        Log::info('Raw exam records fetched', [
+                            'total_records' => $allExamRecords->count(),
+                            'sample' => $allExamRecords->take(3)->map(function($exam) {
+                                return [
+                                    'unit_code' => $exam->unit_code,
+                                    'class_id' => $exam->class_id,
+                                    'class_section' => $exam->class_section,
+                                    'group_name' => $exam->group_name
+                                ];
+                            })->toArray()
                         ]);
 
-                        $allExams = $examQuery->get();
+                        // ✅ Filter to only exams for student's specific class/section
+                        $allExams = $allExamRecords->filter(function($exam) use ($unitClassMap) {
+                            $expectedClassId = $unitClassMap[$exam->unit_id] ?? null;
+                            
+                            if (!$expectedClassId) {
+                                return false; // Student not enrolled in this unit
+                            }
+                            
+                            // Match if class_id matches student's enrollment
+                            return $exam->class_id == $expectedClassId;
+                        })->values();
 
-                        Log::info('Exam query completed', [
-                            'total_exams_found' => $allExams->count(),
-                            'sample_exam' => $allExams->first() ? [
-                                'id' => $allExams->first()->id,
-                                'unit_code' => $allExams->first()->unit_code,
-                                'date' => $allExams->first()->date,
-                                'venue' => $allExams->first()->venue
-                            ] : null
+                        Log::info('Exams after filtering by student class', [
+                            'before_filter' => $allExamRecords->count(),
+                            'after_filter' => $allExams->count(),
+                            'filtered_exams' => $allExams->map(function($exam) {
+                                return [
+                                    'unit' => $exam->unit_code,
+                                    'class' => $exam->class_name,
+                                    'section' => $exam->class_section,
+                                    'date' => $exam->date
+                                ];
+                            })->toArray()
                         ]);
 
                         $today = now()->toDateString();
@@ -573,7 +596,6 @@ class StudentController extends Controller
             $semesters = Semester::where('is_active', true)->orderBy('name')->get();
             $studentSemesterIds = $allEnrollments->pluck('semester_id')->unique()->values()->toArray();
 
-            // ✅ Format enrolled units to match React component expectations
             $formattedEnrolledUnits = $enrolledUnits->map(function($enrollment) {
                 $unit = $enrollment->unit;
                 $class = $enrollment->class;
