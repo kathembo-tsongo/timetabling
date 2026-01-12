@@ -272,20 +272,58 @@
             font-weight: 500;
         }
 
-        td:nth-child(6) { /* Semester */
+        td:nth-child(6) { /* Group */
+            text-align: center;
+            font-weight: bold;
+            color: #7b1fa2;
+            font-size: 10px;
+            background: #f3e5f5;
+        }
+
+        td:nth-child(7) { /* Students */
+            text-align: center;
+            font-weight: bold;
+            color: #1976d2;
+            font-size: 10px;
+        }
+
+        td:nth-child(8) { /* Semester */
             text-align: center;
             font-weight: bold;
             color: #00796b;
         }
 
-        td:nth-child(7) { /* Venue */
+        td:nth-child(9) { /* Venue */
             color: #6a1b9a;
             font-weight: 600;
         }
 
-        td:nth-child(8) { /* Chief Invigilator */
+        td:nth-child(10) { /* Chief Invigilator */
             color: #333;
             font-weight: 500;
+        }
+
+        /* Student count badge */
+        .student-count {
+            display: inline-block;
+            background: #1976d2;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 9px;
+            font-weight: bold;
+        }
+
+        /* Group badge */
+        .group-badge {
+            display: inline-block;
+            background: #7b1fa2;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 1px;
         }
 
         /* Empty state */
@@ -350,8 +388,8 @@
                     @else
                         <!-- SVG Fallback Logo -->
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-                                <circle cx="50" cy="50" r="48" fill="#003366"/>
-                                <text x="50" y="65" text-anchor="middle" font-size="45" fill="#FFD700" font-weight="bold" font-family="Arial">SU</text>
+                            <circle cx="50" cy="50" r="48" fill="#003366"/>
+                            <text x="50" y="65" text-anchor="middle" font-size="45" fill="#FFD700" font-weight="bold" font-family="Arial">SU</text>
                         </svg>
                     @endif                                       
                 </div>
@@ -388,14 +426,14 @@
 
         <!-- Document Title -->
         <div class="document-title">
-            <span class="exam-period">DECEMBER 2025:END OF SEMESTER EXAMINATIONS TIMETABLE</span>                       
+            <span class="exam-period">DECEMBER 2025: END OF SEMESTER EXAMINATIONS TIMETABLE</span>                       
         </div>
 
-        <!-- Header Info
+        <!-- Header Info -->
         <div class="header-info">
             <p>📅 Generated on: {{ $generatedAt }}</p>
             <span class="info-badge">OFFICIAL DOCUMENT</span>
-        </div> -->
+        </div>
 
         <!-- Exam Timetable -->
         <table>
@@ -406,6 +444,8 @@
                     <th>Time</th>
                     <th>Unit Code</th>
                     <th>Unit Name</th>
+                    <th>Group</th>
+                    <th>Students</th>
                     <th>Semester</th>
                     <th>Venue</th>
                     <th>Chief Invigilator</th>
@@ -419,13 +459,19 @@
                     <td>{{ date('H:i', strtotime($exam->start_time)) }} - {{ date('H:i', strtotime($exam->end_time)) }}</td>
                     <td>{{ $exam->unit_code }}</td>
                     <td>{{ $exam->unit_name }}</td>
+                    <td>
+                        <span class="group-badge">{{ $exam->group_name ?? 'N/A' }}</span>
+                    </td>
+                    <td>
+                        <span class="student-count">{{ $exam->no ?? 0 }}</span>
+                    </td>
                     <td>{{ $exam->semester_name }}</td>
                     <td>{{ $exam->venue }} ({{ $exam->location }})</td>
                     <td>{{ $exam->chief_invigilator }}</td>
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="8" class="empty-state">
+                    <td colspan="10" class="empty-state">
                         No exam timetables available
                     </td>
                 </tr>

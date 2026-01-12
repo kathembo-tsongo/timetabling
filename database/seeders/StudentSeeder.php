@@ -25,11 +25,8 @@ class StudentSeeder extends Seeder
            // 'BFS' => 'SBS',
             //'BCOM' => 'SBS',
             //'BTM' => 'STH',
-            'BHM' => 'STH',
-            
-            
-             
-           
+            //'BHM' => 'STH',
+            'BSCM' => 'SBS',
         ];
 
         $this->command->info('Starting student creation...');
@@ -45,7 +42,7 @@ class StudentSeeder extends Seeder
                         'first_name' => 'Student' . $i,
                         'last_name' => $program,
                         'email' => strtolower($program) . $i . '@strathmore.edu',
-                        'phone' => '073501' . str_pad($i, 4, '0', STR_PAD_LEFT),
+                        'phone' => '0730501' . str_pad($i, 4, '0', STR_PAD_LEFT),
                         'code' => strtoupper($program) . str_pad($i, 4, '0', STR_PAD_LEFT),
                         'schools' => $school,
                         'programs' => $program,

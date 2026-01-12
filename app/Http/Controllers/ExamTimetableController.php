@@ -437,9 +437,6 @@ class ExamTimetableController extends Controller
         return $conflicts;
     }
 
-    /**
-     * ✅ CORRECTED: Index with proper joins using group_id
-     */
     public function index(Request $request, Program $program, $schoolCode)
     {
         if ($program->school->code !== $schoolCode) {
@@ -450,29 +447,43 @@ class ExamTimetableController extends Controller
             ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
             ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
             ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
-            ->where('exam_timetables.program_id', $program->id)
-            ->select(
-                'exam_timetables.*',
-                'units.name as unit_name',
-                'units.code as unit_code',
-                'classes.name as class_name',
-                'classes.section as class_section',
-                'exam_timetables.group_name',
-                DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
-                'semesters.name as semester_name'
-            );
+            ->where('exam_timetables.program_id', $program->id);
 
-        // Get lecturer info from enrollments using group_id
-        $examTimetables = $query->orderBy('exam_timetables.date')
-            ->orderBy('exam_timetables.start_time')
-            ->orderBy('classes.section')
-            ->paginate($request->get('per_page', 15));
-
-        // ✅ Add lecturer names from enrollments
+        // ✅ CRITICAL: Select ALL columns explicitly to avoid pagination issues
+        $examTimetables = $query->select(
+            'exam_timetables.id',
+            'exam_timetables.semester_id',
+            'exam_timetables.class_id',
+            'exam_timetables.group_name',  // ✅ Section column
+            'exam_timetables.unit_id',
+            'exam_timetables.day',
+            'exam_timetables.date',
+            'exam_timetables.start_time',
+            'exam_timetables.end_time',
+            'exam_timetables.venue',
+            'exam_timetables.location',
+            'exam_timetables.no',  // ✅ Student count
+            'exam_timetables.chief_invigilator',
+            'exam_timetables.program_id',
+            'exam_timetables.school_id',
+            'exam_timetables.created_at',
+            'exam_timetables.updated_at',
+            // Joined columns
+            'units.name as unit_name',
+            'units.code as unit_code',
+            'classes.name as class_name',
+            'classes.section as class_section',  // ✅ Class section
+            DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+            'semesters.name as semester_name'
+        )
+        ->orderBy('exam_timetables.date')
+        ->orderBy('exam_timetables.start_time')
+        ->paginate($request->get('per_page', 15));
+        // Add lecturer names
         foreach ($examTimetables as $exam) {
             $lecturerCode = DB::table('enrollments')
                 ->where('unit_id', $exam->unit_id)
-                ->where('group_id', $exam->class_id) // ✅ group_id = class_id
+                ->where('group_id', $exam->class_id)
                 ->where('semester_id', $exam->semester_id)
                 ->value('lecturer_code');
                 
@@ -482,20 +493,37 @@ class ExamTimetableController extends Controller
             }
         }
 
-        return inertia('ExamTimetable/Index', [
-            'examTimetables' => $examTimetables,
-            'program' => $program,
-            'semesters' => Semester::all(),
-            'schoolCode' => $schoolCode,
-            'filters' => $request->only(['search', 'semester_id', 'per_page']),
-            'can' => [
-                'create' => auth()->user()->can('create-exam-timetables'),
-                'edit' => auth()->user()->can('edit-exam-timetables'),
-                'delete' => auth()->user()->can('delete-exam-timetables'),
-            ],
-        ]);
-    }
 
+            \Log::info('Data being sent to frontend:', [
+        'first_exam_full' => $examTimetables->first() ? $examTimetables->first()->toArray() : null,
+        'pagination_type' => get_class($examTimetables),
+    ]);
+
+    return inertia('ExamTimetable/Index', [
+        'examTimetables' => [
+            'data' => $examTimetables->items(),
+            'links' => $examTimetables->linkCollection(),
+            'meta' => [
+                'current_page' => $examTimetables->currentPage(),
+                'from' => $examTimetables->firstItem(),
+                'last_page' => $examTimetables->lastPage(),
+                'per_page' => $examTimetables->perPage(),
+                'to' => $examTimetables->lastItem(),
+                'total' => $examTimetables->total(),
+            ]
+        ],
+        'program' => $program,
+        'semesters' => Semester::all(),
+        'schoolCode' => $schoolCode,
+        'classrooms' => Examroom::where('is_active', true)->orderBy('name')->get(),
+        'filters' => $request->only(['search', 'semester_id', 'per_page']),
+        'can' => [
+            'create' => auth()->user()->can('create-exam-timetables'),
+            'edit' => auth()->user()->can('edit-exam-timetables'),
+            'delete' => auth()->user()->can('delete-exam-timetables'),
+        ],
+    ]);
+    }
 
     /**
      * Build hierarchical data structure
@@ -1209,39 +1237,28 @@ public function destroy($id)
                 $selectedSemesterId = $semesters->first()->id ?? null;
             }
 
-            $query = ExamTimetable::query()
-        ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
-        ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
-        ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
-        ->where('units.program_id', $program->id)
-        ->select(
-            'exam_timetables.id',
-            'exam_timetables.date',
-            'exam_timetables.day',
-            'exam_timetables.start_time',
-            'exam_timetables.end_time',
-            'exam_timetables.venue',
-            'exam_timetables.location',
-            'exam_timetables.no',
-            'exam_timetables.chief_invigilator',
-            'exam_timetables.unit_id',
-            'exam_timetables.semester_id',
-            'exam_timetables.class_id',
-            'units.name as unit_name',
-            'units.code as unit_code',
-            'classes.name as class_name',
-            'classes.section as class_section', // ✅ ADD THIS LINE
-            DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
-            'semesters.name as semester_name'
-        )         
-                        ->orderBy('exam_timetables.date')
-                        ->orderBy('exam_timetables.start_time');
+           $query = ExamTimetable::query()
+    ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+    ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+    ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+    ->where('exam_timetables.program_id', $program->id)
+    ->select([
+        'exam_timetables.*',
+        'units.name as unit_name',
+        'units.code as unit_code',
+        'classes.name as class_name',
+        'classes.section as class_section',  // ✅ This is the one we need!
+        DB::raw('COALESCE(classes.section, exam_timetables.group_name) as section_display'),  // ✅ Fallback logic
+        DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+        'semesters.name as semester_name'
+    ])
+    ->orderBy('exam_timetables.date')
+    ->orderBy('exam_timetables.start_time');
+         if ($selectedSemesterId) {
+                $query->where('exam_timetables.semester_id', $selectedSemesterId);
+        }
 
-                        if ($selectedSemesterId) {
-                            $query->where('exam_timetables.semester_id', $selectedSemesterId);
-                        }
-
-                        $examTimetables = $query->get();
+                $examTimetables = $query->get();
 
             return Inertia::render('Student/ExamTimetable', [
                 'examTimetables' => $examTimetables,
@@ -1297,78 +1314,88 @@ public function destroy($id)
      * Display exam timetables for a specific program
      */
     public function programExamTimetables(Program $program, Request $request, $schoolCode)
-    {
-        if ($program->school->code !== $schoolCode) {
-            abort(404, 'Program not found in this school.');
-        }
-
-        $perPage = $request->per_page ?? 15;
-        $search = $request->search ?? '';
-        $semesterId = $request->semester_id;
-        
-        $query = ExamTimetable::query()
-            ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
-            ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
-            ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
-            ->where('units.program_id', $program->id)
-            ->select(
-                'exam_timetables.id',
-                'exam_timetables.date',
-                'exam_timetables.day',
-                'exam_timetables.start_time',
-                'exam_timetables.end_time',
-                'exam_timetables.venue',
-                'exam_timetables.location',
-                'exam_timetables.no',
-                'exam_timetables.chief_invigilator',
-                'exam_timetables.unit_id',
-                'exam_timetables.semester_id',
-                'exam_timetables.class_id',
-                'units.name as unit_name',
-                'units.code as unit_code',
-                'classes.name as class_name',
-                // Generate class_code from name field since 'code' column doesn't exist
-                    DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
-                'semesters.name as semester_name'
-            )
-            ->when($search, function($q) use ($search) {
-                $q->where('exam_timetables.day', 'like', "%{$search}%")
-                  ->orWhere('exam_timetables.date', 'like', "%{$search}%")
-                  ->orWhere('units.code', 'like', "%{$search}%")
-                  ->orWhere('units.name', 'like', "%{$search}%");
-            })
-            ->when($semesterId, function($q) use ($semesterId) {
-                $q->where('exam_timetables.semester_id', $semesterId);
-            })
-            ->orderBy('exam_timetables.date')
-            ->orderBy('exam_timetables.start_time');
-        
-        $examTimetables = $query->paginate($perPage)->withQueryString();
-        
-        $semesters = Semester::all();
-        
-        return Inertia::render('Schools/' . strtoupper($schoolCode) . '/Programs/ExamTimetables/Index', [
-            'examTimetables' => $examTimetables,
-            'program' => $program->load('school'),
-            'semesters' => $semesters,
-            'schoolCode' => strtoupper($schoolCode),
-            'filters' => [
-                'search' => $search,
-                'semester_id' => $semesterId ? (int) $semesterId : null,
-                'per_page' => (int) $perPage,
-            ],
-            'can' => [
-                'create' => auth()->user()->can('create-exam-timetables'),
-                'edit' => auth()->user()->can('edit-exam-timetables'),
-                'delete' => auth()->user()->can('delete-exam-timetables'),
-            ],
-            'flash' => [
-                'success' => session('success'),
-                'error' => session('error'),
-            ],
-        ]);
+{
+    if ($program->school->code !== $schoolCode) {
+        abort(404, 'Program not found in this school.');
     }
 
+    $perPage = $request->per_page ?? 15;
+    $search = $request->search ?? '';
+    $semesterId = $request->semester_id;
+
+    $query = ExamTimetable::query()
+        ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+        ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+        ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+        ->where('units.program_id', $program->id)
+        ->select(
+            'exam_timetables.id',
+            'exam_timetables.date',
+            'exam_timetables.day',
+            'exam_timetables.start_time',
+            'exam_timetables.end_time',
+            'exam_timetables.venue',
+            'exam_timetables.location',
+            'exam_timetables.no',
+            'exam_timetables.chief_invigilator',
+            'exam_timetables.unit_id',
+            'exam_timetables.semester_id',
+            'exam_timetables.class_id',
+            'exam_timetables.program_id',
+            'exam_timetables.school_id',
+            'exam_timetables.created_at',
+            'exam_timetables.updated_at',
+            
+            // ✅ ADD THESE TWO LINES - THIS IS THE FIX!
+            'exam_timetables.group_name',  // Section from exam_timetables table
+            'classes.section as class_section',  // Section from classes table (backup)
+            
+            'units.name as unit_name',
+            'units.code as unit_code',
+            'classes.name as class_name',
+            // Generate class_code from name field since 'code' column doesn't exist
+            DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+            'semesters.name as semester_name'
+        )
+        ->when($search, function($q) use ($search) {
+            $q->where('exam_timetables.day', 'like', "%{$search}%")
+              ->orWhere('exam_timetables.date', 'like', "%{$search}%")
+              ->orWhere('units.code', 'like', "%{$search}%")
+              ->orWhere('units.name', 'like', "%{$search}%")
+              ->orWhere('exam_timetables.venue', 'like', "%{$search}%")
+              ->orWhere('exam_timetables.chief_invigilator', 'like', "%{$search}%");
+        })
+        ->when($semesterId, function($q) use ($semesterId) {
+            $q->where('exam_timetables.semester_id', $semesterId);
+        })
+        ->orderBy('exam_timetables.date')
+        ->orderBy('exam_timetables.start_time');
+
+    $examTimetables = $query->paginate($perPage)->withQueryString();
+    
+    $semesters = Semester::all();
+
+    return Inertia::render('Schools/' . strtoupper($schoolCode) . '/Programs/ExamTimetables/Index', [
+        'examTimetables' => $examTimetables,
+        'program' => $program->load('school'),
+        'semesters' => $semesters,
+        'schoolCode' => strtoupper($schoolCode),
+        'filters' => [
+            'search' => $search,
+            'semester_id' => $semesterId ? (int) $semesterId : null,
+            'per_page' => (int) $perPage,
+        ],
+        'can' => [
+            'create' => auth()->user()->can('create-exam-timetables'),
+            'edit' => auth()->user()->can('edit-exam-timetables'),
+            'delete' => auth()->user()->can('delete-exam-timetables'),
+        ],
+        'flash' => [
+            'success' => session('success'),
+            'error' => session('error'),
+        ],
+    ]);
+}
     /**
      * ✅ FIXED: Store a new exam timetable for a specific program
      */
@@ -1388,9 +1415,10 @@ public function destroy($id)
         'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
         'start_time' => 'required|date_format:H:i',
         'end_time' => 'required|date_format:H:i|after:start_time',
-        'chief_invigilator' => 'required|string|max:255',
-        'venue' => 'nullable|string|max:255',
+        'venue' => 'required|string|exists:examrooms,name',  // ✅ ADD THIS
         'location' => 'nullable|string|max:255',
+        'chief_invigilator' => 'required|string|max:255',
+     
     ]);
 
     try {
@@ -1814,6 +1842,8 @@ public function destroy($id)
 
         return collect(array_values($roomCapacityData))->sortByDesc('available')->toArray();
     }
+
+    
 public function bulkScheduleExams(Request $request, Program $program, $schoolCode)
 {
     try {
@@ -1893,13 +1923,12 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'week2' => array_slice($week2Dates, 0, 5) // Sample
         ]);
 
-        // ✅ STEP 4: Sort selections BY CLASS first, then by unit
-        // This ensures we process all units for one class before moving to the next
+        // ✅ Alternative: Group by class, but don't change unit order within each class
         $sortedSelections = collect($validated['selected_class_units'])
-            ->sortBy([
-                ['class_id', 'asc'],
-                ['unit_id', 'asc']
-            ])
+            ->groupBy('class_id')
+            ->flatMap(function($classUnits) {
+                return $classUnits; // Keep original order within class
+            })
             ->values();
 
         Log::info('📦 Sorted selections by class', [
@@ -2182,7 +2211,7 @@ private function selectOptimalPattern($totalUnits)
 }
 
 /**
- * ✅ ENHANCED: Pattern-based date selection with fallback
+ * ✅ FIXED: Pattern-based date selection with proper week boundary handling
  */
 private function selectDateWithSpacing(
     $sections,
@@ -2205,56 +2234,67 @@ private function selectDateWithSpacing(
         
         $tracking = $classScheduleTracking[$classId];
         $pattern = $tracking['pattern'];
-        $currentIndex = $tracking['pattern_index'];
+        $examsScheduled = $tracking['exams_scheduled'];
         
         \Log::info("📋 Class pattern info", [
             'class' => $section['class_name'],
             'pattern_name' => $pattern['name'],
-            'current_index' => $currentIndex,
-            'exams_scheduled' => $tracking['exams_scheduled'],
-            'total_units' => $tracking['total_units']
+            'exams_scheduled' => $examsScheduled,
+            'total_units' => $tracking['total_units'],
+            'week1_pattern' => array_map([$this, 'getDayName'], $pattern['week1']),
+            'week2_pattern' => array_map([$this, 'getDayName'], $pattern['week2'])
         ]);
         
-        // ✅ CALCULATE total pattern slots available
-        $totalPatternSlots = count($pattern['week1']) + count($pattern['week2']);
+        // ✅ FIX: Determine which week and which slot within that week
+        $week1Count = count($pattern['week1']);
         
-        // ✅ If we've exhausted the pattern but still have exams to schedule,
-        // cycle through the pattern again (repeat the pattern)
-        $effectiveIndex = $currentIndex % $totalPatternSlots;
-        
-        \Log::info("📍 Pattern position", [
-            'current_index' => $currentIndex,
-            'effective_index' => $effectiveIndex,
-            'total_slots' => $totalPatternSlots,
-            'is_cycling' => $currentIndex >= $totalPatternSlots
-        ]);
-        
-        // ✅ Determine which week we're in based on EFFECTIVE index
-        $week1PatternCount = count($pattern['week1']);
-        
-        if ($effectiveIndex < $week1PatternCount) {
-            // We're in week 1
-            $targetDayOfWeek = $pattern['week1'][$effectiveIndex];
-            $availableDates = $week1Dates;
+        if ($examsScheduled < $week1Count) {
+            // We're still in Week 1
+            $weekPattern = $pattern['week1'];
+            $patternIndex = $examsScheduled; // Direct index into week1 array
+            $targetDayOfWeek = $weekPattern[$patternIndex];
+            $searchDates = $week1Dates;
             $weekName = 'Week 1';
         } else {
-            // We're in week 2
-            $week2Index = $effectiveIndex - $week1PatternCount;
-            $targetDayOfWeek = $pattern['week2'][$week2Index];
-            $availableDates = $week2Dates;
+            // We're in Week 2
+            $week2Index = $examsScheduled - $week1Count;
+            $weekPattern = $pattern['week2'];
+            
+            // ✅ CRITICAL: Handle pattern cycling if we have more exams than pattern slots
+            if ($week2Index >= count($weekPattern)) {
+                // We've exhausted the pattern, cycle back to week 1
+                $cycleCount = floor($week2Index / count($weekPattern));
+                $week2Index = $week2Index % count($weekPattern);
+                \Log::info("🔄 Pattern cycling", [
+                    'cycle_count' => $cycleCount + 1,
+                    'week2_index' => $week2Index
+                ]);
+            }
+            
+            $patternIndex = $week2Index;
+            $targetDayOfWeek = $weekPattern[$patternIndex];
+            $searchDates = $week2Dates;
             $weekName = 'Week 2';
         }
         
         \Log::info("🎯 Searching for target day", [
             'week' => $weekName,
+            'pattern_index' => $patternIndex,
             'target_day_of_week' => $this->getDayName($targetDayOfWeek),
-            'effective_index' => $effectiveIndex
+            'exams_already_scheduled' => $examsScheduled
         ]);
         
-        // ✅ Find the date matching the target day of week
-        foreach ($availableDates as $candidateDate) {
+        // ✅ FIX: Find the FIRST occurrence of target day in the appropriate week that hasn't been used
+        foreach ($searchDates as $candidateDate) {
             $candidateCarbon = Carbon::parse($candidateDate);
             $candidateDayOfWeek = $candidateCarbon->dayOfWeekIso - 1; // Convert to 0=Mon
+            
+            \Log::debug("  Checking date: {$candidateDate} ({$candidateCarbon->format('l')})", [
+                'candidate_dow' => $candidateDayOfWeek,
+                'target_dow' => $targetDayOfWeek,
+                'matches' => $candidateDayOfWeek === $targetDayOfWeek ? 'YES' : 'NO',
+                'already_used' => in_array($candidateDate, $tracking['scheduled_dates']) ? 'YES' : 'NO'
+            ]);
             
             // Check if this date matches our target day and isn't already used
             if ($candidateDayOfWeek === $targetDayOfWeek && 
@@ -2262,22 +2302,36 @@ private function selectDateWithSpacing(
                 
                 \Log::info("✅ Found matching date", [
                     'date' => $candidateDate,
-                    'day' => $candidateCarbon->format('l')
+                    'day' => $candidateCarbon->format('l'),
+                    'week' => $weekName,
+                    'pattern_slot' => $patternIndex
                 ]);
                 
                 return $candidateDate;
             }
         }
         
-        // ✅ FALLBACK: If pattern slot is already used, find ANY available date
-        \Log::warning("⚠️ Pattern slot occupied, searching for fallback date");
+        // ✅ FALLBACK: If pattern slot is already used or not found, find ANY available date
+        \Log::warning("⚠️ Pattern slot occupied or not found, searching for fallback date");
         
-        $allDates = array_merge($week1Dates, $week2Dates);
-        foreach ($allDates as $candidateDate) {
+        // Try current week first
+        foreach ($searchDates as $candidateDate) {
             if (!in_array($candidateDate, $tracking['scheduled_dates'])) {
-                \Log::info("✅ Found fallback date", [
+                \Log::info("✅ Found fallback date in {$weekName}", [
                     'date' => $candidateDate,
-                    'note' => 'Using next available date outside pattern'
+                    'note' => 'Using next available date in current week'
+                ]);
+                return $candidateDate;
+            }
+        }
+        
+        // Try opposite week as last resort
+        $oppositeDates = ($weekName === 'Week 1') ? $week2Dates : $week1Dates;
+        foreach ($oppositeDates as $candidateDate) {
+            if (!in_array($candidateDate, $tracking['scheduled_dates'])) {
+                \Log::info("✅ Found fallback date in opposite week", [
+                    'date' => $candidateDate,
+                    'note' => 'Using next available date from opposite week'
                 ]);
                 return $candidateDate;
             }
@@ -2462,6 +2516,7 @@ private function getDayName($dayOfWeek)
 
 public function downloadPDF(Request $request)
 {
+   
     try {
         if (!view()->exists('examtimetables.pdf')) {
             \Log::error('PDF template not found: examtimetables.pdf');
@@ -2477,7 +2532,9 @@ public function downloadPDF(Request $request)
                 'units.name as unit_name',
                 'units.code as unit_code',
                 'semesters.name as semester_name',
-                'classes.name as class_name'
+                'classes.name as class_name',
+                'exam_timetables.group_name',  // ✅ ADD THIS
+                'exam_timetables.no'            // ✅ ADD THIS
             );
 
         if ($request->has('semester_id')) {
