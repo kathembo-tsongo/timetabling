@@ -161,16 +161,6 @@
             border-radius: 3px;
         }
 
-        .document-title .status {
-            background: white;
-            color: #000;
-            padding: 3px 10px;
-            display: inline-block;
-            margin: 0 5px;
-            border-radius: 3px;
-            font-weight: bold;
-        }
-
         /* Header Info Box */
         .header-info {
             background: linear-gradient(to right, #f8f9fa, #fff);
@@ -272,7 +262,13 @@
             font-weight: 500;
         }
 
-        td:nth-child(6) { /* Group */
+        td:nth-child(6) { /* Class & Section - UPDATED */
+            text-align: center;
+            color: #333;
+            font-weight: 600;
+        }
+
+        td:nth-child(7) { /* Group - UPDATED */
             text-align: center;
             font-weight: bold;
             color: #7b1fa2;
@@ -280,25 +276,25 @@
             background: #f3e5f5;
         }
 
-        td:nth-child(7) { /* Students */
+        td:nth-child(8) { /* Students */
             text-align: center;
             font-weight: bold;
             color: #1976d2;
             font-size: 10px;
         }
 
-        td:nth-child(8) { /* Semester */
+        td:nth-child(9) { /* Semester */
             text-align: center;
             font-weight: bold;
             color: #00796b;
         }
 
-        td:nth-child(9) { /* Venue */
+        td:nth-child(10) { /* Venue */
             color: #6a1b9a;
             font-weight: 600;
         }
 
-        td:nth-child(10) { /* Chief Invigilator */
+        td:nth-child(11) { /* Chief Invigilator */
             color: #333;
             font-weight: 500;
         }
@@ -324,6 +320,12 @@
             font-size: 10px;
             font-weight: bold;
             letter-spacing: 1px;
+        }
+
+        /* Class name style */
+        .class-name {
+            font-weight: 600;
+            color: #1565c0;
         }
 
         /* Empty state */
@@ -435,7 +437,7 @@
             <span class="info-badge">OFFICIAL DOCUMENT</span>
         </div>
 
-        <!-- Exam Timetable -->
+        <!-- Exam Timetable Table -->
         <table>
             <thead>
                 <tr>
@@ -444,7 +446,8 @@
                     <th>Time</th>
                     <th>Unit Code</th>
                     <th>Unit Name</th>
-                    <th>Group</th>
+                    <th>Class</th>
+                    <th>Section</th>
                     <th>Students</th>
                     <th>Semester</th>
                     <th>Venue</th>
@@ -454,24 +457,55 @@
             <tbody>
                 @forelse($examTimetables as $exam)
                 <tr>
-                    <td>{{ date('Y-m-d', strtotime($exam->date)) }}</td>
+                    {{-- Date --}}
+                    <td>{{ \Carbon\Carbon::parse($exam->date)->format('Y-m-d') }}</td>
+                    
+                    {{-- Day --}}
                     <td>{{ $exam->day }}</td>
-                    <td>{{ date('H:i', strtotime($exam->start_time)) }} - {{ date('H:i', strtotime($exam->end_time)) }}</td>
-                    <td>{{ $exam->unit_code }}</td>
-                    <td>{{ $exam->unit_name }}</td>
+                    
+                    {{-- Time --}}
+                    <td>{{ \Carbon\Carbon::parse($exam->start_time)->format('H:i') }} - {{ \Carbon\Carbon::parse($exam->end_time)->format('H:i') }}</td>
+                    
+                    {{-- Unit Code --}}
+                    <td>{{ $exam->unit_code ?? 'N/A' }}</td>
+                    
+                    {{-- Unit Name --}}
+                    <td>{{ $exam->unit_name ?? 'N/A' }}</td>
+                    
+                    {{-- Class Name --}}
                     <td>
-                        <span class="group-badge">{{ $exam->group_name ?? 'N/A' }}</span>
+                        <span class="class-name">{{ $exam->class_name ?? 'N/A' }}</span>
                     </td>
+                    
+                    {{-- Section (group_name) - FIXED --}}
+                    <td>
+                        <span class="group-badge">
+                            {{ $exam->group_name ?? $exam->class_section ?? 'N/A' }}
+                        </span>
+                    </td>
+                    
+                    {{-- Students Count --}}
                     <td>
                         <span class="student-count">{{ $exam->no ?? 0 }}</span>
                     </td>
-                    <td>{{ $exam->semester_name }}</td>
-                    <td>{{ $exam->venue }} ({{ $exam->location }})</td>
-                    <td>{{ $exam->chief_invigilator }}</td>
+                    
+                    {{-- Semester --}}
+                    <td>{{ $exam->semester_name ?? 'N/A' }}</td>
+                    
+                    {{-- Venue & Location --}}
+                    <td>
+                        {{ $exam->venue ?? 'N/A' }}
+                        @if($exam->location)
+                            <br><small>({{ $exam->location }})</small>
+                        @endif
+                    </td>
+                    
+                    {{-- Chief Invigilator --}}
+                    <td>{{ $exam->chief_invigilator ?? 'No lecturer assigned' }}</td>
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="10" class="empty-state">
+                    <td colspan="11" class="empty-state">
                         No exam timetables available
                     </td>
                 </tr>

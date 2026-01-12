@@ -2683,58 +2683,72 @@ public function downloadStudentTimetable(Request $request)
         return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
     }
 }
-
 public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
 {
-    if ($program->school->code !== $schoolCode) {
-        abort(404, 'Program not found in this school.');
+    // ✅ CRITICAL: Select ALL columns needed for PDF
+    $examTimetables = ExamTimetable::query()
+        ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+        ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+        ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+        ->where('units.program_id', $program->id)
+        ->select(
+            // ✅ Exam timetable core fields
+            'exam_timetables.id',
+            'exam_timetables.date',
+            'exam_timetables.day',
+            'exam_timetables.start_time',
+            'exam_timetables.end_time',
+            'exam_timetables.venue',
+            'exam_timetables.location',
+            'exam_timetables.no',                    // ✅ Student count
+            'exam_timetables.chief_invigilator',
+            
+            // ✅ CRITICAL: Section data
+            'exam_timetables.group_name',            // ✅ Section from exam_timetables
+            'classes.section as class_section',      // ✅ Section from classes (backup)
+            
+            // ✅ Other joined data
+            'units.name as unit_name',
+            'units.code as unit_code',
+            'classes.name as class_name',
+            DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+            'semesters.name as semester_name'
+        )
+        ->orderBy('exam_timetables.date')
+        ->orderBy('exam_timetables.start_time')
+        ->get();
+
+    // ✅ DEBUG: Log data being sent to PDF
+    \Log::info('PDF Generation Data Check:', [
+        'total_exams' => $examTimetables->count(),
+        'first_exam' => $examTimetables->first() ? [
+            'id' => $examTimetables->first()->id,
+            'unit_code' => $examTimetables->first()->unit_code,
+            'class_name' => $examTimetables->first()->class_name,
+            'group_name' => $examTimetables->first()->group_name,
+            'class_section' => $examTimetables->first()->class_section,
+            'no' => $examTimetables->first()->no,
+        ] : 'No exams'
+    ]);
+
+    // ✅ Convert logo to base64
+    $logoPath = public_path('images/strathmore.png');
+    $logoBase64 = '';
+    if (file_exists($logoPath)) {
+        $logoData = base64_encode(file_get_contents($logoPath));
+        $logoBase64 = 'data:image/png;base64,' . $logoData;
     }
 
-    try {
-        $query = ExamTimetable::query()
-            ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
-            ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
-            ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
-            ->where('units.program_id', $program->id)
-            ->select(
-                'exam_timetables.*',
-                'units.name as unit_name',
-                'units.code as unit_code',
-                'semesters.name as semester_name',
-                'classes.name as class_name'
-            );
+    $pdf = PDF::loadView('examtimetable.pdf', [
+        'examTimetables' => $examTimetables,
+        'title' => $program->name . ' - Exam Timetable',
+        'generatedAt' => now()->format('F d, Y H:i:s'),
+        'logoBase64' => $logoBase64,
+    ]);
 
-        $examTimetables = $query->orderBy('exam_timetables.date')
-            ->orderBy('exam_timetables.start_time')
-            ->get();
+    $pdf->setPaper('a4', 'landscape'); // ✅ Landscape for more columns
 
-        if (!view()->exists('examtimetables.pdf')) {
-            return redirect()->back()->with('error', 'PDF template not found. Please contact the administrator.');
-        }
-
-        // ✅ Convert logo to base64
-        $logoPath = public_path('images/strathmore.png');
-        $logoBase64 = '';
-        if (file_exists($logoPath)) {
-            $logoData = base64_encode(file_get_contents($logoPath));
-            $logoBase64 = 'data:image/png;base64,' . $logoData;
-        }
-
-        $pdf = Pdf::loadView('examtimetables.pdf', [
-            'examTimetables' => $examTimetables,
-            'title' => $program->name . ' - Exam Timetable',
-            'program' => $program,
-            'generatedAt' => now()->format('Y-m-d H:i:s'),
-            'logoBase64' => $logoBase64,
-        ]);
-
-        $pdf->setPaper('a4', 'landscape');
-
-        return $pdf->download($program->code . '-exam-timetable.pdf');
-    } catch (\Exception $e) {
-        Log::error('Failed to generate program exam timetable PDF: ' . $e->getMessage());
-        return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
-    }
+    return $pdf->download('exam-timetable-' . $program->code . '-' . now()->format('Y-m-d') . '.pdf');
 }
 
 public function downloadStudentExamTimetablePDF(Request $request)
@@ -2815,70 +2829,58 @@ public function downloadStudentExamTimetablePDF(Request $request)
     }
 }
 
+// donwload PDF by the Exam office from his Dashboard
 public function downloadAllPDF()
 {
-    $user = auth()->user();
-
-    // Allow Exam Office, School Admins, Lecturers, and Students to download
-    $allowedRoles = ['Exam Office', 'Lecturer', 'Student'];
-    $hasAllowedRole = false;
+    \Log::info('=== downloadAllPDF called ===');
     
-    foreach ($user->roles as $role) {
-        if (in_array($role->name, $allowedRoles) || str_starts_with($role->name, 'Faculty Admin - ')) {
-            $hasAllowedRole = true;
-            break;
-        }
-    }
-    
-    // Also check for view-exam-timetables permission (for Exam Office)
-    if (!$hasAllowedRole && !$user->can('view-exam-timetables')) {
-        abort(403, 'Unauthorized action.');
-    }
-
-    // Get all exam timetables with relationships
-    $examTimetables = ExamTimetable::with(['unit', 'class', 'semester'])
-        ->orderBy('date', 'asc')
-        ->orderBy('start_time', 'asc')
+    // ✅ FIXED QUERY - Add group_name and no columns
+    $examTimetables = ExamTimetable::query()
+        ->leftJoin('units', 'exam_timetables.unit_id', '=', 'units.id')
+        ->leftJoin('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+        ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id')
+        ->select(
+            'exam_timetables.id',
+            'exam_timetables.date',
+            'exam_timetables.day',
+            'exam_timetables.start_time',
+            'exam_timetables.end_time',
+            'exam_timetables.venue',
+            'exam_timetables.location',
+            'exam_timetables.no',                    // ✅ ADD THIS - Student count
+            'exam_timetables.chief_invigilator',
+            'exam_timetables.group_name',            // ✅ ADD THIS - Section name
+            'classes.section as class_section',      // ✅ Backup from classes table
+            'units.name as unit_name',
+            'units.code as unit_code',
+            'classes.name as class_name',
+            DB::raw('COALESCE(REPLACE(classes.name, " ", "-"), CONCAT("CLASS-", classes.id)) as class_code'),
+            'semesters.name as semester_name'
+        )
+        ->orderBy('exam_timetables.date')
+        ->orderBy('exam_timetables.start_time')
         ->get();
 
-    // Transform data to match your PDF view expectations
-    $transformedExams = $examTimetables->map(function($exam) {
-        return (object)[
-            'date' => $exam->date,
-            'day' => $exam->day,
-            'start_time' => $exam->start_time,
-            'end_time' => $exam->end_time,
-            'unit_code' => $exam->unit->code ?? 'N/A',
-            'unit_name' => $exam->unit->name ?? 'N/A',
-            'semester_name' => $exam->semester->name ?? 'N/A',
-            'venue' => $exam->venue,
-            'location' => $exam->location,
-            'chief_invigilator' => $exam->chief_invigilator ?? 'TBA'
-        ];
-    });
+    // ✅ ADD DEBUG LOG
+    \Log::info('downloadAllPDF - Data Check:', [
+        'total_exams' => $examTimetables->count(),
+        'first_exam' => $examTimetables->first() ? [
+            'group_name' => $examTimetables->first()->group_name,
+            'no' => $examTimetables->first()->no,
+            'class_section' => $examTimetables->first()->class_section,
+            'unit_code' => $examTimetables->first()->unit_code
+        ] : 'No exams found'
+    ]);
 
-    // ✅ Convert logo to base64
-    $logoPath = public_path('images/strathmore.png');
-    $logoBase64 = '';
-    if (file_exists($logoPath)) {
-        $logoData = base64_encode(file_get_contents($logoPath));
-        $logoBase64 = 'data:image/png;base64,' . $logoData;
-    }
+    // ✅ Pass correct variables to the blade template
+    $pdf = PDF::loadView('examtimetables.pdf', [
+        'examTimetables' => $examTimetables,
+        'title' => 'University-Wide Exam Schedule',
+        'generatedAt' => now()->format('F d, Y g:i A'),  // ✅ Match blade variable name
+        'logoBase64' => null  // ✅ Optional: Add logo if you have one
+    ])->setPaper('a4', 'landscape');
 
-    // Prepare data matching your PDF view
-    $data = [
-        'title' => 'UNIVERSITY EXAMINATION TIMETABLE',
-        'generatedAt' => now()->format('F d, Y \a\t h:i A'),
-        'examTimetables' => $transformedExams,
-        'logoBase64' => $logoBase64,
-    ];
-
-    // Generate PDF
-    $pdf = PDF::loadView('examtimetables.pdf', $data)
-        ->setPaper('A4', 'landscape');
-
-    // Download
-    return $pdf->download('All_Exam_Timetables_' . now()->format('Y-m-d') . '.pdf');
+    return $pdf->download('university_exam_timetable_' . now()->format('Y_m_d') . '.pdf');
 }
 
 /**
