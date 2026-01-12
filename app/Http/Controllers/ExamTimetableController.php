@@ -2566,7 +2566,7 @@ public function downloadPDF(Request $request)
 
         $pdf->setPaper('a4', 'landscape');
 
-        return $pdf->download('examtimetable.pdf');
+        return $pdf->download('examtimetables.pdf');
     } catch (\Exception $e) {
         \Log::error('Failed to generate PDF: ' . $e->getMessage(), [
             'exception' => $e,
@@ -2683,6 +2683,7 @@ public function downloadStudentTimetable(Request $request)
         return redirect()->back()->with('error', 'Failed to generate PDF: ' . $e->getMessage());
     }
 }
+
 public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
 {
     // ✅ CRITICAL: Select ALL columns needed for PDF
@@ -2739,7 +2740,7 @@ public function downloadProgramExamTimetablePDF(Program $program, $schoolCode)
         $logoBase64 = 'data:image/png;base64,' . $logoData;
     }
 
-    $pdf = PDF::loadView('examtimetable.pdf', [
+    $pdf = PDF::loadView('examtimetables.pdf', [
         'examTimetables' => $examTimetables,
         'title' => $program->name . ' - Exam Timetable',
         'generatedAt' => now()->format('F d, Y H:i:s'),

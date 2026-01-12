@@ -2464,6 +2464,18 @@ const calculateRequiredCapacity = () => {
                       <Layers className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
                       Bulk Schedule
                     </button>
+                    
+                    {/* ✅ ADD THIS NEW BUTTON */}
+                    
+                      <a
+                      href={route(`schools.${schoolCode.toLowerCase()}.programs.exam-timetables.download`, program.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-red-500 via-orange-500 to-amber-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-red-600 hover:via-orange-600 hover:to-amber-600 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <FileText className="w-5 h-5 mr-2 group-hover:animate-bounce" />
+                      Download PDF
+                    </a>
                   </div>
                 )}
               </div>

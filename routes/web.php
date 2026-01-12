@@ -246,72 +246,124 @@ Route::middleware(['auth'])->group(function () {
         });
     });
 
-    Route::prefix('SchoolAdmin')->group(function() {
-    Route::get('/dashboard', function() {
-        $user = auth()->user();
-        $roles = $user->getRoleNames();
-        
-        \Log::info('SchoolAdmin dashboard access attempt', [
-            'user_email' => $user->email,
-            'roles' => $roles->toArray()
-        ]);
-        
-        $schoolCode = null;
-        
-        // Check for Faculty Admin roles (NEW format: Faculty Admin - SHSS)
-        foreach ($roles as $role) {
-            if (str_starts_with($role, 'Faculty Admin - ')) {
-                $schoolCode = str_replace('Faculty Admin - ', '', $role);
-                \Log::info('Faculty Admin role detected', ['school_code' => $schoolCode]);
-                break;
-            }
-        }
-        
-        // Also check for ExamOff roles (OLD format: ExamOff- SHSS)
-        if (!$schoolCode) {
-            foreach ($roles as $role) {
-                if (str_starts_with($role, 'ExamOff- ')) {
-                    $schoolCode = str_replace('ExamOff- ', '', $role);
-                    \Log::info('ExamOff role detected', ['school_code' => $schoolCode]);
-                    break;
+        Route::prefix('SchoolAdmin')->group(function() {
+            Route::get('/dashboard', function() {
+                $user = auth()->user();
+                $roles = $user->getRoleNames();
+                
+                \Log::info('SchoolAdmin dashboard access attempt', [
+                    'user_email' => $user->email,
+                    'roles' => $roles->toArray()
+                ]);
+                
+                $schoolCode = null;
+                
+                // Check for Faculty Admin roles (NEW format: Faculty Admin - SHSS)
+                foreach ($roles as $role) {
+                    if (str_starts_with($role, 'Faculty Admin - ')) {
+                        $schoolCode = str_replace('Faculty Admin - ', '', $role);
+                        \Log::info('Faculty Admin role detected', ['school_code' => $schoolCode]);
+                        break;
+                    }
                 }
-            }
-        }
-        
-        // If we found a school code, route to appropriate dashboard
-        if ($schoolCode) {
-            \Log::info('Routing to school dashboard', ['school_code' => $schoolCode]);
+                
+                // Also check for ExamOff roles (OLD format: ExamOff- SHSS)
+                if (!$schoolCode) {
+                    foreach ($roles as $role) {
+                        if (str_starts_with($role, 'ExamOff- ')) {
+                            $schoolCode = str_replace('ExamOff- ', '', $role);
+                            \Log::info('ExamOff role detected', ['school_code' => $schoolCode]);
+                            break;
+                        }
+                    }
+                }
+                
+                // If we found a school code, route to appropriate dashboard
+                if ($schoolCode) {
+                    \Log::info('Routing to school dashboard', ['school_code' => $schoolCode]);
+                    
+                    switch($schoolCode) {
+                        case 'SCES':
+                            return app(\App\Http\Controllers\DashboardController::class)->scesDashboard();
+                        case 'SBS':
+                            return app(\App\Http\Controllers\DashboardController::class)->sbsDashboard();
+                        case 'SLS':
+                            return app(\App\Http\Controllers\DashboardController::class)->slsDashboard();
+                        case 'SHSS':
+                            return app(\App\Http\Controllers\DashboardController::class)->shssDashboard();
+                        case 'SMS':
+                            return app(\App\Http\Controllers\DashboardController::class)->smsDashboard();
+                        case 'STH':
+                            return app(\App\Http\Controllers\DashboardController::class)->sthDashboard();
+                        case 'SI':
+                            return app(\App\Http\Controllers\DashboardController::class)->siDashboard();
+                        default:
+                            \Log::error('Unknown school code', ['school_code' => $schoolCode]);
+                            abort(403, 'Unknown school: ' . $schoolCode);
+                    }
+                }
+                
+                \Log::error('No valid school role found', ['roles' => $roles->toArray()]);
+                abort(403, 'You do not have permission to access any school admin dashboard.');
+            })
+            ->middleware([
+                'auth', 
+                'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS|Faculty Admin - SHSS|Faculty Admin - SMS|Faculty Admin - STH|Faculty Admin - SI|ExamOff- SCES|ExamOff- SBS|ExamOff- SLS|ExamOff- SHSS|ExamOff- SMS|ExamOff- STH|ExamOff- SI|Admin'
+            ])
+            ->name('schoolAdmin.dashboard');
             
-            switch($schoolCode) {
-                case 'SCES':
-                    return app(\App\Http\Controllers\DashboardController::class)->scesDashboard();
-                case 'SBS':
-                    return app(\App\Http\Controllers\DashboardController::class)->sbsDashboard();
-                case 'SLS':
-                    return app(\App\Http\Controllers\DashboardController::class)->slsDashboard();
-                case 'SHSS':
-                    return app(\App\Http\Controllers\DashboardController::class)->shssDashboard();
-                case 'SMS':
-                    return app(\App\Http\Controllers\DashboardController::class)->smsDashboard();
-                case 'STH':
-                    return app(\App\Http\Controllers\DashboardController::class)->sthDashboard();
-                case 'SI':
-                    return app(\App\Http\Controllers\DashboardController::class)->siDashboard();
-                default:
-                    \Log::error('Unknown school code', ['school_code' => $schoolCode]);
-                    abort(403, 'Unknown school: ' . $schoolCode);
-            }
-        }
-        
-        \Log::error('No valid school role found', ['roles' => $roles->toArray()]);
-        abort(403, 'You do not have permission to access any school admin dashboard.');
-    })
-    ->middleware([
-        'auth', 
-        'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS|Faculty Admin - SHSS|Faculty Admin - SMS|Faculty Admin - STH|Faculty Admin - SI|ExamOff- SCES|ExamOff- SBS|ExamOff- SLS|ExamOff- SHSS|ExamOff- SMS|ExamOff- STH|ExamOff- SI|Admin'
-    ])
-    ->name('schoolAdmin.dashboard');
-});
+            // ✅ ADD THIS NEW ROUTE HERE - School-wide Exam Timetable PDF Download
+            Route::get('/exam-timetables/download', function() {
+                $user = auth()->user();
+                $roles = $user->getRoleNames();
+                
+                \Log::info('School exam timetable download attempt', [
+                    'user_email' => $user->email,
+                    'roles' => $roles->toArray()
+                ]);
+                
+                $schoolCode = null;
+                
+                // Detect school from role (same logic as dashboard)
+                foreach ($roles as $role) {
+                    if (str_starts_with($role, 'Faculty Admin - ')) {
+                        $schoolCode = str_replace('Faculty Admin - ', '', $role);
+                        break;
+                    }
+                }
+                
+                if (!$schoolCode) {
+                    foreach ($roles as $role) {
+                        if (str_starts_with($role, 'ExamOff- ')) {
+                            $schoolCode = str_replace('ExamOff- ', '', $role);
+                            break;
+                        }
+                    }
+                }
+                
+                if (!$schoolCode) {
+                    \Log::error('No school code found for exam timetable download', [
+                        'user' => $user->email,
+                        'roles' => $roles->toArray()
+                    ]);
+                    abort(403, 'School not identified. Please contact administrator.');
+                }
+                
+                \Log::info('Downloading exam timetables for school', [
+                    'school_code' => $schoolCode,
+                    'user' => $user->email
+                ]);
+                
+                // Call the download method
+                return app(\App\Http\Controllers\ExamTimetableController::class)
+                    ->downloadSchoolExamTimetablePDF($schoolCode);
+            })
+            ->middleware([
+                'auth',
+                'role:Faculty Admin - SCES|Faculty Admin - SBS|Faculty Admin - SLS|Faculty Admin - SHSS|Faculty Admin - SMS|Faculty Admin - STH|Faculty Admin - SI|ExamOff- SCES|ExamOff- SBS|ExamOff- SLS|ExamOff- SHSS|ExamOff- SMS|ExamOff- STH|ExamOff- SI|Admin'
+            ])
+            ->name('schoolAdmin.exam-timetables.download');
+        });
 
 
     // ADMIN ROUTES - PERMISSION-BASED
