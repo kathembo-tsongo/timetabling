@@ -13,6 +13,8 @@ use App\Models\ExamTimeSlot;
 use App\Models\Examroom;
 use App\Models\Program;
 use App\Models\ClassModel;
+use App\Services\FailedExamLogger;
+use App\Models\FailedExamSchedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -20,6 +22,7 @@ use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+
 
 class ExamTimetableController extends Controller
 {
@@ -1980,6 +1983,27 @@ foreach ($classWorkloads as $classId => $workload) {
                     'class' => $selection['class_name'],
                     'unit' => $selection['unit_code']
                 ]);
+                
+                // ✅ ADD THIS: Log the failure
+                FailedExamLogger::logFailure(
+                    [
+                        'program_id' => $validated['program_id'],
+                        'school_id' => $validated['school_id'],
+                        'class_name' => $selection['class_name'],
+                        'section' => $selection['class_section'] ?? null,
+                        'unit_code' => $selection['unit_code'],
+                        'unit_name' => $selection['unit_name'],
+                        'student_count' => $selection['student_count'],
+                        'lecturer_name' => $selection['lecturer'] ?? null,
+                    ],
+                    [[
+                        'type' => 'scheduling-error',
+                        'message' => 'No available date matching spacing policy',
+                        'date' => null,
+                    ]],
+                    null
+                );
+                
                 continue;
             }
 
@@ -2005,6 +2029,28 @@ foreach ($classWorkloads as $classId => $workload) {
                     'section' => $selection['class_section'] ?? 'N/A',
                     'reason' => $venueResult['message']
                 ];
+                
+                // ✅ ADD THIS: Log the venue failure
+                FailedExamLogger::logFailure(
+                    [
+                        'program_id' => $validated['program_id'],
+                        'school_id' => $validated['school_id'],
+                        'class_name' => $selection['class_name'],
+                        'section' => $selection['class_section'] ?? null,
+                        'unit_code' => $selection['unit_code'],
+                        'unit_name' => $selection['unit_name'],
+                        'student_count' => $selection['student_count'],
+                        'lecturer_name' => $selection['lecturer'] ?? null,
+                    ],
+                    [[
+                        'type' => 'no-venue',
+                        'message' => $venueResult['message'],
+                        'date' => $targetDate,
+                        'time' => $timeSlotKey,
+                    ]],
+                    [$targetDate]
+                );
+                
                 continue;
             }
 
@@ -2026,6 +2072,28 @@ foreach ($classWorkloads as $classId => $workload) {
                     'section' => $selection['class_section'] ?? 'N/A',
                     'reason' => 'Scheduling conflict detected'
                 ];
+                
+                // ✅ ADD THIS: Log the conflict
+                FailedExamLogger::logFailure(
+                    [
+                        'program_id' => $validated['program_id'],
+                        'school_id' => $validated['school_id'],
+                        'class_name' => $selection['class_name'],
+                        'section' => $selection['class_section'] ?? null,
+                        'unit_code' => $selection['unit_code'],
+                        'unit_name' => $selection['unit_name'],
+                        'student_count' => $selection['student_count'],
+                        'lecturer_name' => $selection['lecturer'] ?? null,
+                    ],
+                    [[
+                        'type' => 'student-conflict',
+                        'message' => 'Scheduling conflict detected',
+                        'date' => $targetDate,
+                        'time' => "{$startTime} - {$endTime}",
+                    ]],
+                    [$targetDate]
+                );
+                
                 continue;
             }
 

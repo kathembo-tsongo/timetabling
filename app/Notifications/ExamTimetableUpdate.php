@@ -34,7 +34,9 @@ class ExamTimetableUpdate extends Notification implements ShouldQueue
      */
     public function via($notifiable)
     {
-        return ['mail'];
+        // Uncomment the bellow line to enable mail notifications when needed
+
+        // return ['mail'];
     }
 
     /**
