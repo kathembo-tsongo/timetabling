@@ -1862,11 +1862,15 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'excluded_days' => 'array',
             'max_exams_per_day' => 'required|integer|min:1',
             'selected_examrooms' => 'required|array|min:1',
+            'break_minutes' => 'required|integer|min:15', // ✅ ADDED
         ]);
 
         Log::info('🎓 Starting INTELLIGENT bulk exam scheduling', [
             'total_selections' => count($validated['selected_class_units']),
-            'date_range' => $validated['start_date'] . ' to ' . $validated['end_date']
+            'date_range' => $validated['start_date'] . ' to ' . $validated['end_date'],
+            'start_time' => $validated['start_time'],
+            'exam_duration' => $validated['exam_duration_hours'],
+            'break_minutes' => $validated['break_minutes']
         ]);
 
         $scheduled = [];
@@ -1875,6 +1879,23 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
         $selectedRooms = DB::table('examrooms')
             ->whereIn('id', $validated['selected_examrooms'])
             ->get();
+
+        // ✅ NEW: Generate 4 time slots based on configuration
+        $timeSlots = $this->generateTimeSlots(
+            $validated['start_time'],
+            $validated['exam_duration_hours'],
+            $validated['break_minutes'],
+            4 // Maximum 4 slots per day
+        );
+
+        Log::info('🕐 Generated time slots', [
+            'slots' => array_map(function($slot) {
+                return [
+                    'slot' => $slot['slot_number'],
+                    'time' => "{$slot['start_time']} - {$slot['end_time']}"
+                ];
+            }, $timeSlots)
+        ]);
 
         // ✅ STEP 1: Analyze student workload PER CLASS
         $classWorkloads = $this->analyzeClassWorkloads(
@@ -1890,8 +1911,7 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                     'class_name' => $class['class_name'],
                     'total_units' => $class['total_units'],
                     'policy' => $class['policy'],
-                    'week1_max' => $class['week1_max'] ?? 'N/A',
-                    'min_gap_days' => $class['min_gap_days'] ?? 'N/A'
+                    'pattern' => $class['pattern']['name'] ?? 'N/A'
                 ];
             }, $classWorkloads)
         ]);
@@ -1926,7 +1946,7 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'week2' => array_slice($week2Dates, 0, 5) // Sample
         ]);
 
-        // ✅ Alternative: Group by class, but don't change unit order within each class
+        // ✅ STEP 4: Sort selections by class
         $sortedSelections = collect($validated['selected_class_units'])
             ->groupBy('class_id')
             ->flatMap(function($classUnits) {
@@ -1939,17 +1959,18 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'by_class' => $sortedSelections->groupBy('class_id')->map->count()->toArray()
         ]);
 
+        // ✅ STEP 5: Initialize class schedule tracking
         $classScheduleTracking = [];
-foreach ($classWorkloads as $classId => $workload) {
-    $classScheduleTracking[$classId] = [
-        'policy' => $workload['policy'],
-        'total_units' => $workload['total_units'],
-        'pattern' => $workload['pattern'],           // ✅ ADD THIS
-        'pattern_index' => $workload['pattern_index'], // ✅ ADD THIS
-        'exams_scheduled' => $workload['exams_scheduled'], // ✅ ADD THIS
-        'scheduled_dates' => []
-    ];
-}
+        foreach ($classWorkloads as $classId => $workload) {
+            $classScheduleTracking[$classId] = [
+                'policy' => $workload['policy'],
+                'total_units' => $workload['total_units'],
+                'pattern' => $workload['pattern'],
+                'pattern_index' => $workload['pattern_index'],
+                'exams_scheduled' => $workload['exams_scheduled'],
+                'scheduled_dates' => []
+            ];
+        }
 
         $venueCapacityUsage = []; // Track 3D: venue -> date -> time_slot
 
@@ -1979,12 +2000,13 @@ foreach ($classWorkloads as $classId => $workload) {
                     'section' => $selection['class_section'] ?? 'N/A',
                     'reason' => 'No available date matching spacing policy'
                 ];
+                
                 Log::warning('⚠️ No date found', [
                     'class' => $selection['class_name'],
                     'unit' => $selection['unit_code']
                 ]);
                 
-                // ✅ ADD THIS: Log the failure
+                // Log the failure
                 FailedExamLogger::logFailure(
                     [
                         'program_id' => $validated['program_id'],
@@ -2007,11 +2029,17 @@ foreach ($classWorkloads as $classId => $workload) {
                 continue;
             }
 
-            $startTime = $selection['assigned_start_time'] ?? $validated['start_time'];
-            $endTime = $selection['assigned_end_time'] ?? 
-                $this->calculateEndTime($startTime, $validated['exam_duration_hours']);
-            
+            // ✅ RANDOMLY SELECT ONE OF THE 4 TIME SLOTS
+            $randomSlot = $timeSlots[array_rand($timeSlots)];
+            $startTime = $randomSlot['start_time'];
+            $endTime = $randomSlot['end_time'];
             $timeSlotKey = "{$startTime}-{$endTime}";
+
+            Log::info("🎲 Randomly assigned time slot #{$randomSlot['slot_number']}", [
+                'unit' => $selection['unit_code'],
+                'class' => $selection['class_name'],
+                'time' => $timeSlotKey
+            ]);
 
             // ✅ Find venue
             $venueResult = $this->findVenueWithRemainingCapacity(
@@ -2030,7 +2058,7 @@ foreach ($classWorkloads as $classId => $workload) {
                     'reason' => $venueResult['message']
                 ];
                 
-                // ✅ ADD THIS: Log the venue failure
+                // Log the venue failure
                 FailedExamLogger::logFailure(
                     [
                         'program_id' => $validated['program_id'],
@@ -2073,7 +2101,7 @@ foreach ($classWorkloads as $classId => $workload) {
                     'reason' => 'Scheduling conflict detected'
                 ];
                 
-                // ✅ ADD THIS: Log the conflict
+                // Log the conflict
                 FailedExamLogger::logFailure(
                     [
                         'program_id' => $validated['program_id'],
@@ -2124,15 +2152,16 @@ foreach ($classWorkloads as $classId => $workload) {
                 'updated_at' => now(),
             ]);
 
-            // ✅ CRITICAL: Update class tracking IMMEDIATELY
-            // ✅ PATTERN-BASED: Update tracking
+            // ✅ Update class tracking
             $classScheduleTracking[$selection['class_id']]['scheduled_dates'][] = $targetDate;
             $classScheduleTracking[$selection['class_id']]['exams_scheduled']++;
-            $classScheduleTracking[$selection['class_id']]['pattern_index']++; // Move to next pattern slot
+            $classScheduleTracking[$selection['class_id']]['pattern_index']++;
 
-            Log::info('✅ Exam created and tracking updated', [
+            Log::info('✅ Exam created with random time slot', [
                 'exam_id' => $examId,
                 'date' => $targetDate,
+                'slot' => "#{$randomSlot['slot_number']} ({$timeSlotKey})",
+                'venue' => $venueResult['venue'],
                 'class_tracking' => $classScheduleTracking[$selection['class_id']]
             ]);
 
@@ -2145,6 +2174,7 @@ foreach ($classWorkloads as $classId => $workload) {
                 'student_count' => $studentCount,
                 'date' => $targetDate,
                 'time' => "$startTime - $endTime",
+                'slot_number' => $randomSlot['slot_number'], // ✅ ADDED
                 'venue' => $venueResult['venue']
             ];
 
@@ -2160,18 +2190,21 @@ foreach ($classWorkloads as $classId => $workload) {
 
         Log::info('🎉 Intelligent bulk scheduling complete', [
             'scheduled' => count($scheduled),
-            'conflicts' => count($conflicts)
+            'conflicts' => count($conflicts),
+            'time_slot_distribution' => collect($scheduled)->groupBy('slot_number')->map->count()->toArray()
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => count($scheduled) . ' exams scheduled with intelligent spacing',
+            'message' => count($scheduled) . ' exams scheduled with intelligent spacing across ' . count($timeSlots) . ' time slots',
             'scheduled' => $scheduled,
             'conflicts' => $conflicts,
             'summary' => [
                 'total_requested' => count($validated['selected_class_units']),
                 'successfully_scheduled' => count($scheduled),
-                'conflicts' => count($conflicts)
+                'conflicts' => count($conflicts),
+                'time_slots_used' => count($timeSlots), // ✅ ADDED
+                'slot_distribution' => collect($scheduled)->groupBy('slot_number')->map->count()->toArray() // ✅ ADDED
             ]
         ]);
 
@@ -2187,6 +2220,44 @@ foreach ($classWorkloads as $classId => $workload) {
         ], 500);
     }
 }
+
+/**
+ * Generate time slots for exam scheduling
+ */
+private function generateTimeSlots($startTime, $examDurationHours, $breakMinutes, $maxSlots = 4)
+{
+    $slots = [];
+    
+    // Parse start time (handle both HH:MM and HH:MM:SS formats)
+    $startTimeClean = substr($startTime, 0, 5);
+    list($hours, $minutes) = explode(':', $startTimeClean);
+    $currentMinutes = ($hours * 60) + $minutes;
+    
+    for ($i = 0; $i < $maxSlots; $i++) {
+        // Calculate start time for this slot
+        $startH = floor($currentMinutes / 60);
+        $startM = $currentMinutes % 60;
+        $start = sprintf('%02d:%02d', $startH, $startM);
+        
+        // Calculate end time (start + exam duration)
+        $endMinutes = $currentMinutes + ($examDurationHours * 60);
+        $endH = floor($endMinutes / 60);
+        $endM = $endMinutes % 60;
+        $end = sprintf('%02d:%02d', $endH, $endM);
+        
+        $slots[] = [
+            'slot_number' => $i + 1,
+            'start_time' => $start,
+            'end_time' => $end
+        ];
+        
+        // Move to next slot (end time + break)
+        $currentMinutes = $endMinutes + $breakMinutes;
+    }
+    
+    return $slots;
+}
+
 /**
  * ✅ INTELLIGENT: Analyze workload and create optimal scheduling patterns
  */
@@ -2444,140 +2515,159 @@ private function getDayName($dayOfWeek)
     }
 
     private function assignSmartVenue($studentCount, $date, $startTime, $endTime, $excludeExamId = null)
-    {
-        \Log::info('🔍 Smart venue assignment requested', [
-            'student_count' => $studentCount,
-            'date' => $date,
-            'time' => "{$startTime} - {$endTime}"
-        ]);
+{
+    \Log::info('🔍 Smart venue assignment requested', [
+        'student_count' => $studentCount,
+        'date' => $date,
+        'time' => "{$startTime} - {$endTime}"
+    ]);
 
-        try {
-            // Get all active exam rooms sorted by capacity (smallest first for efficiency)
-            $examrooms = Examroom::where('is_active', true)
-                ->orderBy('capacity', 'asc')
-                ->get();
-            
-            if ($examrooms->isEmpty()) {
-                return [
-                    'success' => false,
-                    'message' => 'No exam rooms configured in the system'
-                ];
-            }
-
-            $examStartTime = Carbon::parse($date . ' ' . $startTime);
-            $examEndTime = Carbon::parse($date . ' ' . $endTime);
-
-            $suitableVenues = [];
-            
-            foreach ($examrooms as $room) {
-                // ✅ STRICT RULE: Room must fit ALL students
-                if ($room->capacity < $studentCount) {
-                    \Log::debug("  ⛔ {$room->name} too small", [
-                        'capacity' => $room->capacity,
-                        'required' => $studentCount
-                    ]);
-                    continue;
-                }
-
-                // Check existing exams in this venue at this time
-                $existingExamsQuery = ExamTimetable::where('venue', $room->name)
-                    ->where('date', $date);
-                
-                if ($excludeExamId) {
-                    $existingExamsQuery->where('id', '!=', $excludeExamId);
-                }
-                
-                $existingExams = $existingExamsQuery->get();
-
-                // Calculate occupied capacity at this time
-                $occupiedCapacity = 0;
-                foreach ($existingExams as $exam) {
-                    $existingStart = Carbon::parse($exam->date . ' ' . $exam->start_time);
-                    $existingEnd = Carbon::parse($exam->date . ' ' . $exam->end_time);
-
-                    // Check for time overlap
-                    if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
-                        $occupiedCapacity += $exam->no;
-                    }
-                }
-
-                $remainingCapacity = $room->capacity - $occupiedCapacity;
-
-                \Log::debug("  📊 {$room->name} analysis", [
-                    'total_capacity' => $room->capacity,
-                    'occupied' => $occupiedCapacity,
-                    'remaining' => $remainingCapacity,
-                    'required' => $studentCount,
-                    'can_fit' => $remainingCapacity >= $studentCount ? 'YES ✅' : 'NO ❌'
-                ]);
-
-                // ✅ STRICT RULE: Must have enough remaining capacity for ALL students
-                if ($remainingCapacity >= $studentCount) {
-                    $utilizationAfter = (($occupiedCapacity + $studentCount) / $room->capacity) * 100;
-                    
-                    $suitableVenues[] = [
-                        'room' => $room,
-                        'total_capacity' => $room->capacity,
-                        'occupied_capacity' => $occupiedCapacity,
-                        'remaining_capacity' => $remainingCapacity,
-                        'utilization_after' => $utilizationAfter,
-                        'space_left_after' => $remainingCapacity - $studentCount
-                    ];
-                }
-            }
-
-            // ✅ No suitable venue found
-            if (empty($suitableVenues)) {
-                $largestRoom = $examrooms->sortByDesc('capacity')->first();
-                
-                return [
-                    'success' => false,
-                    'message' => "❌ No single exam room available with capacity for {$studentCount} students at {$startTime}-{$endTime}.\n\n" .
-                            "Largest room: {$largestRoom->name} ({$largestRoom->capacity} seats).\n\n" .
-                            "💡 Suggestions:\n" .
-                            "• Choose a different time slot\n" .
-                            "• Select a different date",
-                    'required_capacity' => $studentCount
-                ];
-            }
-
-            // ✅ Sort by efficiency (prefer smallest room that fits = less waste)
-            usort($suitableVenues, function($a, $b) {
-                return $a['space_left_after'] <=> $b['space_left_after'];
-            });
-
-            $bestVenue = $suitableVenues[0];
-
-            \Log::info('✅ Venue assigned successfully', [
-                'venue' => $bestVenue['room']->name,
-                'location' => $bestVenue['room']->location,
-                'students_accommodated' => $studentCount,
-                'remaining_after' => $bestVenue['space_left_after'],
-                'utilization' => round($bestVenue['utilization_after'], 1) . '%'
-            ]);
-
-            return [
-                'success' => true,
-                'venue' => $bestVenue['room']->name,
-                'location' => $bestVenue['room']->location,
-                'capacity' => $bestVenue['room']->capacity,
-                'remaining_capacity' => $bestVenue['space_left_after'],
-                'utilization' => round($bestVenue['utilization_after'], 1),
-                'message' => "✅ Assigned {$bestVenue['room']->name} ({$studentCount}/{$bestVenue['room']->capacity} seats)"
-            ];
-
-        } catch (\Exception $e) {
-            \Log::error('❌ Error in smart venue assignment', [
-                'error' => $e->getMessage()
-            ]);
-
+    try {
+        // Get all active exam rooms sorted by capacity (smallest first for efficiency)
+        $examrooms = Examroom::where('is_active', true)
+            ->orderBy('capacity', 'asc')
+            ->get();
+        
+        if ($examrooms->isEmpty()) {
             return [
                 'success' => false,
-                'message' => 'System error during venue assignment: ' . $e->getMessage()
+                'message' => 'No exam rooms configured in the system'
             ];
         }
-    }
 
+        // ✅ FIX: Strip seconds from time if present, then parse
+        // Handle both "HH:MM" and "HH:MM:SS" formats
+        $startTimeClean = substr($startTime, 0, 5); // Get only HH:MM
+        $endTimeClean = substr($endTime, 0, 5);     // Get only HH:MM
+
+        // Create Carbon instances
+        $examStartTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $startTimeClean);
+        $examEndTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $endTimeClean);
+
+        \Log::info('🕐 Parsed times', [
+            'original_start' => $startTime,
+            'original_end' => $endTime,
+            'cleaned_start' => $startTimeClean,
+            'cleaned_end' => $endTimeClean,
+            'exam_start' => $examStartTime->format('Y-m-d H:i:s'),
+            'exam_end' => $examEndTime->format('Y-m-d H:i:s')
+        ]);
+
+        $suitableVenues = [];
+        
+        foreach ($examrooms as $room) {
+            // ✅ STRICT RULE: Room must fit ALL students
+            if ($room->capacity < $studentCount) {
+                \Log::debug("  ⛔ {$room->name} too small", [
+                    'capacity' => $room->capacity,
+                    'required' => $studentCount
+                ]);
+                continue;
+            }
+
+            // Check existing exams in this venue at this time
+            $existingExamsQuery = ExamTimetable::where('venue', $room->name)
+                ->where('date', $date);
+            
+            if ($excludeExamId) {
+                $existingExamsQuery->where('id', '!=', $excludeExamId);
+            }
+            
+            $existingExams = $existingExamsQuery->get();
+
+            // Calculate occupied capacity at this time
+            $occupiedCapacity = 0;
+            foreach ($existingExams as $exam) {
+                // ✅ FIX: Clean times before parsing
+                $examStartClean = substr($exam->start_time, 0, 5);
+                $examEndClean = substr($exam->end_time, 0, 5);
+                
+                $existingStart = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examStartClean);
+                $existingEnd = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examEndClean);
+
+                // Check for time overlap
+                if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
+                    $occupiedCapacity += $exam->no;
+                }
+            }
+
+            $remainingCapacity = $room->capacity - $occupiedCapacity;
+
+            \Log::debug("  📊 {$room->name} analysis", [
+                'total_capacity' => $room->capacity,
+                'occupied' => $occupiedCapacity,
+                'remaining' => $remainingCapacity,
+                'required' => $studentCount,
+                'can_fit' => $remainingCapacity >= $studentCount ? 'YES ✅' : 'NO ❌'
+            ]);
+
+            // ✅ STRICT RULE: Must have enough remaining capacity for ALL students
+            if ($remainingCapacity >= $studentCount) {
+                $utilizationAfter = (($occupiedCapacity + $studentCount) / $room->capacity) * 100;
+                
+                $suitableVenues[] = [
+                    'room' => $room,
+                    'total_capacity' => $room->capacity,
+                    'occupied_capacity' => $occupiedCapacity,
+                    'remaining_capacity' => $remainingCapacity,
+                    'utilization_after' => $utilizationAfter,
+                    'space_left_after' => $remainingCapacity - $studentCount
+                ];
+            }
+        }
+
+        // ✅ No suitable venue found
+        if (empty($suitableVenues)) {
+            $largestRoom = $examrooms->sortByDesc('capacity')->first();
+            
+            return [
+                'success' => false,
+                'message' => "❌ No single exam room available with capacity for {$studentCount} students at {$startTimeClean}-{$endTimeClean}.\n\n" .
+                        "Largest room: {$largestRoom->name} ({$largestRoom->capacity} seats).\n\n" .
+                        "💡 Suggestions:\n" .
+                        "• Choose a different time slot\n" .
+                        "• Select a different date",
+                'required_capacity' => $studentCount
+            ];
+        }
+
+        // ✅ Sort by efficiency (prefer smallest room that fits = less waste)
+        usort($suitableVenues, function($a, $b) {
+            return $a['space_left_after'] <=> $b['space_left_after'];
+        });
+
+        $bestVenue = $suitableVenues[0];
+
+        \Log::info('✅ Venue assigned successfully', [
+            'venue' => $bestVenue['room']->name,
+            'location' => $bestVenue['room']->location,
+            'students_accommodated' => $studentCount,
+            'remaining_after' => $bestVenue['space_left_after'],
+            'utilization' => round($bestVenue['utilization_after'], 1) . '%'
+        ]);
+
+        return [
+            'success' => true,
+            'venue' => $bestVenue['room']->name,
+            'location' => $bestVenue['room']->location,
+            'capacity' => $bestVenue['room']->capacity,
+            'remaining_capacity' => $bestVenue['space_left_after'],
+            'utilization' => round($bestVenue['utilization_after'], 1),
+            'message' => "✅ Assigned {$bestVenue['room']->name} ({$studentCount}/{$bestVenue['room']->capacity} seats)"
+        ];
+
+    } catch (\Exception $e) {
+        \Log::error('❌ Error in smart venue assignment', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        return [
+            'success' => false,
+            'message' => 'System error during venue assignment: ' . $e->getMessage()
+        ];
+    }
+}
 // ============================================================
 // PDF DOWNLOAD METHODS
 // ============================================================

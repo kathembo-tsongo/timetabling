@@ -2163,7 +2163,8 @@ const handleBulkSchedule = useCallback(async () => {
       start_time: bulkFormState.start_time, // Backend uses this for ALL exams
       excluded_days: bulkFormState.excluded_days,
       max_exams_per_day: bulkFormState.max_exams_per_day,
-      selected_examrooms: bulkFormState.selected_examrooms
+      selected_examrooms: bulkFormState.selected_examrooms,
+      break_minutes: bulkFormState.break_minutes
     })
 
     if (response.data.success) {
