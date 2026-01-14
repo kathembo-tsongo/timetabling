@@ -20,27 +20,26 @@ import {
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 
+// ✅ UPDATED: Interface to match backend data structure
 interface Failure {
   id: number
-  program_id: number
-  school_id: number
-  class_name: string
-  section: string | null
+  batch_id: string
   unit_code: string
   unit_name: string
+  class_names: string // ✅ Changed from class_name + section to single formatted field
   student_count: number
-  lecturer_name: string | null
-  failure_reasons: string
-  attempted_dates: string | null
-  status: 'pending' | 'resolved' | 'ignored'
+  program: { id: number; name: string; code: string } | null
+  school: { id: number; name: string; code: string } | null
+  attempted_date: string | null
+  attempted_time: string // ✅ Formatted date + time from backend
+  attempted_slot: string | null
+  failure_reason: string // ✅ Changed from failure_reasons
+  conflict_details: any
+  status: 'pending' | 'resolved' | 'ignored' | 'retried'
   created_at: string
   resolved_at: string | null
-  resolved_by: number | null
+  resolved_by: { id: number; name: string } | null
   resolution_notes: string | null
-  program?: { id: number; name: string }
-  school?: { id: number; name: string }
-  creator?: { id: number; first_name: string; last_name: string }
-  resolver?: { id: number; first_name: string; last_name: string }
 }
 
 interface Props {
@@ -59,8 +58,8 @@ interface Props {
     resolved: number
     ignored: number
   }
-  schools: Array<{ id: number; name: string }>
-  programs: Array<{ id: number; name: string; school_id: number }>
+  schools: Array<{ id: number; name: string; code: string }>
+  programs: Array<{ id: number; name: string; code: string; school_id: number }>
   filters: {
     status?: string
     school_id?: number
@@ -101,7 +100,6 @@ export default function FailedScheduledExams({
     if (selectedProgram) params.set('program_id', selectedProgram.toString())
     if (searchQuery) params.set('search', searchQuery)
 
-    // ✅ UPDATED: Use correct route
     router.get(`/examoffice/failed-scheduled-exams?${params.toString()}`, {}, {
       preserveState: true,
       preserveScroll: true,
@@ -111,7 +109,6 @@ export default function FailedScheduledExams({
   const handlePageChange = (page: number) => {
     const params = new URLSearchParams(window.location.search)
     params.set('page', page.toString())
-    // ✅ UPDATED: Use correct route
     router.get(`/examoffice/failed-scheduled-exams?${params.toString()}`, {}, {
       preserveState: true,
       preserveScroll: true,
@@ -175,10 +172,9 @@ export default function FailedScheduledExams({
     )
   }
 
-  const handleDelete = (id: number) => {
-    if (!confirm('Are you sure you want to delete this failure record?')) return
+  const handleDelete = (id: number, unitCode: string, className: string) => {
+    if (!confirm(`Are you sure you want to delete the failed exam record for ${unitCode} - ${className}?`)) return
 
-    // ✅ UPDATED: Use correct route name
     router.delete(route('examoffice.failed-scheduled-exams.destroy', id), {
       onSuccess: () => toast.success('Failure record deleted'),
       onError: () => toast.error('Failed to delete record'),
@@ -208,6 +204,13 @@ export default function FailedScheduledExams({
             Ignored
           </span>
         )
+      case 'retried':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            <RefreshCw className="w-3 h-3 mr-1" />
+            Retried
+          </span>
+        )
       default:
         return null
     }
@@ -226,7 +229,6 @@ export default function FailedScheduledExams({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="mb-8">
-            {/* ✅ UPDATED: Use route helper */}
             <Link
               href={route('examoffice.dashboard')}
               className="inline-flex items-center text-red-600 hover:opacity-80 mb-4"
@@ -296,6 +298,7 @@ export default function FailedScheduledExams({
                   <option value="pending">Pending</option>
                   <option value="resolved">Resolved</option>
                   <option value="ignored">Ignored</option>
+                  <option value="retried">Retried</option>
                 </select>
               </div>
 
@@ -378,10 +381,10 @@ export default function FailedScheduledExams({
                       Program / School
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Class
+                      Class / Group
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Attempted Dates
+                      Attempted Date/Time
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Reason
@@ -406,65 +409,109 @@ export default function FailedScheduledExams({
                   ) : (
                     failedExams.data.map((failure) => (
                       <tr key={failure.id} className="hover:bg-gray-50">
+                        {/* Unit Column */}
                         <td className="px-6 py-4">
                           <div className="flex items-center">
-                            <BookOpen className="w-5 h-5 text-red-500 mr-2" />
+                            <BookOpen className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" />
                             <div>
                               <div className="text-sm font-medium text-gray-900">
                                 {failure.unit_code}
                               </div>
-                              <div className="text-xs text-gray-500">{failure.unit_name}</div>
+                              <div className="text-xs text-gray-500 truncate max-w-[150px]" title={failure.unit_name}>
+                                {failure.unit_name}
+                              </div>
                             </div>
                           </div>
                         </td>
+
+                        {/* Program/School Column */}
                         <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900">{failure.program?.name || 'N/A'}</div>
-                          <div className="text-xs text-gray-500">{failure.school?.name || 'N/A'}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center text-sm text-gray-900">
-                            <Users className="w-4 h-4 text-blue-500 mr-1" />
-                            {failure.student_count} students
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            {failure.class_name} {failure.section ? `(${failure.section})` : ''}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900">
-                            {failure.attempted_dates || 'N/A'}
+                          <div className="text-sm">
+                            <div className="font-medium text-gray-900">
+                              {failure.program?.code || 'N/A'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {failure.school?.code || 'N/A'}
+                            </div>
                           </div>
                         </td>
+
+                        {/* ✅ ENHANCED: Class/Group Column with formatted display */}
                         <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900 max-w-xs truncate" title={failure.failure_reasons}>
-                            {failure.failure_reasons}
+                          <div className="flex items-start space-x-2">
+                            <Users className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {failure.class_names}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {failure.student_count} students
+                              </div>
+                            </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4">{getStatusBadge(failure.status)}</td>
+
+                        {/* ✅ ENHANCED: Attempted Date/Time Column */}
+                        <td className="px-6 py-4">
+                          <div className="text-sm">
+                            {failure.attempted_date ? (
+                              <>
+                                <div className="flex items-center text-gray-900">
+                                  <Calendar className="w-3 h-3 mr-1 text-gray-400" />
+                                  {failure.attempted_date}
+                                </div>
+                                {failure.attempted_slot && (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {failure.attempted_slot}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-gray-400 text-xs">Not attempted</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* ✅ ENHANCED: Reason Column - show full reason */}
+                        <td className="px-6 py-4">
+                          <div 
+                            className="text-sm text-gray-700 max-w-xs" 
+                            title={failure.failure_reason}
+                          >
+                            <span className="line-clamp-2">
+                              {failure.failure_reason}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Status Column */}
+                        <td className="px-6 py-4">
+                          {getStatusBadge(failure.status)}
+                        </td>
+
+                        {/* Actions Column */}
                         <td className="px-6 py-4 text-right text-sm font-medium">
                           <div className="flex items-center justify-end space-x-2">
-                            {/* View Details - always available if can.view is true */}
                             {can.view && (
                               <button
                                 onClick={() => {
                                   setSelectedFailure(failure)
                                   setIsDetailModalOpen(true)
                                 }}
-                                className="text-blue-600 hover:text-blue-900"
+                                className="text-blue-600 hover:text-blue-900 p-1"
                                 title="View Details"
                               >
                                 <Eye className="w-5 h-5" />
                               </button>
                             )}
 
-                            {/* Resolve and Ignore - only for authorized users with pending status */}
                             {can.resolve && failure.status === 'pending' && (
                               <button
                                 onClick={() => {
                                   setSelectedFailure(failure)
                                   setIsResolveModalOpen(true)
                                 }}
-                                className="text-green-600 hover:text-green-900"
+                                className="text-green-600 hover:text-green-900 p-1"
                                 title="Mark as Resolved"
                               >
                                 <CheckCircle className="w-5 h-5" />
@@ -477,29 +524,27 @@ export default function FailedScheduledExams({
                                   setSelectedFailure(failure)
                                   setIsIgnoreModalOpen(true)
                                 }}
-                                className="text-gray-600 hover:text-gray-900"
+                                className="text-gray-600 hover:text-gray-900 p-1"
                                 title="Ignore"
                               >
                                 <Ban className="w-5 h-5" />
                               </button>
                             )}
 
-                            {/* Revert - only for authorized users with resolved or ignored status */}
                             {can.revert && (failure.status === 'resolved' || failure.status === 'ignored') && (
                               <button
                                 onClick={() => handleRevert(failure)}
-                                className="text-yellow-600 hover:text-yellow-900"
+                                className="text-yellow-600 hover:text-yellow-900 p-1"
                                 title="Revert to Pending"
                               >
                                 <RefreshCw className="w-5 h-5" />
                               </button>
                             )}
 
-                            {/* Delete - available for Exam Office and other authorized users */}
                             {can.delete && (
                               <button
-                                onClick={() => handleDelete(failure.id)}
-                                className="text-red-600 hover:text-red-900"
+                                onClick={() => handleDelete(failure.id, failure.unit_code, failure.class_names)}
+                                className="text-red-600 hover:text-red-900 p-1"
                                 title="Delete"
                               >
                                 <Trash2 className="w-5 h-5" />
@@ -577,7 +622,7 @@ export default function FailedScheduledExams({
             />
           )}
 
-          {/* Resolve Modal - only render if can.resolve is true */}
+          {/* Resolve Modal */}
           {can.resolve && isResolveModalOpen && selectedFailure && (
             <ActionModal
               title="Mark as Resolved"
@@ -595,7 +640,7 @@ export default function FailedScheduledExams({
             />
           )}
 
-          {/* Ignore Modal - only render if can.ignore is true */}
+          {/* Ignore Modal */}
           {can.ignore && isIgnoreModalOpen && selectedFailure && (
             <ActionModal
               title="Ignore This Failure"
@@ -639,11 +684,11 @@ const StatCard = ({ title, value, icon, color }: { title: string; value: number;
   )
 }
 
-// Failure Detail Modal Component
+// ✅ UPDATED: Failure Detail Modal Component
 const FailureDetailModal = ({ failure, onClose }: { failure: Failure; onClose: () => void }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-gray-900">Failure Details</h2>
@@ -652,34 +697,90 @@ const FailureDetailModal = ({ failure, onClose }: { failure: Failure; onClose: (
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <DetailRow label="Unit Code" value={failure.unit_code} />
-            <DetailRow label="Unit Name" value={failure.unit_name} />
-            <DetailRow label="Program" value={failure.program?.name || 'N/A'} />
-            <DetailRow label="School" value={failure.school?.name || 'N/A'} />
-            <DetailRow label="Class" value={failure.class_name} />
-            <DetailRow label="Section" value={failure.section || 'N/A'} />
-            <DetailRow label="Student Count" value={failure.student_count.toString()} />
-            <DetailRow label="Lecturer" value={failure.lecturer_name || 'N/A'} />
-            <DetailRow label="Attempted Dates" value={failure.attempted_dates || 'N/A'} fullWidth />
-            <DetailRow label="Failure Reasons" value={failure.failure_reasons} fullWidth />
-            <DetailRow label="Status" value={failure.status} />
-            <DetailRow label="Created At" value={new Date(failure.created_at).toLocaleString()} />
-            {failure.resolved_at && (
-              <>
-                <DetailRow label="Resolved At" value={new Date(failure.resolved_at).toLocaleString()} />
-                {failure.resolver && (
-                  <DetailRow label="Resolved By" value={`${failure.resolver.first_name} ${failure.resolver.last_name}`} />
+          <div className="space-y-6">
+            {/* Batch Info */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Batch Information</h3>
+              <DetailRow label="Batch ID" value={failure.batch_id} />
+            </div>
+
+            {/* Unit Info */}
+            <div className="bg-blue-50 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Unit Information</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <DetailRow label="Unit Code" value={failure.unit_code} />
+                <DetailRow label="Unit Name" value={failure.unit_name} />
+              </div>
+            </div>
+
+            {/* Program Info */}
+            <div className="bg-green-50 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Program & School</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <DetailRow label="Program" value={failure.program?.name || 'N/A'} />
+                <DetailRow label="School" value={failure.school?.name || 'N/A'} />
+              </div>
+            </div>
+
+            {/* Class Info */}
+            <div className="bg-purple-50 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Class Information</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <DetailRow label="Class / Section" value={failure.class_names} />
+                <DetailRow label="Student Count" value={failure.student_count.toString()} />
+              </div>
+            </div>
+
+            {/* Scheduling Attempt Info */}
+            <div className="bg-yellow-50 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Scheduling Attempt</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <DetailRow label="Attempted Date" value={failure.attempted_date || 'Not attempted'} />
+                <DetailRow label="Time Slot" value={failure.attempted_slot || 'N/A'} />
+              </div>
+            </div>
+
+            {/* Failure Details */}
+            <div className="bg-red-50 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Failure Information</h3>
+              <DetailRow label="Reason" value={failure.failure_reason} fullWidth />
+              <div className="mt-2">
+                <DetailRow label="Status" value={failure.status} />
+              </div>
+            </div>
+
+            {/* Resolution Info (if available) */}
+            {(failure.resolved_at || failure.resolution_notes) && (
+              <div className="bg-green-50 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Resolution</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  {failure.resolved_at && (
+                    <DetailRow label="Resolved At" value={failure.resolved_at} />
+                  )}
+                  {failure.resolved_by && (
+                    <DetailRow label="Resolved By" value={failure.resolved_by.name} />
+                  )}
+                </div>
+                {failure.resolution_notes && (
+                  <div className="mt-4">
+                    <DetailRow label="Resolution Notes" value={failure.resolution_notes} fullWidth />
+                  </div>
                 )}
-              </>
+              </div>
             )}
-            {failure.resolution_notes && (
-              <DetailRow label="Resolution Notes" value={failure.resolution_notes} fullWidth />
-            )}
+
+            {/* Timestamps */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Timestamps</h3>
+              <DetailRow label="Created At" value={failure.created_at} />
+            </div>
           </div>
 
           <div className="mt-6 flex justify-end">
-            <button onClick={onClose} className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg">
+            <button 
+              onClick={onClose} 
+              className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
+            >
               Close
             </button>
           </div>
@@ -692,8 +793,8 @@ const FailureDetailModal = ({ failure, onClose }: { failure: Failure; onClose: (
 // Detail Row Component
 const DetailRow = ({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) => (
   <div className={fullWidth ? 'col-span-2' : ''}>
-    <label className="block text-sm font-medium text-gray-700">{label}</label>
-    <p className="mt-1 text-sm text-gray-900 bg-gray-50 p-2 rounded">{value}</p>
+    <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+    <p className="text-sm text-gray-900 bg-white p-2 rounded border border-gray-200">{value}</p>
   </div>
 )
 
@@ -738,10 +839,16 @@ const ActionModal = ({
           </div>
 
           <div className="mt-6 flex justify-end space-x-3">
-            <button onClick={onClose} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg">
+            <button 
+              onClick={onClose} 
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
+            >
               Cancel
             </button>
-            <button onClick={onSubmit} className={`px-4 py-2 ${buttonClasses} text-white rounded-lg`}>
+            <button 
+              onClick={onSubmit} 
+              className={`px-4 py-2 ${buttonClasses} text-white rounded-lg transition-colors`}
+            >
               {buttonText}
             </button>
           </div>

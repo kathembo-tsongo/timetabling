@@ -11,27 +11,37 @@ class FailedExamSchedule extends Model
     use HasFactory;
 
     protected $fillable = [
-        'program_id',
-        'school_id',
-        'class_name',
-        'section',
+        // ✅ REQUIRED (NOT NULL in DB)
+        'batch_id',
+        'semester_id',
+        'unit_id',
         'unit_code',
         'unit_name',
+        'class_ids',           // JSON
+        'class_names',         // TEXT (not class_name)
         'student_count',
-        'lecturer_name',
-        'failure_reasons',
-        'attempted_dates',
+        
+        // ✅ OPTIONAL (nullable in DB)
+        'program_id',
+        'school_id',
+        'attempted_date',
+        'attempted_start_time',
+        'attempted_end_time',
+        'assigned_slot_number',
+        'failure_reason',      // TEXT (not failure_reasons)
+        'conflict_details',    // JSON
         'status',
-        'resolution_notes',
-        'resolved_by',
         'resolved_at',
-        'created_by',
+        'resolved_by',
+        'resolution_notes',
     ];
 
     protected $casts = [
-        'failure_reasons' => 'array',
-        'attempted_dates' => 'array',
+        'class_ids' => 'array',          // ✅ JSON field
+        'conflict_details' => 'array',   // ✅ JSON field
         'resolved_at' => 'datetime',
+        'attempted_date' => 'date',
+        'student_count' => 'integer',
     ];
 
     public function program(): BelongsTo
@@ -76,20 +86,22 @@ class FailedExamSchedule extends Model
 
     public function getConflictSummaryAttribute(): string
     {
-        if (empty($this->failure_reasons)) {
+        if (empty($this->conflict_details)) {
             return 'No conflicts recorded';
         }
 
-        $reasons = $this->failure_reasons;
+        $details = $this->conflict_details;
         $summary = [];
 
-        foreach ($reasons as $reason) {
-            if (isset($reason['type'])) {
-                $summary[] = $reason['type'];
+        if (is_array($details)) {
+            foreach ($details as $key => $value) {
+                if (is_string($value)) {
+                    $summary[] = $value;
+                }
             }
         }
 
-        return implode(', ', array_unique($summary));
+        return implode(', ', array_unique($summary)) ?: 'Unknown conflict';
     }
 
     public function markAsResolved(User $user, ?string $notes = null): void

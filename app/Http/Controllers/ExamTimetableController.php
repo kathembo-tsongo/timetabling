@@ -1891,17 +1891,15 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'break_minutes' => 'required|integer|min:15',
         ]);
 
+        // ✅ CRITICAL: Set batch_id IMMEDIATELY after validation
         $validated['batch_id'] = 'BATCH_' . now()->format('YmdHis') . '_' . uniqid();
 
-        Log::info('🎓 Starting INTELLIGENT bulk exam scheduling with section grouping', [
-            'batch_id' => $validated['batch_id'],
+        Log::info('🎓 Starting INTELLIGENT bulk exam scheduling', [
+            'batch_id' => $validated['batch_id'],  // ✅ Confirm it's set
             'total_selections' => count($validated['selected_class_units']),
-            'date_range' => $validated['start_date'] . ' to ' . $validated['end_date'],
-            'start_time' => $validated['start_time'],
-            'exam_duration' => $validated['exam_duration_hours'],
-            'break_minutes' => $validated['break_minutes']
         ]);
 
+        
         $scheduled = [];
         $conflicts = [];
         
@@ -2367,7 +2365,7 @@ private function selectDateWithSpacingForGroup(
 
 
 /**
- * ✅ FIXED: Log scheduling failure to database with batch_id
+ * ✅ FIXED: Log scheduling failure to database with correct field mapping
  */
 private function logSchedulingFailure(
     array $validated,
@@ -2377,8 +2375,8 @@ private function logSchedulingFailure(
     ?string $attemptedTime
 ) {
     try {
-        // ✅ Generate batch_id if not provided
-        $batchId = $validated['batch_id'] ?? 'BATCH_' . now()->format('YmdHis') . '_' . uniqid();
+        // ✅ Use batch_id from validated data (already set in bulkScheduleExams)
+        $batchId = $validated['batch_id'];
         
         // Parse time slot if provided
         $startTime = null;
@@ -2389,28 +2387,35 @@ private function logSchedulingFailure(
             $endTime = trim($timeParts[1] ?? null);
         }
 
+        // ✅ Prepare class_names as TEXT (comma-separated for display)
+        $classNames = $section['class_name'] ?? 'Unknown Class';
+        if (isset($section['class_section']) && $section['class_section']) {
+            $classNames .= ' (Section: ' . $section['class_section'] . ')';
+        }
+
+        // ✅ Create the record with correct field names
         FailedExamSchedule::create([
-            // ✅ REQUIRED (NOT NULL)
+            // ✅ REQUIRED (NOT NULL in DB)
             'batch_id'      => $batchId,
             'semester_id'   => $validated['semester_id'],
             'unit_id'       => $section['unit_id'],
             'unit_code'     => $section['unit_code'] ?? 'UNKNOWN',
             'unit_name'     => $section['unit_name'] ?? 'Unknown Unit',
-            'class_ids'     => json_encode([$section['class_id']]),
-            'class_names'   => $section['class_name'] ?? 'Unknown Class',
+            'class_ids'     => json_encode([$section['class_id']]), // ✅ JSON array
+            'class_names'   => $classNames,                          // ✅ TEXT field
             'student_count' => $section['student_count'] ?? 0,
 
             // ✅ OPTIONAL (nullable in DB)
             'program_id'    => $validated['program_id'] ?? null,
             'school_id'     => $validated['school_id'] ?? null,
 
-            // ✅ ATTEMPTED SLOT
+            // ✅ ATTEMPTED SLOT (separate time fields)
             'attempted_date'        => $attemptedDate,
             'attempted_start_time'  => $startTime,
             'attempted_end_time'    => $endTime,
 
             // ✅ FAILURE DETAILS
-            'failure_reason' => $reason,
+            'failure_reason' => $reason,  // ✅ Singular, not plural
             'status'         => 'pending',
 
             // ✅ TIMESTAMPS
@@ -2418,7 +2423,7 @@ private function logSchedulingFailure(
             'updated_at' => now(),
         ]);
 
-        Log::info('📝 Logged scheduling failure', [
+        Log::info('📝 Successfully logged scheduling failure', [
             'batch_id' => $batchId,
             'unit' => $section['unit_code'] ?? 'UNKNOWN',
             'class' => $section['class_name'] ?? 'Unknown',
@@ -2426,14 +2431,15 @@ private function logSchedulingFailure(
         ]);
 
     } catch (\Exception $e) {
-        Log::error('❌ Failed to log scheduling failure', [
+        Log::error('❌ Failed to log scheduling failure to database', [
             'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
             'section' => $section,
-            'reason' => $reason
+            'reason' => $reason,
+            'batch_id' => $validated['batch_id'] ?? 'MISSING'
         ]);
     }
 }
-
 /**
  * Generate time slots for exam scheduling
  */
