@@ -1846,6 +1846,38 @@ public function destroy($id)
         return collect(array_values($roomCapacityData))->sortByDesc('available')->toArray();
     }
 
+    /**
+ * ✅ NEW: Group sections that share the same unit and lecturer
+ */
+private function groupSectionsByUnitAndLecturer($selections)
+{
+    $groups = [];
+
+    foreach ($selections as $selection) {
+        $unitCode = $selection['unit_code'];
+        $lecturer = $selection['lecturer'] ?? 'NO_LECTURER';
+        
+        // Create unique key for unit + lecturer combination
+        $groupKey = $unitCode . '___' . $lecturer;
+
+        if (!isset($groups[$groupKey])) {
+            $groups[$groupKey] = [
+                'unit_code' => $unitCode,
+                'unit_name' => $selection['unit_name'],
+                'unit_id' => $selection['unit_id'],
+                'lecturer' => $lecturer === 'NO_LECTURER' ? null : $lecturer,
+                'sections' => [],
+                'total_students' => 0,
+            ];
+        }
+
+        $groups[$groupKey]['sections'][] = $selection;
+        $groups[$groupKey]['total_students'] += $selection['student_count'];
+    }
+
+    return $groups;
+}
+
 public function bulkScheduleExams(Request $request, Program $program, $schoolCode)
 {
     try {
@@ -2235,35 +2267,10 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
     }
 }
 
-private function groupSectionsByUnitAndLecturer($selections)
-{
-    $groups = [];
 
-    foreach ($selections as $selection) {
-        $unitCode = $selection['unit_code'];
-        $lecturer = $selection['lecturer'] ?? 'NO_LECTURER';
-        
-        // Create unique key for unit + lecturer combination
-        $groupKey = $unitCode . '___' . $lecturer;
-
-        if (!isset($groups[$groupKey])) {
-            $groups[$groupKey] = [
-                'unit_code' => $unitCode,
-                'unit_name' => $selection['unit_name'],
-                'unit_id' => $selection['unit_id'],
-                'lecturer' => $lecturer === 'NO_LECTURER' ? null : $lecturer,
-                'sections' => [],
-                'total_students' => 0,
-            ];
-        }
-
-        $groups[$groupKey]['sections'][] = $selection;
-        $groups[$groupKey]['total_students'] += $selection['student_count'];
-    }
-
-    return $groups;
-}
-
+/**
+ * ✅ NEW: Select date that works for all sections in a group
+ */
 private function selectDateWithSpacingForGroup(
     $sections,
     &$classScheduleTracking,
@@ -2302,7 +2309,7 @@ private function selectDateWithSpacingForGroup(
 }
 
 /**
- * Check if date respects spacing policy for a class
+ * ✅ NEW: Check if date respects spacing policy for a class
  */
 private function dateRespectsSpacingPolicy($date, $tracking)
 {
@@ -2342,7 +2349,7 @@ private function dateRespectsSpacingPolicy($date, $tracking)
 }
 
 /**
- * Find venue(s) that can accommodate all students in a group
+ * ✅ NEW: Find venue(s) that can accommodate all students in a group
  */
 private function findVenuesForGroup(
     $selectedRooms,
@@ -2396,48 +2403,74 @@ private function findVenuesForGroup(
     ];
 }
 
+
+
 /**
- * Log scheduling failure to database
+ * ✅ FIXED: Log scheduling failure to database with batch_id
  */
 private function logSchedulingFailure(
     array $validated,
     array $section,
     string $reason,
     ?string $attemptedDate,
-    ?string $attemptedTime,
-    array $classIds = [],
-    array $classNames = []
+    ?string $attemptedTime
 ) {
-    FailedExamSchedule::create([
-        // REQUIRED (NOT NULL)
-        'batch_id'      => $validated['batch_id'] ?? null,
-        'semester_id'   => $validated['semester_id'] ?? null,
-        'unit_id'       => $section['unit_id'] ?? null,
-        'class_ids'     => json_encode($classIds),
-        'class_names'   => implode(', ', $classNames),
+    try {
+        // ✅ Generate batch_id if not provided
+        $batchId = $validated['batch_id'] ?? 'BATCH_' . now()->format('YmdHis') . '_' . uniqid();
+        
+        // Parse time slot if provided
+        $startTime = null;
+        $endTime = null;
+        if ($attemptedTime) {
+            $timeParts = explode('-', $attemptedTime);
+            $startTime = trim($timeParts[0] ?? null);
+            $endTime = trim($timeParts[1] ?? null);
+        }
 
-        // OPTIONAL (nullable in DB)
-        'program_id'    => $validated['program_id'] ?? null,
-        'school_id'     => $validated['school_id'] ?? null,
+        FailedExamSchedule::create([
+            // ✅ REQUIRED (NOT NULL)
+            'batch_id'      => $batchId,
+            'semester_id'   => $validated['semester_id'],
+            'unit_id'       => $section['unit_id'],
+            'unit_code'     => $section['unit_code'] ?? 'UNKNOWN',
+            'unit_name'     => $section['unit_name'] ?? 'Unknown Unit',
+            'class_ids'     => json_encode([$section['class_id']]),
+            'class_names'   => $section['class_name'] ?? 'Unknown Class',
+            'student_count' => $section['student_count'] ?? 0,
 
-        // UNIT DETAILS
-        'unit_code'     => $section['unit_code'] ?? null,
-        'unit_name'     => $section['unit_name'] ?? null,
-        'student_count' => $section['student_count'] ?? 0,
+            // ✅ OPTIONAL (nullable in DB)
+            'program_id'    => $validated['program_id'] ?? null,
+            'school_id'     => $validated['school_id'] ?? null,
 
-        // ATTEMPTED SLOT
-        'attempted_date'        => $attemptedDate,
-        'attempted_start_time' => $attemptedTime ? explode('-', $attemptedTime)[0] : null,
-        'attempted_end_time'   => $attemptedTime ? explode('-', $attemptedTime)[1] : null,
+            // ✅ ATTEMPTED SLOT
+            'attempted_date'        => $attemptedDate,
+            'attempted_start_time'  => $startTime,
+            'attempted_end_time'    => $endTime,
 
-        // FAILURE DETAILS
-        'failure_reason' => $reason,
-        'status'         => 'pending',
+            // ✅ FAILURE DETAILS
+            'failure_reason' => $reason,
+            'status'         => 'pending',
 
-        // TIMESTAMPS
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
+            // ✅ TIMESTAMPS
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Log::info('📝 Logged scheduling failure', [
+            'batch_id' => $batchId,
+            'unit' => $section['unit_code'] ?? 'UNKNOWN',
+            'class' => $section['class_name'] ?? 'Unknown',
+            'reason' => $reason
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('❌ Failed to log scheduling failure', [
+            'error' => $e->getMessage(),
+            'section' => $section,
+            'reason' => $reason
+        ]);
+    }
 }
 
 /**
@@ -3323,7 +3356,7 @@ private function selectAppropriateVenue($rooms, $studentCount, $examDate, $start
 }
 
 /**
- * ✅ FIXED: Check for scheduling conflicts
+ * ✅ UPDATED: Check for scheduling conflicts
  * Allows same lecturer + unit at same time (multiple sections)
  */
 private function checkSchedulingConflicts($semesterId, $classId, $unitId, $examDate, $startTime, $endTime, $lecturer)
@@ -3353,7 +3386,6 @@ private function checkSchedulingConflicts($semesterId, $classId, $unitId, $examD
     }
     
     // ✅ Check if this unit + class already has an exam scheduled
-    // (Prevents duplicate entries for same unit+section)
     $unitClassConflict = DB::table('exam_timetables')
         ->where('semester_id', $semesterId)
         ->where('unit_id', $unitId)

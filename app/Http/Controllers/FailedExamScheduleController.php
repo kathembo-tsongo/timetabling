@@ -60,9 +60,10 @@ class FailedExamScheduleController extends Controller
         $stats = $this->getStatistics($user);
 
         // Get filter options
-        $schools = School::select('id', 'name')->orderBy('name')->get()->toArray();
-        $programs = Program::select('id', 'name', 'school_id')->orderBy('name')->get()->toArray();
+        $schools = School::select('id', 'name')->orderBy('name')->get();
+        $programs = Program::select('id', 'name', 'school_id')->orderBy('name')->get();
 
+        // ✅ MATCHES: Pages/ExamOffice/failedScheduledExams.tsx
         return Inertia::render('ExamOffice/failedScheduledExams', [
             'failedExams' => $failedExams,
             'statistics' => $stats,
@@ -74,7 +75,6 @@ class FailedExamScheduleController extends Controller
                 'program_id' => $request->input('program_id'),
                 'search' => $request->input('search'),
             ],
-            // Exam Office can view and delete only
             'can' => [
                 'view' => true,
                 'delete' => true,
@@ -104,7 +104,8 @@ class FailedExamScheduleController extends Controller
             'deleted_by' => Auth::id(),
         ]);
 
-        return redirect()->back()->with('success', 'Failed exam record deleted successfully.');
+        return redirect()->route('examoffice.failed-scheduled-exams')
+            ->with('success', 'Failed exam record deleted successfully.');
     }
 
     private function getStatistics($user)

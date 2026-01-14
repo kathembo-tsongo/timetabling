@@ -101,7 +101,8 @@ export default function FailedScheduledExams({
     if (selectedProgram) params.set('program_id', selectedProgram.toString())
     if (searchQuery) params.set('search', searchQuery)
 
-    router.get(`/examoffice/failedScheduledExams?${params.toString()}`, {}, {
+    // ✅ UPDATED: Use correct route
+    router.get(`/examoffice/failed-scheduled-exams?${params.toString()}`, {}, {
       preserveState: true,
       preserveScroll: true,
     })
@@ -110,7 +111,8 @@ export default function FailedScheduledExams({
   const handlePageChange = (page: number) => {
     const params = new URLSearchParams(window.location.search)
     params.set('page', page.toString())
-    router.get(`/examoffice/failedScheduledExams?${params.toString()}`, {}, {
+    // ✅ UPDATED: Use correct route
+    router.get(`/examoffice/failed-scheduled-exams?${params.toString()}`, {}, {
       preserveState: true,
       preserveScroll: true,
     })
@@ -120,7 +122,7 @@ export default function FailedScheduledExams({
     if (!selectedFailure) return
 
     router.post(
-      route('admin.failed-exams.resolve', selectedFailure.id),
+      route('examoffice.failed-scheduled-exams.resolve', selectedFailure.id),
       {
         resolution_notes: resolutionNotes,
       },
@@ -142,7 +144,7 @@ export default function FailedScheduledExams({
     if (!selectedFailure) return
 
     router.post(
-      route('admin.failed-exams.ignore', selectedFailure.id),
+      route('examoffice.failed-scheduled-exams.ignore', selectedFailure.id),
       {
         resolution_notes: resolutionNotes,
       },
@@ -164,7 +166,7 @@ export default function FailedScheduledExams({
     if (!confirm('Revert this exam back to pending status?')) return
 
     router.post(
-      route('admin.failed-exams.revert', failure.id),
+      route('examoffice.failed-scheduled-exams.revert', failure.id),
       {},
       {
         onSuccess: () => toast.success('Status reverted to pending'),
@@ -176,7 +178,8 @@ export default function FailedScheduledExams({
   const handleDelete = (id: number) => {
     if (!confirm('Are you sure you want to delete this failure record?')) return
 
-    router.delete(route('admin.failed-exams.destroy', id), {
+    // ✅ UPDATED: Use correct route name
+    router.delete(route('examoffice.failed-scheduled-exams.destroy', id), {
       onSuccess: () => toast.success('Failure record deleted'),
       onError: () => toast.error('Failed to delete record'),
     })
@@ -223,6 +226,7 @@ export default function FailedScheduledExams({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="mb-8">
+            {/* ✅ UPDATED: Use route helper */}
             <Link
               href={route('examoffice.dashboard')}
               className="inline-flex items-center text-red-600 hover:opacity-80 mb-4"

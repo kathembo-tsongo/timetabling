@@ -2487,16 +2487,15 @@ Route::delete('/examrooms/{examroom}', [ExamroomController::class, 'destroy'])
 
    
  // View failed schedules
-    Route::get('/failedScheduledExams', [FailedExamScheduleController::class, 'index'])
-        ->name('admin.failed-exams.index');
+     // ✅ FAILED SCHEDULED EXAMS ROUTES - MATCHES failedScheduledExams.tsx
+    Route::get('/failed-scheduled-exams', [FailedExamScheduleController::class, 'index'])
+        ->name('examoffice.failed-scheduled-exams');
     
-    // View single failed schedule details
-    Route::get('/failed-exams/{failedExam}', [FailedExamScheduleController::class, 'show'])
-        ->name('admin.failed-exams.show');
+    Route::get('/failed-scheduled-exams/{failedExam}', [FailedExamScheduleController::class, 'show'])
+        ->name('examoffice.failed-scheduled-exams.show');
     
-    // Delete failed schedule
-    Route::delete('/failed-exams/{failedExam}', [FailedExamScheduleController::class, 'destroy'])
-        ->name('admin.failed-exams.destroy');
+    Route::delete('/failed-scheduled-exams/{failedExam}', [FailedExamScheduleController::class, 'destroy'])
+        ->name('examoffice.failed-scheduled-exams.destroy');
 
   
 

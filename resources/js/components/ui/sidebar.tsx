@@ -535,11 +535,14 @@ export default function Sidebar({ onClose }: SidebarProps) {
             )}
 
             {can('view-failed-scheduled-exams') && (
-              <Link href="/examoffice/failedscheduledexams" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
-                <FileText className="mr-3 h-5 w-5" />
-                <span>Failed Scheduled Exams</span>
-              </Link>
-            )}
+  <Link 
+    href="/examoffice/failed-scheduled-exams"  // ✅ Use kebab-case URL
+    className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md"
+  >
+    <FileText className="mr-3 h-5 w-5" />
+    <span>Failed Scheduled Exams</span>
+  </Link>
+)}
 
             {can('solve-exam-conflicts') && (
               <Link href="/examoffice/conflicts" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
