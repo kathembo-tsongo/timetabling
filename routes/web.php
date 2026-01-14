@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\ExamTimetableController;
+use App\Http\Controllers\FailedExamScheduleController;
 use App\Http\Controllers\ExamroomController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\ProfileController;
@@ -2484,37 +2485,20 @@ Route::put('/examrooms/{examroom}', [ExamroomController::class, 'update'])
 Route::delete('/examrooms/{examroom}', [ExamroomController::class, 'destroy'])
     ->name('examrooms.destroy');
 
-     // View all scheduling failures
-    Route::get('/exam-scheduling-failures', [ExamTimetableController::class, 'showSchedulingFailures'])
-        ->name('exam-scheduling-failures.index')->middleware('permission:view-exam-timetables');
+   
+ // View failed schedules
+    Route::get('/failedScheduledExams', [FailedExamScheduleController::class, 'index'])
+        ->name('admin.failed-exams.index');
+    
+    // View single failed schedule details
+    Route::get('/failed-exams/{failedExam}', [FailedExamScheduleController::class, 'show'])
+        ->name('admin.failed-exams.show');
+    
+    // Delete failed schedule
+    Route::delete('/failed-exams/{failedExam}', [FailedExamScheduleController::class, 'destroy'])
+        ->name('admin.failed-exams.destroy');
 
-    // Update failure status (resolve, retry, ignore)
-    Route::patch('/exam-scheduling-failures/{id}/status', [
-        ExamTimetableController::class, 
-        'updateFailureStatus'
-    ])->name('exam-scheduling-failures.update-status')
-      ->middleware('permission:edit-exam-timetables');
-
-    // Delete single failure
-    Route::delete('/exam-scheduling-failures/{id}', [
-        ExamTimetableController::class, 
-        'deleteFailure'
-    ])->name('exam-scheduling-failures.destroy')
-      ->middleware('permission:delete-exam-timetables');
-
-    // Delete all failures from a batch
-    Route::delete('/exam-scheduling-failures/batch/{batchId}', [
-        ExamTimetableController::class, 
-        'deleteBatchFailures'
-    ])->name('exam-scheduling-failures.delete-batch')
-      ->middleware('permission:delete-exam-timetables');
-
-    // Export failures to CSV
-    Route::get('/exam-scheduling-failures/export', [
-        ExamTimetableController::class, 
-        'exportFailures'
-    ])->name('exam-scheduling-failures.export')
-      ->middleware('permission:view-exam-timetables');
+  
 
 });
     Route::prefix('classtimeslot')

@@ -30,7 +30,7 @@ class FailedExamScheduleController extends Controller
         }
 
         // Apply status filter
-        if ($request->filled('status')) {
+        if ($request->filled('status') && $request->status !== 'all') {
             $query->where('status', $request->status);
         }
 
@@ -60,125 +60,42 @@ class FailedExamScheduleController extends Controller
         $stats = $this->getStatistics($user);
 
         // Get filter options
-        $schools = School::select('id', 'name')->orderBy('name')->get();
-        $programs = Program::select('id', 'name', 'school_id')->orderBy('name')->get();
+        $schools = School::select('id', 'name')->orderBy('name')->get()->toArray();
+        $programs = Program::select('id', 'name', 'school_id')->orderBy('name')->get()->toArray();
 
-        return Inertia::render('ExamTimetables/FailedSchedules', [
+        return Inertia::render('ExamOffice/failedScheduledExams', [
             'failedExams' => $failedExams,
             'statistics' => $stats,
             'schools' => $schools,
             'programs' => $programs,
-            'filters' => $request->only(['status', 'school_id', 'program_id', 'search']),
+            'filters' => [
+                'status' => $request->input('status'),
+                'school_id' => $request->input('school_id'),
+                'program_id' => $request->input('program_id'),
+                'search' => $request->input('search'),
+            ],
+            // Exam Office can view and delete only
+            'can' => [
+                'view' => true,
+                'delete' => true,
+                'resolve' => false,
+                'ignore' => false,
+                'revert' => false,
+            ]
         ]);
     }
 
     public function show(FailedExamSchedule $failedExam)
     {
-        $this->authorize('view', $failedExam);
-
         $failedExam->load(['program', 'school', 'creator', 'resolver']);
 
-        return Inertia::render('ExamTimetables/FailedScheduleDetail', [
+        return Inertia::render('ExamOffice/FailedScheduleDetail', [
             'failedExam' => $failedExam,
         ]);
     }
 
-    public function resolve(Request $request, FailedExamSchedule $failedExam)
-    {
-        $this->authorize('update', $failedExam);
-
-        $validated = $request->validate([
-            'resolution_notes' => 'nullable|string|max:1000',
-        ]);
-
-        $failedExam->markAsResolved(
-            Auth::user(),
-            $validated['resolution_notes'] ?? null
-        );
-
-        Log::info('Failed exam schedule resolved', [
-            'failed_exam_id' => $failedExam->id,
-            'unit_code' => $failedExam->unit_code,
-            'resolved_by' => Auth::id(),
-        ]);
-
-        return redirect()->back()->with('success', 'Exam marked as resolved successfully.');
-    }
-
-    public function ignore(Request $request, FailedExamSchedule $failedExam)
-    {
-        $this->authorize('update', $failedExam);
-
-        $validated = $request->validate([
-            'resolution_notes' => 'nullable|string|max:1000',
-        ]);
-
-        $failedExam->markAsIgnored(
-            Auth::user(),
-            $validated['resolution_notes'] ?? null
-        );
-
-        Log::info('Failed exam schedule ignored', [
-            'failed_exam_id' => $failedExam->id,
-            'unit_code' => $failedExam->unit_code,
-            'ignored_by' => Auth::id(),
-        ]);
-
-        return redirect()->back()->with('success', 'Exam marked as ignored.');
-    }
-
-    public function revert(FailedExamSchedule $failedExam)
-    {
-        $this->authorize('update', $failedExam);
-
-        $failedExam->update([
-            'status' => 'pending',
-            'resolved_by' => null,
-            'resolved_at' => null,
-            'resolution_notes' => null,
-        ]);
-
-        Log::info('Failed exam schedule reverted to pending', [
-            'failed_exam_id' => $failedExam->id,
-            'unit_code' => $failedExam->unit_code,
-            'reverted_by' => Auth::id(),
-        ]);
-
-        return redirect()->back()->with('success', 'Exam status reverted to pending.');
-    }
-
-    public function bulkResolve(Request $request)
-    {
-        $validated = $request->validate([
-            'failed_exam_ids' => 'required|array',
-            'failed_exam_ids.*' => 'exists:failed_exam_schedules,id',
-            'resolution_notes' => 'nullable|string|max:1000',
-        ]);
-
-        $user = Auth::user();
-        $resolvedCount = 0;
-
-        foreach ($validated['failed_exam_ids'] as $id) {
-            $failedExam = FailedExamSchedule::find($id);
-            
-            if ($failedExam && $user->can('update', $failedExam)) {
-                $failedExam->markAsResolved($user, $validated['resolution_notes'] ?? null);
-                $resolvedCount++;
-            }
-        }
-
-        Log::info('Bulk resolved failed exam schedules', [
-            'count' => $resolvedCount,
-            'resolved_by' => Auth::id(),
-        ]);
-
-        return redirect()->back()->with('success', "Successfully resolved {$resolvedCount} exams.");
-    }
-
     public function destroy(FailedExamSchedule $failedExam)
     {
-        $this->authorize('delete', $failedExam);
-
         $unitCode = $failedExam->unit_code;
         $failedExam->delete();
 
@@ -204,10 +121,10 @@ class FailedExamScheduleController extends Controller
         }
 
         return [
-            'total' => $query->count(),
-            'pending' => (clone $query)->where('status', 'pending')->count(),
-            'resolved' => (clone $query)->where('status', 'resolved')->count(),
-            'ignored' => (clone $query)->where('status', 'ignored')->count(),
+            'total' => (int) $query->count(),
+            'pending' => (int) (clone $query)->where('status', 'pending')->count(),
+            'resolved' => (int) (clone $query)->where('status', 'resolved')->count(),
+            'ignored' => (int) (clone $query)->where('status', 'ignored')->count(),
         ];
     }
 }

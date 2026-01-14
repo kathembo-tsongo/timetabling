@@ -374,7 +374,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
                 <FileText className="mr-3 h-5 w-5" />
                 <span>Exam Rooms</span>
               </Link>
-            )}
+            )}            
 
             {can('view-exam-timetables') && can('view-programs') && (
               <div>
@@ -532,6 +532,13 @@ export default function Sidebar({ onClose }: SidebarProps) {
                   </div>
                 )}
               </div>
+            )}
+
+            {can('view-failed-scheduled-exams') && (
+              <Link href="/examoffice/failedscheduledexams" className="flex items-center px-4 py-2 hover:bg-blue-800 rounded-md">
+                <FileText className="mr-3 h-5 w-5" />
+                <span>Failed Scheduled Exams</span>
+              </Link>
             )}
 
             {can('solve-exam-conflicts') && (

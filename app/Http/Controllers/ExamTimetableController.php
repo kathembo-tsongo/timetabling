@@ -1846,7 +1846,6 @@ public function destroy($id)
         return collect(array_values($roomCapacityData))->sortByDesc('available')->toArray();
     }
 
-    
 public function bulkScheduleExams(Request $request, Program $program, $schoolCode)
 {
     try {
@@ -1862,10 +1861,10 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'excluded_days' => 'array',
             'max_exams_per_day' => 'required|integer|min:1',
             'selected_examrooms' => 'required|array|min:1',
-            'break_minutes' => 'required|integer|min:15', // ✅ ADDED
+            'break_minutes' => 'required|integer|min:15',
         ]);
 
-        Log::info('🎓 Starting INTELLIGENT bulk exam scheduling', [
+        Log::info('🎓 Starting INTELLIGENT bulk exam scheduling with section grouping', [
             'total_selections' => count($validated['selected_class_units']),
             'date_range' => $validated['start_date'] . ' to ' . $validated['end_date'],
             'start_time' => $validated['start_time'],
@@ -1880,7 +1879,7 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ->whereIn('id', $validated['selected_examrooms'])
             ->get();
 
-        // ✅ NEW: Generate 4 time slots based on configuration
+        // ✅ Generate time slots
         $timeSlots = $this->generateTimeSlots(
             $validated['start_time'],
             $validated['exam_duration_hours'],
@@ -1897,38 +1896,43 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             }, $timeSlots)
         ]);
 
-        // ✅ STEP 1: Analyze student workload PER CLASS
+        // ✅ STEP 1: GROUP SECTIONS BY UNIT AND LECTURER
+        $unitGroups = $this->groupSectionsByUnitAndLecturer(
+            $validated['selected_class_units']
+        );
+
+        Log::info('📦 Grouped sections by unit and lecturer', [
+            'total_groups' => count($unitGroups),
+            'groups' => array_map(function($group) {
+                return [
+                    'unit' => $group['unit_code'],
+                    'lecturer' => $group['lecturer'],
+                    'sections_count' => count($group['sections']),
+                    'total_students' => $group['total_students'],
+                    'sections' => array_map(fn($s) => $s['class_name'] . ' ' . ($s['class_section'] ?? ''), $group['sections'])
+                ];
+            }, array_values($unitGroups))
+        ]);
+
+        // ✅ STEP 2: Analyze class workloads
         $classWorkloads = $this->analyzeClassWorkloads(
             $validated['selected_class_units'],
             $validated['semester_id']
         );
 
-        Log::info('📊 Class workload analysis', [
-            'classes_analyzed' => count($classWorkloads),
-            'breakdown' => array_map(function($class) {
-                return [
-                    'class_id' => $class['class_id'],
-                    'class_name' => $class['class_name'],
-                    'total_units' => $class['total_units'],
-                    'policy' => $class['policy'],
-                    'pattern' => $class['pattern']['name'] ?? 'N/A'
-                ];
-            }, $classWorkloads)
-        ]);
-
-        // ✅ STEP 2: Generate available dates
+        // ✅ STEP 3: Generate available dates
         $availableDates = $this->generateAvailableDates(
             $validated['start_date'],
             $validated['end_date'],
             $validated['excluded_days'] ?? []
         );
 
-        // ✅ STEP 3: Split dates into weeks
+        // ✅ STEP 4: Split dates into weeks
         $week1Dates = [];
         $week2Dates = [];
         
         $startCarbon = Carbon::parse($validated['start_date']);
-        $week1End = $startCarbon->copy()->addDays(6); // First 7 days
+        $week1End = $startCarbon->copy()->addDays(6);
         
         foreach ($availableDates as $date) {
             $dateCarbon = Carbon::parse($date);
@@ -1941,25 +1945,10 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
 
         Log::info('📅 Week distribution', [
             'week1_dates' => count($week1Dates),
-            'week2_dates' => count($week2Dates),
-            'week1' => $week1Dates,
-            'week2' => array_slice($week2Dates, 0, 5) // Sample
+            'week2_dates' => count($week2Dates)
         ]);
 
-        // ✅ STEP 4: Sort selections by class
-        $sortedSelections = collect($validated['selected_class_units'])
-            ->groupBy('class_id')
-            ->flatMap(function($classUnits) {
-                return $classUnits; // Keep original order within class
-            })
-            ->values();
-
-        Log::info('📦 Sorted selections by class', [
-            'total' => $sortedSelections->count(),
-            'by_class' => $sortedSelections->groupBy('class_id')->map->count()->toArray()
-        ]);
-
-        // ✅ STEP 5: Initialize class schedule tracking
+        // ✅ STEP 5: Initialize tracking
         $classScheduleTracking = [];
         foreach ($classWorkloads as $classId => $workload) {
             $classScheduleTracking[$classId] = [
@@ -1972,239 +1961,264 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ];
         }
 
-        $venueCapacityUsage = []; // Track 3D: venue -> date -> time_slot
+        $venueCapacityUsage = [];
+        $unitTimeSlotAssignments = []; // Track: unit_code+lecturer -> time_slot
 
-        // ✅ STEP 6: Schedule each exam individually
-        foreach ($sortedSelections as $selection) {
-            $studentCount = $selection['student_count'];
+        // ✅ STEP 6: Schedule each unit group
+        foreach ($unitGroups as $groupKey => $unitGroup) {
+            $totalStudents = $unitGroup['total_students'];
+            $unitCode = $unitGroup['unit_code'];
+            $unitName = $unitGroup['unit_name'];
+            $lecturer = $unitGroup['lecturer'];
+            $sections = $unitGroup['sections'];
 
-            Log::info('🎯 Processing exam', [
-                'class' => $selection['class_name'],
-                'section' => $selection['class_section'],
-                'unit' => $selection['unit_code'],
-                'students' => $studentCount
+            Log::info('🎯 Processing unit group', [
+                'unit' => $unitCode,
+                'lecturer' => $lecturer,
+                'sections' => count($sections),
+                'total_students' => $totalStudents
             ]);
 
-            // ✅ Find suitable date for THIS class
-            $targetDate = $this->selectDateWithSpacing(
-                collect([$selection]),
+            // ✅ Find suitable date considering ALL sections in this group
+            $targetDate = $this->selectDateWithSpacingForGroup(
+                $sections,
                 $classScheduleTracking,
                 $week1Dates,
                 $week2Dates
             );
 
             if (!$targetDate) {
-                $conflicts[] = [
-                    'unit' => $selection['unit_code'],
-                    'class' => $selection['class_name'],
-                    'section' => $selection['class_section'] ?? 'N/A',
-                    'reason' => 'No available date matching spacing policy'
-                ];
-                
-                Log::warning('⚠️ No date found', [
-                    'class' => $selection['class_name'],
-                    'unit' => $selection['unit_code']
-                ]);
-                
-                // Log the failure
-                FailedExamLogger::logFailure(
-                    [
-                        'program_id' => $validated['program_id'],
-                        'school_id' => $validated['school_id'],
-                        'class_name' => $selection['class_name'],
-                        'section' => $selection['class_section'] ?? null,
-                        'unit_code' => $selection['unit_code'],
-                        'unit_name' => $selection['unit_name'],
-                        'student_count' => $selection['student_count'],
-                        'lecturer_name' => $selection['lecturer'] ?? null,
-                    ],
-                    [[
-                        'type' => 'scheduling-error',
-                        'message' => 'No available date matching spacing policy',
-                        'date' => null,
-                    ]],
-                    null
-                );
-                
+                foreach ($sections as $section) {
+                    $conflicts[] = [
+                        'unit' => $unitCode,
+                        'class' => $section['class_name'],
+                        'section' => $section['class_section'] ?? 'N/A',
+                        'reason' => 'No available date matching spacing policy'
+                    ];
+
+                    $this->logSchedulingFailure(
+                        $validated,
+                        $section,
+                        'No available date matching spacing policy',
+                        null,
+                        null
+                    );
+                }
                 continue;
             }
 
-            // ✅ RANDOMLY SELECT ONE OF THE 4 TIME SLOTS
-            $randomSlot = $timeSlots[array_rand($timeSlots)];
-            $startTime = $randomSlot['start_time'];
-            $endTime = $randomSlot['end_time'];
+            // ✅ ASSIGN OR REUSE TIME SLOT FOR THIS UNIT+LECTURER COMBO
+            $unitLecturerKey = $unitCode . '_' . ($lecturer ?? 'NO_LECTURER');
+            
+            if (isset($unitTimeSlotAssignments[$unitLecturerKey])) {
+                // Reuse the same time slot for consistency
+                $assignedSlot = $unitTimeSlotAssignments[$unitLecturerKey];
+                Log::info('🔄 Reusing time slot for unit+lecturer', [
+                    'unit' => $unitCode,
+                    'lecturer' => $lecturer,
+                    'slot' => $assignedSlot['slot_number']
+                ]);
+            } else {
+                // Randomly assign a new time slot
+                $assignedSlot = $timeSlots[array_rand($timeSlots)];
+                $unitTimeSlotAssignments[$unitLecturerKey] = $assignedSlot;
+                Log::info('🎲 New time slot assigned', [
+                    'unit' => $unitCode,
+                    'lecturer' => $lecturer,
+                    'slot' => $assignedSlot['slot_number']
+                ]);
+            }
+
+            $startTime = $assignedSlot['start_time'];
+            $endTime = $assignedSlot['end_time'];
             $timeSlotKey = "{$startTime}-{$endTime}";
 
-            Log::info("🎲 Randomly assigned time slot #{$randomSlot['slot_number']}", [
-                'unit' => $selection['unit_code'],
-                'class' => $selection['class_name'],
-                'time' => $timeSlotKey
-            ]);
-
-            // ✅ Find venue
-            $venueResult = $this->findVenueWithRemainingCapacity(
+            // ✅ Find venue(s) that can accommodate all students
+            $venueResult = $this->findVenuesForGroup(
                 $selectedRooms,
-                $studentCount,
+                $totalStudents,
                 $targetDate,
                 $timeSlotKey,
                 $venueCapacityUsage
             );
 
             if (!$venueResult['success']) {
-                $conflicts[] = [
-                    'unit' => $selection['unit_code'],
-                    'class' => $selection['class_name'],
-                    'section' => $selection['class_section'] ?? 'N/A',
-                    'reason' => $venueResult['message']
-                ];
+                foreach ($sections as $section) {
+                    $conflicts[] = [
+                        'unit' => $unitCode,
+                        'class' => $section['class_name'],
+                        'section' => $section['class_section'] ?? 'N/A',
+                        'reason' => $venueResult['message']
+                    ];
+
+                    $this->logSchedulingFailure(
+                        $validated,
+                        $section,
+                        $venueResult['message'],
+                        $targetDate,
+                        $timeSlotKey
+                    );
+                }
+                continue;
+            }
+
+            // ✅ Check conflicts for all sections
+            $hasAnyConflict = false;
+            foreach ($sections as $section) {
+                $hasConflict = $this->checkSchedulingConflicts(
+                    $validated['semester_id'],
+                    $section['class_id'],
+                    $section['unit_id'],
+                    $targetDate,
+                    $startTime,
+                    $endTime,
+                    $lecturer
+                );
+
+                if ($hasConflict) {
+                    $hasAnyConflict = true;
+                    break;
+                }
+            }
+
+            if ($hasAnyConflict) {
+                foreach ($sections as $section) {
+                    $conflicts[] = [
+                        'unit' => $unitCode,
+                        'class' => $section['class_name'],
+                        'section' => $section['class_section'] ?? 'N/A',
+                        'reason' => 'Scheduling conflict detected'
+                    ];
+
+                    $this->logSchedulingFailure(
+                        $validated,
+                        $section,
+                        'Scheduling conflict detected',
+                        $targetDate,
+                        $timeSlotKey
+                    );
+                }
+                continue;
+            }
+
+            // ✅ CREATE EXAM RECORDS FOR ALL SECTIONS
+            $scheduledInGroup = [];
+            $venueIndex = 0;
+            $remainingVenueCapacity = $venueResult['venues'][$venueIndex]['remaining_capacity'];
+            $currentVenue = $venueResult['venues'][$venueIndex]['name'];
+            $currentLocation = $venueResult['venues'][$venueIndex]['location'];
+
+            foreach ($sections as $section) {
+                $sectionStudents = $section['student_count'];
                 
-                // Log the venue failure
-                FailedExamLogger::logFailure(
-                    [
+                // Handle venue overflow for this section
+                while ($sectionStudents > 0 && $venueIndex < count($venueResult['venues'])) {
+                    $studentsToAssign = min($sectionStudents, $remainingVenueCapacity);
+                    
+                    // If we need to split students across venues
+                    if ($studentsToAssign < $sectionStudents) {
+                        Log::info('⚠️ Section split across venues', [
+                            'section' => $section['class_name'],
+                            'students' => $sectionStudents,
+                            'venue' => $currentVenue,
+                            'assigned' => $studentsToAssign
+                        ]);
+                    }
+
+                    $classInfo = DB::table('classes')->where('id', $section['class_id'])->first();
+
+                    $examId = DB::table('exam_timetables')->insertGetId([
+                        'semester_id' => $validated['semester_id'],
+                        'class_id' => $section['class_id'],
+                        'unit_id' => $section['unit_id'],
                         'program_id' => $validated['program_id'],
                         'school_id' => $validated['school_id'],
-                        'class_name' => $selection['class_name'],
-                        'section' => $selection['class_section'] ?? null,
-                        'unit_code' => $selection['unit_code'],
-                        'unit_name' => $selection['unit_name'],
-                        'student_count' => $selection['student_count'],
-                        'lecturer_name' => $selection['lecturer'] ?? null,
-                    ],
-                    [[
-                        'type' => 'no-venue',
-                        'message' => $venueResult['message'],
                         'date' => $targetDate,
-                        'time' => $timeSlotKey,
-                    ]],
-                    [$targetDate]
-                );
-                
-                continue;
-            }
+                        'day' => Carbon::parse($targetDate)->format('l'),
+                        'start_time' => $startTime,
+                        'end_time' => $endTime,
+                        'venue' => $currentVenue,
+                        'location' => $currentLocation ?? 'Phase 2',
+                        'group_name' => $classInfo->section ?? 'N/A',
+                        'no' => $studentsToAssign,
+                        'chief_invigilator' => $lecturer ?? 'TBD',
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
 
-            // ✅ Check conflicts
-            $hasConflict = $this->checkSchedulingConflicts(
-                $validated['semester_id'],
-                $selection['class_id'],
-                $selection['unit_id'],
-                $targetDate,
-                $startTime,
-                $endTime,
-                $selection['lecturer']
-            );
-
-            if ($hasConflict) {
-                $conflicts[] = [
-                    'unit' => $selection['unit_code'],
-                    'class' => $selection['class_name'],
-                    'section' => $selection['class_section'] ?? 'N/A',
-                    'reason' => 'Scheduling conflict detected'
-                ];
-                
-                // Log the conflict
-                FailedExamLogger::logFailure(
-                    [
-                        'program_id' => $validated['program_id'],
-                        'school_id' => $validated['school_id'],
-                        'class_name' => $selection['class_name'],
-                        'section' => $selection['class_section'] ?? null,
-                        'unit_code' => $selection['unit_code'],
-                        'unit_name' => $selection['unit_name'],
-                        'student_count' => $selection['student_count'],
-                        'lecturer_name' => $selection['lecturer'] ?? null,
-                    ],
-                    [[
-                        'type' => 'student-conflict',
-                        'message' => 'Scheduling conflict detected',
+                    $scheduledInGroup[] = [
+                        'id' => $examId,
+                        'unit_code' => $unitCode,
+                        'unit_name' => $unitName,
+                        'class_name' => $classInfo->name,
+                        'class_section' => $classInfo->section ?? 'N/A',
+                        'student_count' => $studentsToAssign,
                         'date' => $targetDate,
-                        'time' => "{$startTime} - {$endTime}",
-                    ]],
-                    [$targetDate]
-                );
-                
-                continue;
+                        'time' => "$startTime - $endTime",
+                        'slot_number' => $assignedSlot['slot_number'],
+                        'venue' => $currentVenue
+                    ];
+
+                    // Update venue usage
+                    $this->updateVenueCapacityUsage(
+                        $venueCapacityUsage,
+                        $currentVenue,
+                        $targetDate,
+                        $timeSlotKey,
+                        $studentsToAssign
+                    );
+
+                    $sectionStudents -= $studentsToAssign;
+                    $remainingVenueCapacity -= $studentsToAssign;
+
+                    // Move to next venue if current is full
+                    if ($remainingVenueCapacity <= 0 && $venueIndex < count($venueResult['venues']) - 1) {
+                        $venueIndex++;
+                        $currentVenue = $venueResult['venues'][$venueIndex]['name'];
+                        $currentLocation = $venueResult['venues'][$venueIndex]['location'];
+                        $remainingVenueCapacity = $venueResult['venues'][$venueIndex]['remaining_capacity'];
+                    }
+                }
+
+                // Update class tracking
+                $classScheduleTracking[$section['class_id']]['scheduled_dates'][] = $targetDate;
+                $classScheduleTracking[$section['class_id']]['exams_scheduled']++;
+                $classScheduleTracking[$section['class_id']]['pattern_index']++;
             }
 
-            // ✅ Create exam
-            $classInfo = DB::table('classes')->where('id', $selection['class_id'])->first();
-
-            if (!$classInfo) {
-                Log::warning("Class not found", ['class_id' => $selection['class_id']]);
-                continue;
-            }
-
-            $examId = DB::table('exam_timetables')->insertGetId([
-                'semester_id' => $validated['semester_id'],
-                'class_id' => $selection['class_id'],
-                'unit_id' => $selection['unit_id'],
-                'program_id' => $validated['program_id'],
-                'school_id' => $validated['school_id'],
-                'date' => $targetDate,
-                'day' => Carbon::parse($targetDate)->format('l'),
-                'start_time' => $startTime,
-                'end_time' => $endTime,
-                'venue' => $venueResult['venue'],
-                'location' => $venueResult['location'] ?? 'Phase 2',
-                'group_name' => $classInfo->section ?? 'N/A',
-                'no' => $studentCount,
-                'chief_invigilator' => $selection['lecturer'] ?? 'TBD',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            // ✅ Update class tracking
-            $classScheduleTracking[$selection['class_id']]['scheduled_dates'][] = $targetDate;
-            $classScheduleTracking[$selection['class_id']]['exams_scheduled']++;
-            $classScheduleTracking[$selection['class_id']]['pattern_index']++;
-
-            Log::info('✅ Exam created with random time slot', [
-                'exam_id' => $examId,
-                'date' => $targetDate,
-                'slot' => "#{$randomSlot['slot_number']} ({$timeSlotKey})",
-                'venue' => $venueResult['venue'],
-                'class_tracking' => $classScheduleTracking[$selection['class_id']]
-            ]);
-
-            $scheduled[] = [
-                'id' => $examId,
-                'unit_code' => $selection['unit_code'],
-                'unit_name' => $selection['unit_name'],
-                'class_name' => $classInfo->name,
-                'class_section' => $classInfo->section ?? 'N/A',
-                'student_count' => $studentCount,
+            Log::info('✅ Unit group scheduled together', [
+                'unit' => $unitCode,
+                'lecturer' => $lecturer,
+                'sections' => count($sections),
+                'exams_created' => count($scheduledInGroup),
                 'date' => $targetDate,
                 'time' => "$startTime - $endTime",
-                'slot_number' => $randomSlot['slot_number'], // ✅ ADDED
-                'venue' => $venueResult['venue']
-            ];
+                'slot' => $assignedSlot['slot_number'],
+                'venues' => implode(', ', array_unique(array_column($scheduledInGroup, 'venue')))
+            ]);
 
-            // ✅ Update venue usage
-            $this->updateVenueCapacityUsage(
-                $venueCapacityUsage,
-                $venueResult['venue'],
-                $targetDate,
-                $timeSlotKey,
-                $studentCount
-            );
+            $scheduled = array_merge($scheduled, $scheduledInGroup);
         }
 
         Log::info('🎉 Intelligent bulk scheduling complete', [
             'scheduled' => count($scheduled),
             'conflicts' => count($conflicts),
+            'unit_groups_processed' => count($unitGroups),
             'time_slot_distribution' => collect($scheduled)->groupBy('slot_number')->map->count()->toArray()
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => count($scheduled) . ' exams scheduled with intelligent spacing across ' . count($timeSlots) . ' time slots',
+            'message' => count($scheduled) . ' exams scheduled with section grouping',
             'scheduled' => $scheduled,
             'conflicts' => $conflicts,
             'summary' => [
                 'total_requested' => count($validated['selected_class_units']),
                 'successfully_scheduled' => count($scheduled),
                 'conflicts' => count($conflicts),
-                'time_slots_used' => count($timeSlots), // ✅ ADDED
-                'slot_distribution' => collect($scheduled)->groupBy('slot_number')->map->count()->toArray() // ✅ ADDED
+                'unit_groups' => count($unitGroups),
+                'time_slots_used' => count($timeSlots),
+                'slot_distribution' => collect($scheduled)->groupBy('slot_number')->map->count()->toArray()
             ]
         ]);
 
@@ -2219,6 +2233,211 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'message' => 'Failed to schedule exams: ' . $e->getMessage()
         ], 500);
     }
+}
+
+private function groupSectionsByUnitAndLecturer($selections)
+{
+    $groups = [];
+
+    foreach ($selections as $selection) {
+        $unitCode = $selection['unit_code'];
+        $lecturer = $selection['lecturer'] ?? 'NO_LECTURER';
+        
+        // Create unique key for unit + lecturer combination
+        $groupKey = $unitCode . '___' . $lecturer;
+
+        if (!isset($groups[$groupKey])) {
+            $groups[$groupKey] = [
+                'unit_code' => $unitCode,
+                'unit_name' => $selection['unit_name'],
+                'unit_id' => $selection['unit_id'],
+                'lecturer' => $lecturer === 'NO_LECTURER' ? null : $lecturer,
+                'sections' => [],
+                'total_students' => 0,
+            ];
+        }
+
+        $groups[$groupKey]['sections'][] = $selection;
+        $groups[$groupKey]['total_students'] += $selection['student_count'];
+    }
+
+    return $groups;
+}
+
+private function selectDateWithSpacingForGroup(
+    $sections,
+    &$classScheduleTracking,
+    $week1Dates,
+    $week2Dates
+) {
+    // Get all class IDs in this group
+    $classIds = array_unique(array_column($sections, 'class_id'));
+    
+    // Find dates that work for ALL classes in this group
+    $candidateDates = array_merge($week1Dates, $week2Dates);
+    
+    foreach ($candidateDates as $date) {
+        $dateWorksForAll = true;
+        
+        foreach ($classIds as $classId) {
+            if (!isset($classScheduleTracking[$classId])) {
+                continue;
+            }
+            
+            $tracking = $classScheduleTracking[$classId];
+            
+            // Check spacing policy
+            if (!$this->dateRespectsSpacingPolicy($date, $tracking)) {
+                $dateWorksForAll = false;
+                break;
+            }
+        }
+        
+        if ($dateWorksForAll) {
+            return $date;
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Check if date respects spacing policy for a class
+ */
+private function dateRespectsSpacingPolicy($date, $tracking)
+{
+    $scheduledDates = $tracking['scheduled_dates'];
+    
+    if (empty($scheduledDates)) {
+        return true; // First exam, any date works
+    }
+    
+    $dateCarbon = Carbon::parse($date);
+    $lastScheduledDate = Carbon::parse(end($scheduledDates));
+    
+    $policy = $tracking['policy'];
+    $pattern = $tracking['pattern'];
+    
+    // Check based on policy
+    switch ($policy) {
+        case 'spread_evenly':
+            $minDaysBetween = 1;
+            break;
+            
+        case 'alternate_days':
+            $minDaysBetween = 1;
+            break;
+            
+        case 'custom_pattern':
+            $minDaysBetween = $pattern['min_gap_days'] ?? 1;
+            break;
+            
+        default:
+            $minDaysBetween = 0;
+    }
+    
+    $daysBetween = $lastScheduledDate->diffInDays($dateCarbon);
+    
+    return $daysBetween >= $minDaysBetween;
+}
+
+/**
+ * Find venue(s) that can accommodate all students in a group
+ */
+private function findVenuesForGroup(
+    $selectedRooms,
+    $totalStudents,
+    $date,
+    $timeSlotKey,
+    &$venueCapacityUsage
+) {
+    $requiredVenues = [];
+    $remainingStudents = $totalStudents;
+    
+    foreach ($selectedRooms as $room) {
+        if ($remainingStudents <= 0) {
+            break;
+        }
+        
+        $venueName = $room->name;
+        $venueCapacity = $room->capacity;
+        
+        // Check current usage
+        $usedCapacity = $venueCapacityUsage[$venueName][$date][$timeSlotKey] ?? 0;
+        $availableCapacity = $venueCapacity - $usedCapacity;
+        
+        if ($availableCapacity > 0) {
+            $studentsToAssign = min($remainingStudents, $availableCapacity);
+            
+            $requiredVenues[] = [
+                'id' => $room->id,
+                'name' => $venueName,
+                'location' => $room->location ?? 'Phase 2',
+                'total_capacity' => $venueCapacity,
+                'remaining_capacity' => $availableCapacity,
+                'students_assigned' => $studentsToAssign,
+            ];
+            
+            $remainingStudents -= $studentsToAssign;
+        }
+    }
+    
+    if ($remainingStudents > 0) {
+        return [
+            'success' => false,
+            'message' => "Insufficient venue capacity. Need space for {$remainingStudents} more students.",
+        ];
+    }
+    
+    return [
+        'success' => true,
+        'venues' => $requiredVenues,
+        'total_venues_used' => count($requiredVenues),
+    ];
+}
+
+/**
+ * Log scheduling failure to database
+ */
+private function logSchedulingFailure(
+    array $validated,
+    array $section,
+    string $reason,
+    ?string $attemptedDate,
+    ?string $attemptedTime,
+    array $classIds = [],
+    array $classNames = []
+) {
+    FailedExamSchedule::create([
+        // REQUIRED (NOT NULL)
+        'batch_id'      => $validated['batch_id'] ?? null,
+        'semester_id'   => $validated['semester_id'] ?? null,
+        'unit_id'       => $section['unit_id'] ?? null,
+        'class_ids'     => json_encode($classIds),
+        'class_names'   => implode(', ', $classNames),
+
+        // OPTIONAL (nullable in DB)
+        'program_id'    => $validated['program_id'] ?? null,
+        'school_id'     => $validated['school_id'] ?? null,
+
+        // UNIT DETAILS
+        'unit_code'     => $section['unit_code'] ?? null,
+        'unit_name'     => $section['unit_name'] ?? null,
+        'student_count' => $section['student_count'] ?? 0,
+
+        // ATTEMPTED SLOT
+        'attempted_date'        => $attemptedDate,
+        'attempted_start_time' => $attemptedTime ? explode('-', $attemptedTime)[0] : null,
+        'attempted_end_time'   => $attemptedTime ? explode('-', $attemptedTime)[1] : null,
+
+        // FAILURE DETAILS
+        'failure_reason' => $reason,
+        'status'         => 'pending',
+
+        // TIMESTAMPS
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
 }
 
 /**
