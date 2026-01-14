@@ -1403,7 +1403,7 @@ public function destroy($id)
      * ✅ FIXED: Store a new exam timetable for a specific program
      */
   
-    public function storeProgramExamTimetable(Program $program, Request $request, $schoolCode)
+   public function storeProgramExamTimetable(Program $program, Request $request, $schoolCode)
 {
     \Log::info('=== EXAM TIMETABLE STORE REQUEST ===', [
         'program_id' => $program->id,
@@ -1418,16 +1418,16 @@ public function destroy($id)
         'day' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
         'start_time' => 'required|date_format:H:i',
         'end_time' => 'required|date_format:H:i|after:start_time',
-        'venue' => 'required|string|exists:examrooms,name',  // ✅ ADD THIS
+        'venue' => 'required|string|exists:examrooms,name',  // ✅ User selects venue
         'location' => 'nullable|string|max:255',
         'chief_invigilator' => 'required|string|max:255',
-     
+        'no' => 'required|integer|min:1',
     ]);
 
     try {
-        // ✅ CORRECT: Use group_id to identify individual sections
+        // ✅ Get ALL sections for this unit
         $sectionsWithStudents = DB::table('enrollments')
-            ->join('classes', 'enrollments.group_id', '=', 'classes.id') // ✅ KEY FIX: group_id!
+            ->join('classes', 'enrollments.group_id', '=', 'classes.id')
             ->where('enrollments.unit_id', $validatedData['unit_id'])
             ->where('enrollments.semester_id', $validatedData['semester_id'])
             ->where('classes.program_id', $program->id)
@@ -1465,7 +1465,25 @@ public function destroy($id)
             })->toArray()
         ]);
 
-        // ✅ Schedule EACH section separately
+        // ✅ USE THE USER-SELECTED VENUE (from validation)
+        $selectedVenue = $validatedData['venue'];
+        $selectedLocation = $validatedData['location'] ?? 'Main Campus';
+
+        // ✅ CHECK: Does the venue have enough capacity for ALL sections combined?
+        $totalStudents = $sectionsWithStudents->sum('student_count');
+        $venueCapacity = DB::table('examrooms')
+            ->where('name', $selectedVenue)
+            ->value('capacity');
+
+        if ($venueCapacity < $totalStudents) {
+            return redirect()->back()
+                ->withErrors([
+                    'venue' => "Selected venue {$selectedVenue} (capacity: {$venueCapacity}) cannot accommodate {$totalStudents} students across all sections."
+                ])
+                ->withInput();
+        }
+
+        // ✅ Schedule EACH section separately with SAME venue
         $scheduledExams = [];
         $failedSections = [];
 
@@ -1477,37 +1495,21 @@ public function destroy($id)
                 'students' => $section->student_count
             ]);
 
-            // Find venue for THIS section only
-            $venueResult = $this->assignSmartVenue(
-                $section->student_count,
-                $validatedData['date'],
-                $validatedData['start_time'],
-                $validatedData['end_time']
-            );
-
-            if (!$venueResult['success']) {
-                $failedSections[] = [
-                    'class' => $fullClassName,
-                    'students' => $section->student_count,
-                    'reason' => $venueResult['message']
-                ];
-                continue;
-            }
-
-            // Create exam for this section
+            // ✅ Create exam for this section using the SELECTED venue
             $examData = [
                 'unit_id' => $validatedData['unit_id'],
                 'semester_id' => $validatedData['semester_id'],
-                'class_id' => $section->class_id, // Individual section ID
+                'class_id' => $section->class_id,
                 'program_id' => $program->id,
                 'school_id' => $program->school_id,
+                'group_name' => $section->class_section ?? 'N/A',  // ✅ Section info
                 'date' => $validatedData['date'],
                 'day' => $validatedData['day'],
                 'start_time' => $validatedData['start_time'],
                 'end_time' => $validatedData['end_time'],
-                'venue' => $venueResult['venue'],
-                'location' => $venueResult['location'] ?? 'Main Campus',
-                'no' => $section->student_count, // Individual count
+                'venue' => $selectedVenue,  // ✅ Use selected venue
+                'location' => $selectedLocation,
+                'no' => $section->student_count,
                 'chief_invigilator' => $validatedData['chief_invigilator'],
             ];
 
@@ -1517,28 +1519,21 @@ public function destroy($id)
                 'exam_id' => $createdExam->id,
                 'class' => $fullClassName,
                 'students' => $section->student_count,
-                'venue' => $venueResult['venue'],
+                'venue' => $selectedVenue,
             ];
 
             \Log::info('✅ Exam scheduled', [
                 'class' => $fullClassName,
                 'students' => $section->student_count,
-                'venue' => $venueResult['venue']
+                'venue' => $selectedVenue
             ]);
         }
 
         if (!empty($scheduledExams)) {
-            $message = "✅ Scheduled " . count($scheduledExams) . " section(s):\n\n";
+            $message = "✅ Scheduled " . count($scheduledExams) . " section(s) in {$selectedVenue}:\n\n";
             
             foreach ($scheduledExams as $exam) {
-                $message .= "• {$exam['class']}: {$exam['students']} students → {$exam['venue']}\n";
-            }
-
-            if (!empty($failedSections)) {
-                $message .= "\n⚠️ Failed:\n";
-                foreach ($failedSections as $failed) {
-                    $message .= "• {$failed['class']}: {$failed['reason']}\n";
-                }
+                $message .= "• {$exam['class']}: {$exam['students']} students\n";
             }
 
             return redirect()
@@ -1896,7 +1891,10 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'break_minutes' => 'required|integer|min:15',
         ]);
 
+        $validated['batch_id'] = 'BATCH_' . now()->format('YmdHis') . '_' . uniqid();
+
         Log::info('🎓 Starting INTELLIGENT bulk exam scheduling with section grouping', [
+            'batch_id' => $validated['batch_id'],
             'total_selections' => count($validated['selected_class_units']),
             'date_range' => $validated['start_date'] . ' to ' . $validated['end_date'],
             'start_time' => $validated['start_time'],
@@ -1911,12 +1909,11 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ->whereIn('id', $validated['selected_examrooms'])
             ->get();
 
-        // ✅ Generate time slots
         $timeSlots = $this->generateTimeSlots(
             $validated['start_time'],
             $validated['exam_duration_hours'],
             $validated['break_minutes'],
-            4 // Maximum 4 slots per day
+            4
         );
 
         Log::info('🕐 Generated time slots', [
@@ -1928,75 +1925,42 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             }, $timeSlots)
         ]);
 
-        // ✅ STEP 1: GROUP SECTIONS BY UNIT AND LECTURER
         $unitGroups = $this->groupSectionsByUnitAndLecturer(
             $validated['selected_class_units']
         );
 
         Log::info('📦 Grouped sections by unit and lecturer', [
-            'total_groups' => count($unitGroups),
-            'groups' => array_map(function($group) {
-                return [
-                    'unit' => $group['unit_code'],
-                    'lecturer' => $group['lecturer'],
-                    'sections_count' => count($group['sections']),
-                    'total_students' => $group['total_students'],
-                    'sections' => array_map(fn($s) => $s['class_name'] . ' ' . ($s['class_section'] ?? ''), $group['sections'])
-                ];
-            }, array_values($unitGroups))
+            'total_groups' => count($unitGroups)
         ]);
 
-        // ✅ STEP 2: Analyze class workloads
-        $classWorkloads = $this->analyzeClassWorkloads(
-            $validated['selected_class_units'],
-            $validated['semester_id']
-        );
-
-        // ✅ STEP 3: Generate available dates
         $availableDates = $this->generateAvailableDates(
             $validated['start_date'],
             $validated['end_date'],
             $validated['excluded_days'] ?? []
         );
 
-        // ✅ STEP 4: Split dates into weeks
-        $week1Dates = [];
-        $week2Dates = [];
-        
-        $startCarbon = Carbon::parse($validated['start_date']);
-        $week1End = $startCarbon->copy()->addDays(6);
-        
-        foreach ($availableDates as $date) {
-            $dateCarbon = Carbon::parse($date);
-            if ($dateCarbon->lte($week1End)) {
-                $week1Dates[] = $date;
-            } else {
-                $week2Dates[] = $date;
+        Log::info('📅 Available dates', [
+            'total_dates' => count($availableDates),
+            'dates' => $availableDates
+        ]);
+
+        $classScheduleTracking = [];
+        foreach ($validated['selected_class_units'] as $selection) {
+            $classId = $selection['class_id'];
+            
+            if (!isset($classScheduleTracking[$classId])) {
+                $classScheduleTracking[$classId] = [
+                    'class_id' => $classId,
+                    'class_name' => $selection['class_name'],
+                    'exams_scheduled' => 0,
+                    'scheduled_dates' => []
+                ];
             }
         }
 
-        Log::info('📅 Week distribution', [
-            'week1_dates' => count($week1Dates),
-            'week2_dates' => count($week2Dates)
-        ]);
-
-        // ✅ STEP 5: Initialize tracking
-        $classScheduleTracking = [];
-        foreach ($classWorkloads as $classId => $workload) {
-            $classScheduleTracking[$classId] = [
-                'policy' => $workload['policy'],
-                'total_units' => $workload['total_units'],
-                'pattern' => $workload['pattern'],
-                'pattern_index' => $workload['pattern_index'],
-                'exams_scheduled' => $workload['exams_scheduled'],
-                'scheduled_dates' => []
-            ];
-        }
-
         $venueCapacityUsage = [];
-        $unitTimeSlotAssignments = []; // Track: unit_code+lecturer -> time_slot
+        $unitTimeSlotAssignments = [];
 
-        // ✅ STEP 6: Schedule each unit group
         foreach ($unitGroups as $groupKey => $unitGroup) {
             $totalStudents = $unitGroup['total_students'];
             $unitCode = $unitGroup['unit_code'];
@@ -2011,13 +1975,40 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 'total_students' => $totalStudents
             ]);
 
-            // ✅ Find suitable date considering ALL sections in this group
-            $targetDate = $this->selectDateWithSpacingForGroup(
-                $sections,
-                $classScheduleTracking,
-                $week1Dates,
-                $week2Dates
-            );
+            // ✅ Find suitable date
+            $targetDate = null;
+            $classIds = array_unique(array_column($sections, 'class_id'));
+            
+            foreach ($availableDates as $candidateDate) {
+                $dateWorksForAll = true;
+                
+                foreach ($classIds as $classId) {
+                    if (isset($classScheduleTracking[$classId])) {
+                        $scheduledDates = $classScheduleTracking[$classId]['scheduled_dates'];
+                        
+                        if (in_array($candidateDate, $scheduledDates)) {
+                            $dateWorksForAll = false;
+                            break;
+                        }
+                        
+                        if (!empty($scheduledDates)) {
+                            $lastDate = Carbon::parse(end($scheduledDates));
+                            $currentDate = Carbon::parse($candidateDate);
+                            $daysBetween = $lastDate->diffInDays($currentDate);
+                            
+                            if ($daysBetween < 1) {
+                                $dateWorksForAll = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if ($dateWorksForAll) {
+                    $targetDate = $candidateDate;
+                    break;
+                }
+            }
 
             if (!$targetDate) {
                 foreach ($sections as $section) {
@@ -2025,13 +2016,13 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                         'unit' => $unitCode,
                         'class' => $section['class_name'],
                         'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => 'No available date matching spacing policy'
+                        'reason' => 'No available date with proper spacing'
                     ];
 
                     $this->logSchedulingFailure(
                         $validated,
                         $section,
-                        'No available date matching spacing policy',
+                        'No available date with proper spacing',
                         null,
                         null
                     );
@@ -2039,33 +2030,19 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 continue;
             }
 
-            // ✅ ASSIGN OR REUSE TIME SLOT FOR THIS UNIT+LECTURER COMBO
             $unitLecturerKey = $unitCode . '_' . ($lecturer ?? 'NO_LECTURER');
             
             if (isset($unitTimeSlotAssignments[$unitLecturerKey])) {
-                // Reuse the same time slot for consistency
                 $assignedSlot = $unitTimeSlotAssignments[$unitLecturerKey];
-                Log::info('🔄 Reusing time slot for unit+lecturer', [
-                    'unit' => $unitCode,
-                    'lecturer' => $lecturer,
-                    'slot' => $assignedSlot['slot_number']
-                ]);
             } else {
-                // Randomly assign a new time slot
                 $assignedSlot = $timeSlots[array_rand($timeSlots)];
                 $unitTimeSlotAssignments[$unitLecturerKey] = $assignedSlot;
-                Log::info('🎲 New time slot assigned', [
-                    'unit' => $unitCode,
-                    'lecturer' => $lecturer,
-                    'slot' => $assignedSlot['slot_number']
-                ]);
             }
 
             $startTime = $assignedSlot['start_time'];
             $endTime = $assignedSlot['end_time'];
             $timeSlotKey = "{$startTime}-{$endTime}";
 
-            // ✅ Find venue(s) that can accommodate all students
             $venueResult = $this->findVenuesForGroup(
                 $selectedRooms,
                 $totalStudents,
@@ -2094,7 +2071,6 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 continue;
             }
 
-            // ✅ Check conflicts for all sections
             $hasAnyConflict = false;
             foreach ($sections as $section) {
                 $hasConflict = $this->checkSchedulingConflicts(
@@ -2133,110 +2109,127 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 continue;
             }
 
-            // ✅ CREATE EXAM RECORDS FOR ALL SECTIONS
+            // ✅ CREATE EXAM RECORDS - KEEP SECTIONS TOGETHER
             $scheduledInGroup = [];
-            $venueIndex = 0;
-            $remainingVenueCapacity = $venueResult['venues'][$venueIndex]['remaining_capacity'];
-            $currentVenue = $venueResult['venues'][$venueIndex]['name'];
-            $currentLocation = $venueResult['venues'][$venueIndex]['location'];
 
             foreach ($sections as $section) {
                 $sectionStudents = $section['student_count'];
+                $classInfo = DB::table('classes')->where('id', $section['class_id'])->first();
                 
-                // Handle venue overflow for this section
-                while ($sectionStudents > 0 && $venueIndex < count($venueResult['venues'])) {
-                    $studentsToAssign = min($sectionStudents, $remainingVenueCapacity);
+                // ✅ Find a venue that can fit THIS ENTIRE SECTION
+                $sectionVenue = null;
+                $sectionLocation = null;
+                
+                foreach ($venueResult['venues'] as $venueOption) {
+                    $venueName = $venueOption['name'];
+                    $venueCapacity = $venueOption['total_capacity'];
                     
-                    // If we need to split students across venues
-                    if ($studentsToAssign < $sectionStudents) {
-                        Log::info('⚠️ Section split across venues', [
-                            'section' => $section['class_name'],
+                    $usedCapacity = $venueCapacityUsage[$venueName][$targetDate][$timeSlotKey] ?? 0;
+                    $availableCapacity = $venueCapacity - $usedCapacity;
+                    
+                    // ✅ KEY FIX: Venue must fit the ENTIRE section
+                    if ($availableCapacity >= $sectionStudents) {
+                        $sectionVenue = $venueName;
+                        $sectionLocation = $venueOption['location'];
+                        
+                        Log::info('✅ Found venue for entire section', [
+                            'section' => $classInfo->name . ' ' . ($classInfo->section ?? ''),
                             'students' => $sectionStudents,
-                            'venue' => $currentVenue,
-                            'assigned' => $studentsToAssign
+                            'venue' => $sectionVenue,
+                            'available_capacity' => $availableCapacity
                         ]);
-                    }
-
-                    $classInfo = DB::table('classes')->where('id', $section['class_id'])->first();
-
-                    $examId = DB::table('exam_timetables')->insertGetId([
-                        'semester_id' => $validated['semester_id'],
-                        'class_id' => $section['class_id'],
-                        'unit_id' => $section['unit_id'],
-                        'program_id' => $validated['program_id'],
-                        'school_id' => $validated['school_id'],
-                        'date' => $targetDate,
-                        'day' => Carbon::parse($targetDate)->format('l'),
-                        'start_time' => $startTime,
-                        'end_time' => $endTime,
-                        'venue' => $currentVenue,
-                        'location' => $currentLocation ?? 'Phase 2',
-                        'group_name' => $classInfo->section ?? 'N/A',
-                        'no' => $studentsToAssign,
-                        'chief_invigilator' => $lecturer ?? 'TBD',
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-
-                    $scheduledInGroup[] = [
-                        'id' => $examId,
-                        'unit_code' => $unitCode,
-                        'unit_name' => $unitName,
-                        'class_name' => $classInfo->name,
-                        'class_section' => $classInfo->section ?? 'N/A',
-                        'student_count' => $studentsToAssign,
-                        'date' => $targetDate,
-                        'time' => "$startTime - $endTime",
-                        'slot_number' => $assignedSlot['slot_number'],
-                        'venue' => $currentVenue
-                    ];
-
-                    // Update venue usage
-                    $this->updateVenueCapacityUsage(
-                        $venueCapacityUsage,
-                        $currentVenue,
-                        $targetDate,
-                        $timeSlotKey,
-                        $studentsToAssign
-                    );
-
-                    $sectionStudents -= $studentsToAssign;
-                    $remainingVenueCapacity -= $studentsToAssign;
-
-                    // Move to next venue if current is full
-                    if ($remainingVenueCapacity <= 0 && $venueIndex < count($venueResult['venues']) - 1) {
-                        $venueIndex++;
-                        $currentVenue = $venueResult['venues'][$venueIndex]['name'];
-                        $currentLocation = $venueResult['venues'][$venueIndex]['location'];
-                        $remainingVenueCapacity = $venueResult['venues'][$venueIndex]['remaining_capacity'];
+                        break;
                     }
                 }
+                
+                if (!$sectionVenue) {
+                    Log::warning('⚠️ No single venue can fit entire section', [
+                        'section' => $classInfo->name . ' ' . ($classInfo->section ?? ''),
+                        'students' => $sectionStudents,
+                        'unit' => $unitCode
+                    ]);
+                    
+                    $conflicts[] = [
+                        'unit' => $unitCode,
+                        'class' => $section['class_name'],
+                        'section' => $section['class_section'] ?? 'N/A',
+                        'reason' => "No single venue available with capacity for {$sectionStudents} students"
+                    ];
+                    
+                    $this->logSchedulingFailure(
+                        $validated,
+                        $section,
+                        "No single venue available with capacity for {$sectionStudents} students",
+                        $targetDate,
+                        $timeSlotKey
+                    );
+                    
+                    continue;
+                }
+                
+                $examId = DB::table('exam_timetables')->insertGetId([
+                    'semester_id' => $validated['semester_id'],
+                    'class_id' => $section['class_id'],
+                    'unit_id' => $section['unit_id'],
+                    'program_id' => $validated['program_id'],
+                    'school_id' => $validated['school_id'],
+                    'date' => $targetDate,
+                    'day' => Carbon::parse($targetDate)->format('l'),
+                    'start_time' => $startTime,
+                    'end_time' => $endTime,
+                    'venue' => $sectionVenue,
+                    'location' => $sectionLocation ?? 'Phase 2',
+                    'group_name' => $classInfo->section ?? 'N/A',
+                    'no' => $sectionStudents,
+                    'chief_invigilator' => $lecturer ?? 'TBD',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-                // Update class tracking
+                $scheduledInGroup[] = [
+                    'id' => $examId,
+                    'unit_code' => $unitCode,
+                    'unit_name' => $unitName,
+                    'class_name' => $classInfo->name,
+                    'class_section' => $classInfo->section ?? 'N/A',
+                    'student_count' => $sectionStudents,
+                    'date' => $targetDate,
+                    'time' => "$startTime - $endTime",
+                    'slot_number' => $assignedSlot['slot_number'],
+                    'venue' => $sectionVenue
+                ];
+
+                $this->updateVenueCapacityUsage(
+                    $venueCapacityUsage,
+                    $sectionVenue,
+                    $targetDate,
+                    $timeSlotKey,
+                    $sectionStudents
+                );
+
                 $classScheduleTracking[$section['class_id']]['scheduled_dates'][] = $targetDate;
                 $classScheduleTracking[$section['class_id']]['exams_scheduled']++;
-                $classScheduleTracking[$section['class_id']]['pattern_index']++;
             }
 
-            Log::info('✅ Unit group scheduled together', [
-                'unit' => $unitCode,
-                'lecturer' => $lecturer,
-                'sections' => count($sections),
-                'exams_created' => count($scheduledInGroup),
-                'date' => $targetDate,
-                'time' => "$startTime - $endTime",
-                'slot' => $assignedSlot['slot_number'],
-                'venues' => implode(', ', array_unique(array_column($scheduledInGroup, 'venue')))
-            ]);
+            if (count($scheduledInGroup) > 0) {
+                Log::info('✅ Unit group scheduled together', [
+                    'unit' => $unitCode,
+                    'lecturer' => $lecturer,
+                    'sections_requested' => count($sections),
+                    'sections_scheduled' => count($scheduledInGroup),
+                    'date' => $targetDate,
+                    'time' => "$startTime - $endTime",
+                    'venues' => implode(', ', array_unique(array_column($scheduledInGroup, 'venue')))
+                ]);
 
-            $scheduled = array_merge($scheduled, $scheduledInGroup);
+                $scheduled = array_merge($scheduled, $scheduledInGroup);
+            }
         }
 
         Log::info('🎉 Intelligent bulk scheduling complete', [
             'scheduled' => count($scheduled),
             'conflicts' => count($conflicts),
-            'unit_groups_processed' => count($unitGroups),
-            'time_slot_distribution' => collect($scheduled)->groupBy('slot_number')->map->count()->toArray()
+            'date_distribution' => collect($scheduled)->groupBy('date')->map->count()->toArray()
         ]);
 
         return response()->json([
@@ -2248,9 +2241,7 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 'total_requested' => count($validated['selected_class_units']),
                 'successfully_scheduled' => count($scheduled),
                 'conflicts' => count($conflicts),
-                'unit_groups' => count($unitGroups),
-                'time_slots_used' => count($timeSlots),
-                'slot_distribution' => collect($scheduled)->groupBy('slot_number')->map->count()->toArray()
+                'date_distribution' => collect($scheduled)->groupBy('date')->map->count()->toArray()
             ]
         ]);
 
@@ -2267,89 +2258,8 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
     }
 }
 
-
 /**
- * ✅ NEW: Select date that works for all sections in a group
- */
-private function selectDateWithSpacingForGroup(
-    $sections,
-    &$classScheduleTracking,
-    $week1Dates,
-    $week2Dates
-) {
-    // Get all class IDs in this group
-    $classIds = array_unique(array_column($sections, 'class_id'));
-    
-    // Find dates that work for ALL classes in this group
-    $candidateDates = array_merge($week1Dates, $week2Dates);
-    
-    foreach ($candidateDates as $date) {
-        $dateWorksForAll = true;
-        
-        foreach ($classIds as $classId) {
-            if (!isset($classScheduleTracking[$classId])) {
-                continue;
-            }
-            
-            $tracking = $classScheduleTracking[$classId];
-            
-            // Check spacing policy
-            if (!$this->dateRespectsSpacingPolicy($date, $tracking)) {
-                $dateWorksForAll = false;
-                break;
-            }
-        }
-        
-        if ($dateWorksForAll) {
-            return $date;
-        }
-    }
-    
-    return null;
-}
-
-/**
- * ✅ NEW: Check if date respects spacing policy for a class
- */
-private function dateRespectsSpacingPolicy($date, $tracking)
-{
-    $scheduledDates = $tracking['scheduled_dates'];
-    
-    if (empty($scheduledDates)) {
-        return true; // First exam, any date works
-    }
-    
-    $dateCarbon = Carbon::parse($date);
-    $lastScheduledDate = Carbon::parse(end($scheduledDates));
-    
-    $policy = $tracking['policy'];
-    $pattern = $tracking['pattern'];
-    
-    // Check based on policy
-    switch ($policy) {
-        case 'spread_evenly':
-            $minDaysBetween = 1;
-            break;
-            
-        case 'alternate_days':
-            $minDaysBetween = 1;
-            break;
-            
-        case 'custom_pattern':
-            $minDaysBetween = $pattern['min_gap_days'] ?? 1;
-            break;
-            
-        default:
-            $minDaysBetween = 0;
-    }
-    
-    $daysBetween = $lastScheduledDate->diffInDays($dateCarbon);
-    
-    return $daysBetween >= $minDaysBetween;
-}
-
-/**
- * ✅ NEW: Find venue(s) that can accommodate all students in a group
+ * ✅ UPDATED: Verify venues can accommodate all students (used for validation only)
  */
 private function findVenuesForGroup(
     $selectedRooms,
@@ -2358,14 +2268,15 @@ private function findVenuesForGroup(
     $timeSlotKey,
     &$venueCapacityUsage
 ) {
-    $requiredVenues = [];
-    $remainingStudents = $totalStudents;
+    Log::info('🔍 Verifying venue capacity for group', [
+        'total_students' => $totalStudents,
+        'date' => $date,
+        'time_slot' => $timeSlotKey
+    ]);
+
+    $availableVenues = [];
     
     foreach ($selectedRooms as $room) {
-        if ($remainingStudents <= 0) {
-            break;
-        }
-        
         $venueName = $room->name;
         $venueCapacity = $room->capacity;
         
@@ -2374,35 +2285,85 @@ private function findVenuesForGroup(
         $availableCapacity = $venueCapacity - $usedCapacity;
         
         if ($availableCapacity > 0) {
-            $studentsToAssign = min($remainingStudents, $availableCapacity);
-            
-            $requiredVenues[] = [
+            $availableVenues[] = [
                 'id' => $room->id,
                 'name' => $venueName,
                 'location' => $room->location ?? 'Phase 2',
                 'total_capacity' => $venueCapacity,
                 'remaining_capacity' => $availableCapacity,
-                'students_assigned' => $studentsToAssign,
             ];
-            
-            $remainingStudents -= $studentsToAssign;
         }
     }
     
-    if ($remainingStudents > 0) {
+    if (empty($availableVenues)) {
         return [
             'success' => false,
-            'message' => "Insufficient venue capacity. Need space for {$remainingStudents} more students.",
+            'message' => "No venues available at {$timeSlotKey} on {$date}",
         ];
     }
     
+    // ✅ Just return available venues for later allocation
     return [
         'success' => true,
-        'venues' => $requiredVenues,
-        'total_venues_used' => count($requiredVenues),
+        'venues' => $availableVenues,
+        'total_venues_available' => count($availableVenues),
     ];
 }
-
+/**
+ * ✅ FIXED: Select date with proper spacing for all classes in a group
+ */
+private function selectDateWithSpacingForGroup(
+    $sections,
+    &$classScheduleTracking,
+    $week1Dates,
+    $week2Dates
+) {
+    $allDates = array_merge($week1Dates, $week2Dates);
+    
+    // Get all class IDs in this group
+    $classIds = array_unique(array_column($sections, 'class_id'));
+    
+    // Try each date until we find one that works for ALL classes
+    foreach ($allDates as $candidateDate) {
+        $dateWorksForAll = true;
+        
+        foreach ($classIds as $classId) {
+            if (!isset($classScheduleTracking[$classId])) {
+                continue; // Class not tracked yet, date is OK
+            }
+            
+            $scheduledDates = $classScheduleTracking[$classId]['scheduled_dates'];
+            
+            // Check if this class already has an exam on this date
+            if (in_array($candidateDate, $scheduledDates)) {
+                $dateWorksForAll = false;
+                Log::debug("❌ Date {$candidateDate} already used by class {$classId}");
+                break;
+            }
+            
+            // Check minimum spacing (at least 1 day between exams)
+            if (!empty($scheduledDates)) {
+                $lastDate = Carbon::parse(end($scheduledDates));
+                $currentDate = Carbon::parse($candidateDate);
+                $daysBetween = $lastDate->diffInDays($currentDate);
+                
+                if ($daysBetween < 1) {
+                    $dateWorksForAll = false;
+                    Log::debug("❌ Date {$candidateDate} too close to last exam for class {$classId}");
+                    break;
+                }
+            }
+        }
+        
+        if ($dateWorksForAll) {
+            Log::info("✅ Selected date: {$candidateDate} for group");
+            return $candidateDate;
+        }
+    }
+    
+    Log::warning("⚠️ No suitable date found for group");
+    return null;
+}
 
 
 /**
@@ -2510,48 +2471,6 @@ private function generateTimeSlots($startTime, $examDurationHours, $breakMinutes
     return $slots;
 }
 
-/**
- * ✅ INTELLIGENT: Analyze workload and create optimal scheduling patterns
- */
-private function analyzeClassWorkloads($selections, $semesterId)
-{
-    $classWorkloads = [];
-    
-    // Group by class_id
-    $byClass = collect($selections)->groupBy('class_id');
-    
-    foreach ($byClass as $classId => $classSelections) {
-        $firstSelection = $classSelections->first();
-        
-        // Count total units for this class in this semester
-        $totalUnits = DB::table('enrollments')
-            ->where('group_id', $classId)
-            ->where('semester_id', $semesterId)
-            ->where('status', 'enrolled')
-            ->distinct('unit_id')
-            ->count('unit_id');
-        
-        // ✅ INTELLIGENT PATTERN SELECTION based on workload
-        $pattern = $this->selectOptimalPattern($totalUnits);
-        
-        $classWorkloads[$classId] = [
-            'class_id' => $classId,
-            'class_name' => $firstSelection['class_name'],
-            'class_section' => $firstSelection['class_section'] ?? 'N/A',
-            'total_units' => $totalUnits,
-            'policy' => 'PATTERN_BASED',
-            'pattern' => $pattern,
-            'pattern_index' => 0, // Which slot in pattern we're at
-            'exams_scheduled' => 0
-        ];
-    }
-    
-    return $classWorkloads;
-}
-
-/**
- * ✅ NEW: Select optimal exam distribution pattern based on workload
- */
 /**
  * ✅ FIXED: Select optimal exam distribution pattern based on workload
  */
@@ -2766,7 +2685,7 @@ private function getDayName($dayOfWeek)
         $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] += $studentCount;
     }
 
-    private function assignSmartVenue($studentCount, $date, $startTime, $endTime, $excludeExamId = null)
+   private function assignSmartVenue($studentCount, $date, $startTime, $endTime, $excludeExamId = null)
 {
     \Log::info('🔍 Smart venue assignment requested', [
         'student_count' => $studentCount,
@@ -2775,7 +2694,6 @@ private function getDayName($dayOfWeek)
     ]);
 
     try {
-        // Get all active exam rooms sorted by capacity (smallest first for efficiency)
         $examrooms = Examroom::where('is_active', true)
             ->orderBy('capacity', 'asc')
             ->get();
@@ -2787,20 +2705,26 @@ private function getDayName($dayOfWeek)
             ];
         }
 
-        // ✅ FIX: Strip seconds from time if present, then parse
-        // Handle both "HH:MM" and "HH:MM:SS" formats
-        $startTimeClean = substr($startTime, 0, 5); // Get only HH:MM
-        $endTimeClean = substr($endTime, 0, 5);     // Get only HH:MM
-
-        // Create Carbon instances
-        $examStartTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $startTimeClean);
-        $examEndTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $endTimeClean);
+        // ✅ FIX: Handle both 12-hour (with AM/PM) and 24-hour formats
+        $startTimeClean = trim($startTime);
+        $endTimeClean = trim($endTime);
+        
+        // Check if time contains AM/PM
+        if (stripos($startTimeClean, 'AM') !== false || stripos($startTimeClean, 'PM') !== false) {
+            // Parse 12-hour format with AM/PM
+            $examStartTime = Carbon::createFromFormat('Y-m-d h:i A', $date . ' ' . $startTimeClean);
+            $examEndTime = Carbon::createFromFormat('Y-m-d h:i A', $date . ' ' . $endTimeClean);
+        } else {
+            // Parse 24-hour format (existing logic)
+            $startTimeClean = substr($startTime, 0, 5);
+            $endTimeClean = substr($endTime, 0, 5);
+            $examStartTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $startTimeClean);
+            $examEndTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $endTimeClean);
+        }
 
         \Log::info('🕐 Parsed times', [
             'original_start' => $startTime,
             'original_end' => $endTime,
-            'cleaned_start' => $startTimeClean,
-            'cleaned_end' => $endTimeClean,
             'exam_start' => $examStartTime->format('Y-m-d H:i:s'),
             'exam_end' => $examEndTime->format('Y-m-d H:i:s')
         ]);
@@ -2808,7 +2732,6 @@ private function getDayName($dayOfWeek)
         $suitableVenues = [];
         
         foreach ($examrooms as $room) {
-            // ✅ STRICT RULE: Room must fit ALL students
             if ($room->capacity < $studentCount) {
                 \Log::debug("  ⛔ {$room->name} too small", [
                     'capacity' => $room->capacity,
@@ -2817,7 +2740,6 @@ private function getDayName($dayOfWeek)
                 continue;
             }
 
-            // Check existing exams in this venue at this time
             $existingExamsQuery = ExamTimetable::where('venue', $room->name)
                 ->where('date', $date);
             
@@ -2827,17 +2749,22 @@ private function getDayName($dayOfWeek)
             
             $existingExams = $existingExamsQuery->get();
 
-            // Calculate occupied capacity at this time
             $occupiedCapacity = 0;
             foreach ($existingExams as $exam) {
-                // ✅ FIX: Clean times before parsing
-                $examStartClean = substr($exam->start_time, 0, 5);
-                $examEndClean = substr($exam->end_time, 0, 5);
+                // ✅ FIX: Handle AM/PM format in existing exams too
+                $examStartStr = trim($exam->start_time);
+                $examEndStr = trim($exam->end_time);
                 
-                $existingStart = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examStartClean);
-                $existingEnd = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examEndClean);
+                if (stripos($examStartStr, 'AM') !== false || stripos($examStartStr, 'PM') !== false) {
+                    $existingStart = Carbon::createFromFormat('Y-m-d h:i A', $exam->date . ' ' . $examStartStr);
+                    $existingEnd = Carbon::createFromFormat('Y-m-d h:i A', $exam->date . ' ' . $examEndStr);
+                } else {
+                    $examStartClean = substr($examStartStr, 0, 5);
+                    $examEndClean = substr($examEndStr, 0, 5);
+                    $existingStart = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examStartClean);
+                    $existingEnd = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examEndClean);
+                }
 
-                // Check for time overlap
                 if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
                     $occupiedCapacity += $exam->no;
                 }
@@ -2853,7 +2780,6 @@ private function getDayName($dayOfWeek)
                 'can_fit' => $remainingCapacity >= $studentCount ? 'YES ✅' : 'NO ❌'
             ]);
 
-            // ✅ STRICT RULE: Must have enough remaining capacity for ALL students
             if ($remainingCapacity >= $studentCount) {
                 $utilizationAfter = (($occupiedCapacity + $studentCount) / $room->capacity) * 100;
                 
@@ -2868,13 +2794,12 @@ private function getDayName($dayOfWeek)
             }
         }
 
-        // ✅ No suitable venue found
         if (empty($suitableVenues)) {
             $largestRoom = $examrooms->sortByDesc('capacity')->first();
             
             return [
                 'success' => false,
-                'message' => "❌ No single exam room available with capacity for {$studentCount} students at {$startTimeClean}-{$endTimeClean}.\n\n" .
+                'message' => "❌ No single exam room available with capacity for {$studentCount} students.\n\n" .
                         "Largest room: {$largestRoom->name} ({$largestRoom->capacity} seats).\n\n" .
                         "💡 Suggestions:\n" .
                         "• Choose a different time slot\n" .
@@ -2883,7 +2808,6 @@ private function getDayName($dayOfWeek)
             ];
         }
 
-        // ✅ Sort by efficiency (prefer smallest room that fits = less waste)
         usort($suitableVenues, function($a, $b) {
             return $a['space_left_after'] <=> $b['space_left_after'];
         });
