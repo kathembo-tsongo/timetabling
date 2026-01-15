@@ -793,243 +793,250 @@ class ExamTimetableController extends Controller
     }
 
    public function getUnitsByClassAndSemesterForExam(Request $request)
-    {
-        try {
-            $classId = $request->input('class_id');
-            $semesterId = $request->input('semester_id');
-            $programId = $request->input('program_id');
+{
+    try {
+        $classId = $request->input('class_id');
+        $semesterId = $request->input('semester_id');
+        $programId = $request->input('program_id');
 
-            Log::info('🔍 Getting units for exam scheduling', [
-                'class_id' => $classId,
-                'semester_id' => $semesterId,
-                'program_id' => $programId
-            ]);
+        Log::info('🔍 Getting units for exam scheduling', [
+            'class_id' => $classId,
+            'semester_id' => $semesterId,
+            'program_id' => $programId
+        ]);
 
-            if (!$semesterId || !$programId) {
-                return response()->json([
-                    'error' => 'Semester ID and Program ID are required.'
-                ], 400);
-            }
+        if (!$semesterId || !$programId) {
+            return response()->json([
+                'error' => 'Semester ID and Program ID are required.'
+            ], 400);
+        }
 
-            // ✅ CHECK: Is this a Common Units/Electives program?
-            $program = Program::find($programId);
-            $isCommonUnits = $program && (
-                stripos($program->name, 'COMMON') !== false || 
-                stripos($program->code, 'COMMON') !== false ||
-                strtoupper($program->code) === 'COM_UN'
-            );
+        // ✅ CHECK: Is this a Common Units/Electives program?
+        $program = Program::find($programId);
+        $isCommonUnits = $program && (
+            stripos($program->name, 'COMMON') !== false || 
+            stripos($program->code, 'COMMON') !== false ||
+            strtoupper($program->code) === 'COM_UN'
+        );
 
-            Log::info('Program type detection', [
-                'program_id' => $programId,
-                'program_name' => $program->name ?? 'Unknown',
-                'program_code' => $program->code ?? 'Unknown',
-                'is_common_units' => $isCommonUnits
-            ]);
+        Log::info('Program type detection', [
+            'program_id' => $programId,
+            'program_name' => $program->name ?? 'Unknown',
+            'program_code' => $program->code ?? 'Unknown',
+            'is_common_units' => $isCommonUnits
+        ]);
 
-            // ✅ CASE 1: COMMON UNITS/ELECTIVES - Get units with their enrollment groups
-            if ($isCommonUnits) {
-                Log::info('📚 Handling ELECTIVE/COMMON UNITS program');
+        // ✅ CASE 1: ELECTIVES/COMMON UNITS - Group by Unit + Lecturer ONLY
+        if ($isCommonUnits) {
+            Log::info('📚 Handling ELECTIVE/COMMON UNITS program - Grouping by Unit + Lecturer');
 
-                // Get all units from this program that have enrollments
-                $unitsWithEnrollments = DB::table('enrollments')
-                    ->join('units', 'enrollments.unit_id', '=', 'units.id')
-                    ->leftJoin('classes', 'enrollments.group_id', '=', 'classes.id')
-                    ->where('units.program_id', $programId)
-                    ->where('enrollments.semester_id', $semesterId)
-                    ->where('enrollments.status', 'enrolled')
-                    ->select(
-                        'units.id as unit_id',
-                        'units.code as unit_code',
-                        'units.name as unit_name',
-                        'units.credit_hours',
-                        'enrollments.group_id as class_id',
-                        'classes.name as class_name',
-                        'classes.section as class_section',
-                        'enrollments.lecturer_code',
-                        DB::raw('COUNT(DISTINCT enrollments.student_code) as student_count')
-                    )
-                    ->groupBy(
-                        'units.id',
-                        'units.code',
-                        'units.name',
-                        'units.credit_hours',
-                        'enrollments.group_id',
-                        'classes.name',
-                        'classes.section',
-                        'enrollments.lecturer_code'
-                    )
-                    ->having('student_count', '>', 0)
-                    ->orderBy('units.code')
-                    ->orderBy('classes.name')
-                    ->get();
-
-                Log::info('Elective units with enrollments found', [
-                    'units_count' => $unitsWithEnrollments->count(),
-                    'sample' => $unitsWithEnrollments->take(3)->map(function($u) {
-                        return [
-                            'unit' => $u->unit_code,
-                            'class' => $u->class_name,
-                            'section' => $u->class_section,
-                            'students' => $u->student_count
-                        ];
-                    })->toArray()
-                ]);
-
-                // Format the response
-                $formattedUnits = $unitsWithEnrollments->map(function($enrollment) {
-                    // Get lecturer name
-                    $lecturerName = 'Not Assigned';
-                    if ($enrollment->lecturer_code) {
-                        $lecturer = DB::table('users')
-                            ->where('code', $enrollment->lecturer_code)
-                            ->first();
-                        
-                        if ($lecturer) {
-                            $lecturerName = trim(($lecturer->first_name ?? '') . ' ' . ($lecturer->last_name ?? ''));
-                        }
-                    }
-
-                    // Get diverse student programs
-                    $studentPrograms = DB::table('enrollments')
-                        ->join('users', 'enrollments.student_code', '=', 'users.code')
-                        ->leftJoin('programs', 'users.program_id', '=', 'programs.id')
-                        ->where('enrollments.unit_id', $enrollment->unit_id)
-                        ->where('enrollments.semester_id', request()->input('semester_id'))
-                        ->where('enrollments.group_id', $enrollment->class_id)
-                        ->where('enrollments.status', 'enrolled')
-                        ->select('programs.code as program_code')
-                        ->distinct()
-                        ->pluck('program_code')
-                        ->filter()
-                        ->toArray();
-
-                    return [
-                        'id' => $enrollment->unit_id,
-                        'code' => $enrollment->unit_code,
-                        'name' => $enrollment->unit_name,
-                        'credit_hours' => $enrollment->credit_hours ?? 3,
-                        'student_count' => (int)$enrollment->student_count,
-                        'lecturer_name' => $lecturerName,
-                        'lecturer_code' => $enrollment->lecturer_code ?? '',
-                        
-                        // ✅ Class/Section information
-                        'class_id' => $enrollment->class_id,
-                        'class_name' => $enrollment->class_name ?? 'Elective Group',
-                        'class_section' => $enrollment->class_section ?? 'N/A',
-                        
-                        // ✅ Show programs represented
-                        'student_programs' => $studentPrograms,
-                        'programs_count' => count($studentPrograms),
-                        
-                        // ✅ Display label for UI
-                        'display_label' => sprintf(
-                            '%s - %s | Section: %s | %d students from %s',
-                            $enrollment->unit_code,
-                            $enrollment->unit_name,
-                            $enrollment->class_section ?? 'N/A',
-                            $enrollment->student_count,
-                            count($studentPrograms) > 0 
-                                ? implode(', ', array_slice($studentPrograms, 0, 3)) . (count($studentPrograms) > 3 ? '...' : '')
-                                : 'various programs'
-                        )
-                    ];
-                })->values();
-
-                return response()->json($formattedUnits->all());
-            }
-
-            // ✅ CASE 2: REGULAR PROGRAM - Require class_id
-            if (!$classId) {
-                return response()->json([
-                    'error' => 'Class ID is required for regular programs.'
-                ], 400);
-            }
-
-            $classInfo = DB::table('classes')
-                ->where('id', $classId)
-                ->first();
-
-            if (!$classInfo) {
-                Log::warning('Class not found', ['class_id' => $classId]);
-                return response()->json([]);
-            }
-
-            Log::info('📖 Handling REGULAR program with specific class', [
-                'class_id' => $classId,
-                'class_name' => $classInfo->name,
-                'class_section' => $classInfo->section
-            ]);
-
-            // Get units assigned to this specific class
-            $units = DB::table('unit_assignments')
-                ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
-                ->leftJoin('users', 'users.code', '=', 'unit_assignments.lecturer_code')
-                ->where('unit_assignments.semester_id', $semesterId)
-                ->where('unit_assignments.class_id', $classId)
+            // Get all unique unit+lecturer combinations with total student count
+            $unitLecturerGroups = DB::table('enrollments')
+                ->join('units', 'enrollments.unit_id', '=', 'units.id')
                 ->where('units.program_id', $programId)
+                ->where('enrollments.semester_id', $semesterId)
+                ->where('enrollments.status', 'enrolled')
                 ->select(
+                    'units.id as unit_id',
+                    'units.code as unit_code',
+                    'units.name as unit_name',
+                    'units.credit_hours',
+                    'enrollments.lecturer_code',
+                    DB::raw('COUNT(DISTINCT enrollments.student_code) as total_students'),
+                    DB::raw('COUNT(DISTINCT enrollments.group_id) as sections_count')
+                )
+                ->groupBy(
                     'units.id',
                     'units.code',
                     'units.name',
                     'units.credit_hours',
-                    'units.program_id',
-                    'unit_assignments.lecturer_code',
-                    DB::raw("CASE 
-                        WHEN users.id IS NOT NULL 
-                        THEN CONCAT(users.first_name, ' ', users.last_name) 
-                        ELSE unit_assignments.lecturer_code 
-                        END as lecturer_name")
+                    'enrollments.lecturer_code'
                 )
-                ->distinct()
+                ->having('total_students', '>', 0)
+                ->orderBy('units.code')
                 ->get();
 
-            Log::info('Regular units found', [
-                'class_id' => $classId,
-                'units_count' => $units->count()
+            Log::info('Elective unit-lecturer groups found', [
+                'groups_count' => $unitLecturerGroups->count(),
+                'sample' => $unitLecturerGroups->take(3)->map(fn($g) => [
+                    'unit' => $g->unit_code,
+                    'lecturer' => $g->lecturer_code,
+                    'total_students' => $g->total_students,
+                    'sections' => $g->sections_count
+                ])->toArray()
             ]);
 
-            if ($units->isEmpty()) {
-                return response()->json([]);
-            }
+            // Format the response - ONE entry per unit-lecturer combination
+            $formattedUnits = $unitLecturerGroups->map(function($group) use ($semesterId) {
+                // Get lecturer name
+                $lecturerName = 'Not Assigned';
+                if ($group->lecturer_code) {
+                    $lecturer = DB::table('users')
+                        ->where('code', $group->lecturer_code)
+                        ->first();
+                    
+                    if ($lecturer) {
+                        $lecturerName = trim(($lecturer->first_name ?? '') . ' ' . ($lecturer->last_name ?? ''));
+                    }
+                }
 
-            // For each unit, count students in THIS SPECIFIC CLASS only
-            $enhancedUnits = $units->map(function ($unit) use ($semesterId, $classId, $classInfo) {
-                $studentCount = DB::table('enrollments')
-                    ->where('unit_id', $unit->id)
-                    ->where('semester_id', $semesterId)
-                    ->where('group_id', (string)$classId)
-                    ->where('status', 'enrolled')
-                    ->distinct('student_code')
-                    ->count('student_code');
+                // Get list of sections (classes) taking this unit
+                $sectionsInfo = DB::table('enrollments')
+                    ->join('classes', 'enrollments.group_id', '=', 'classes.id')
+                    ->where('enrollments.unit_id', $group->unit_id)
+                    ->where('enrollments.semester_id', $semesterId)
+                    ->where('enrollments.lecturer_code', $group->lecturer_code)
+                    ->where('enrollments.status', 'enrolled')
+                    ->select(
+                        'classes.id as class_id',
+                        'classes.name as class_name',
+                        'classes.section as class_section',
+                        DB::raw('COUNT(DISTINCT enrollments.student_code) as students_in_section')
+                    )
+                    ->groupBy('classes.id', 'classes.name', 'classes.section')
+                    ->get();
+
+                $sectionsList = $sectionsInfo->map(function($sec) {
+                    return $sec->class_name . 
+                           ($sec->class_section ? " (Sec {$sec->class_section})" : '') . 
+                           " [{$sec->students_in_section} students]";
+                })->toArray();
 
                 return [
-                    'id' => $unit->id,
-                    'code' => $unit->code,
-                    'name' => $unit->name,
-                    'credit_hours' => $unit->credit_hours ?? 3,
-                    'student_count' => $studentCount,
-                    'lecturer_name' => $unit->lecturer_name ?? 'No lecturer assigned',
-                    'lecturer_code' => $unit->lecturer_code ?? '',
-                    'class_id' => $classInfo->id,
-                    'class_name' => $classInfo->name,
-                    'class_section' => $classInfo->section ?? 'N/A',
+                    'id' => $group->unit_id,
+                    'code' => $group->unit_code,
+                    'name' => $group->unit_name,
+                    'credit_hours' => $group->credit_hours ?? 3,
+                    
+                    // ✅ CRITICAL: For electives, we don't tie to a specific class
+                    // We create a virtual "combined" class entry
+                    'class_id' => 0, // Special flag: 0 means "ALL SECTIONS COMBINED"
+                    'class_name' => 'All Sections Combined',
+                    'class_section' => 'ELECTIVE',
+                    
+                    // ✅ Total student count across ALL sections
+                    'student_count' => (int)$group->total_students,
+                    
+                    // Lecturer info
+                    'lecturer_name' => $lecturerName,
+                    'lecturer_code' => $group->lecturer_code ?? '',
+                    
+                    // ✅ Show which sections are included
+                    'sections_included' => $sectionsInfo->count(),
+                    'sections_list' => $sectionsList,
+                    
+                    // ✅ Display label for UI
+                    'display_label' => sprintf(
+                        '%s - %s | %s | %d students from %d section%s',
+                        $group->unit_code,
+                        $group->unit_name,
+                        $lecturerName,
+                        $group->total_students,
+                        $sectionsInfo->count(),
+                        $sectionsInfo->count() > 1 ? 's' : ''
+                    ),
+                    
+                    // ✅ Additional info for display
+                    'note' => 'Students from ' . implode(', ', array_slice($sectionsList, 0, 3)) . 
+                             ($sectionsInfo->count() > 3 ? ' and ' . ($sectionsInfo->count() - 3) . ' more' : '')
                 ];
-            });
+            })->values();
 
-            return response()->json($enhancedUnits->values()->all());
-            
-        } catch (\Exception $e) {
-            Log::error('Error fetching units for exam timetable', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            return response()->json([
-                'error' => 'Failed to fetch units for exam timetable.',
-                'message' => $e->getMessage()
-            ], 500);
+            return response()->json($formattedUnits->all());
         }
+
+        // ✅ CASE 2: REGULAR PROGRAM - Require class_id and keep sections separate
+        if (!$classId) {
+            return response()->json([
+                'error' => 'Class ID is required for regular programs.'
+            ], 400);
+        }
+
+        $classInfo = DB::table('classes')
+            ->where('id', $classId)
+            ->first();
+
+        if (!$classInfo) {
+            Log::warning('Class not found', ['class_id' => $classId]);
+            return response()->json([]);
+        }
+
+        Log::info('📖 Handling REGULAR program with specific class', [
+            'class_id' => $classId,
+            'class_name' => $classInfo->name,
+            'class_section' => $classInfo->section
+        ]);
+
+        // Get units assigned to this specific class
+        $units = DB::table('unit_assignments')
+            ->join('units', 'unit_assignments.unit_id', '=', 'units.id')
+            ->leftJoin('users', 'users.code', '=', 'unit_assignments.lecturer_code')
+            ->where('unit_assignments.semester_id', $semesterId)
+            ->where('unit_assignments.class_id', $classId)
+            ->where('units.program_id', $programId)
+            ->select(
+                'units.id',
+                'units.code',
+                'units.name',
+                'units.credit_hours',
+                'units.program_id',
+                'unit_assignments.lecturer_code',
+                DB::raw("CASE 
+                    WHEN users.id IS NOT NULL 
+                    THEN CONCAT(users.first_name, ' ', users.last_name) 
+                    ELSE unit_assignments.lecturer_code 
+                    END as lecturer_name")
+            )
+            ->distinct()
+            ->get();
+
+        Log::info('Regular units found', [
+            'class_id' => $classId,
+            'units_count' => $units->count()
+        ]);
+
+        if ($units->isEmpty()) {
+            return response()->json([]);
+        }
+
+        // For each unit, count students in THIS SPECIFIC CLASS only
+        $enhancedUnits = $units->map(function ($unit) use ($semesterId, $classId, $classInfo) {
+            $studentCount = DB::table('enrollments')
+                ->where('unit_id', $unit->id)
+                ->where('semester_id', $semesterId)
+                ->where('group_id', (string)$classId)
+                ->where('status', 'enrolled')
+                ->distinct('student_code')
+                ->count('student_code');
+
+            return [
+                'id' => $unit->id,
+                'code' => $unit->code,
+                'name' => $unit->name,
+                'credit_hours' => $unit->credit_hours ?? 3,
+                'student_count' => $studentCount,
+                'lecturer_name' => $unit->lecturer_name ?? 'No lecturer assigned',
+                'lecturer_code' => $unit->lecturer_code ?? '',
+                'class_id' => $classInfo->id,
+                'class_name' => $classInfo->name,
+                'class_section' => $classInfo->section ?? 'N/A',
+            ];
+        });
+
+        return response()->json($enhancedUnits->values()->all());
+        
+    } catch (\Exception $e) {
+        Log::error('Error fetching units for exam timetable', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'error' => 'Failed to fetch units for exam timetable.',
+            'message' => $e->getMessage()
+        ], 500);
     }
+}
 
 /**
  * Remove the specified resource from storage.

@@ -40,29 +40,38 @@ import {
 import { toast } from "react-hot-toast"
 import axios from "axios"
 
-// ============================================
-// INTERFACES
-// ============================================
+// Interfaces
 interface ExamTimetable {
   id: number
-  date: string
+  semester_id: number
+  class_id: number
+  group_name: string | null  // ✅ Section column
+  unit_id: number
   day: string
+  date: string
   start_time: string
   end_time: string
   venue: string
-  location: string
-  no: number
+  location: string | null
+  no: number  // ✅ Student count
   chief_invigilator: string
-  unit_id: number
-  semester_id: number
-  class_id: number
-  program_id?: number
-  school_id?: number
+  program_id: number
+  school_id: number
+  created_at: string
+  updated_at: string
+  
+  // Joined data
   unit_name: string
   unit_code: string
   class_name: string
   class_code: string
+  class_section: string | null  // ✅ From classes table
   semester_name: string
+  
+  // Optional
+  lecturer_code?: string
+  lecturer_name?: string
+  classes_taking_unit?: number
 }
 
 interface Program {
@@ -207,6 +216,357 @@ const schoolThemes = {
   }
 }
 
+const ExamTableView: React.FC<{
+  
+  exams: ExamTimetable[]
+  theme: any
+  onView: (exam: ExamTimetable) => void
+  onEdit: (exam: ExamTimetable) => void
+  onDelete: (exam: ExamTimetable) => void
+  canEdit: boolean
+  canDelete: boolean
+  allExams: ExamTimetable[]
+  classrooms: ClassroomType[]  // ✅ ADD THIS
+  
+}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete, allExams, classrooms }) => {  
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    })
+  }
+
+  const formatTime = (time: string) => {
+    return time.substring(0, 5)
+  }
+
+  const checkConflicts = (exam: ExamTimetable): Conflict[] => {
+    const conflicts: Conflict[] = []
+
+    allExams.forEach(otherExam => {
+      if (otherExam.id === exam.id) return
+
+      const sameDate = otherExam.date === exam.date
+      const timeOverlap = (
+        (otherExam.start_time <= exam.start_time && exam.start_time < otherExam.end_time) ||
+        (otherExam.start_time < exam.end_time && exam.end_time <= otherExam.end_time) ||
+        (exam.start_time <= otherExam.start_time && otherExam.end_time <= exam.end_time)
+      )
+
+      if (sameDate && timeOverlap) {
+        if (otherExam.class_id === exam.class_id) {
+          conflicts.push({
+            type: 'class',
+            severity: 'error',
+            message: `Class ${exam.class_name} has another exam (${otherExam.unit_code}) at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
+            conflictingExam: otherExam
+          })
+        }
+
+        if (otherExam.chief_invigilator === exam.chief_invigilator && 
+    exam.chief_invigilator !== 'No lecturer assigned' &&
+    otherExam.unit_id !== exam.unit_id) { // ← KEY FIX: Only conflict if DIFFERENT units
+  conflicts.push({
+    type: 'lecturer',
+    severity: 'error',
+    message: `${exam.chief_invigilator} is invigilating a different unit (${otherExam.unit_code}) at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
+    conflictingExam: otherExam
+  })
+}
+
+        if (otherExam.venue === exam.venue) {
+  const classroom = classrooms.find(c => c.name === exam.venue)
+  
+  if (classroom) {
+    const totalStudents = allExams
+      .filter(e => {
+        if (e.date !== exam.date || e.venue !== exam.venue) return false
+        
+        const eStart = e.start_time
+        const eEnd = e.end_time
+        const examStart = exam.start_time
+        const examEnd = exam.end_time
+        
+        return (
+          (eStart <= examStart && examStart < eEnd) ||
+          (eStart < examEnd && examEnd <= eEnd) ||
+          (examStart <= eStart && eEnd <= examEnd)
+        )
+      })
+      .reduce((sum, e) => sum + (e.no || 0), 0)
+    
+    const remainingCapacity = classroom.capacity - totalStudents
+    
+    if (remainingCapacity < 0) {
+      conflicts.push({
+        type: 'venue',
+        severity: 'error',
+        message: `${exam.venue} capacity exceeded (${totalStudents}/${classroom.capacity})`
+      })
+    }
+  }
+}
+      }
+    })
+
+    return conflicts
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className={`bg-gradient-to-r ${theme.buttonGradient} text-white`}>
+            <tr>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                ID
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Date & Day
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Time
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Unit
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Class & Section
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Students
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Venue & Location
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Invigilator
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Semester
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Status
+              </th>
+              <th className="px-4 py-4 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {exams.map((exam, index) => {
+              const conflicts = checkConflicts(exam)
+              const hasConflicts = conflicts.length > 0
+              const errorConflicts = conflicts.filter(c => c.severity === 'error')
+              
+              return (
+                <tr 
+                  key={exam.id} 
+                  className={`hover:bg-gray-50 transition-colors ${
+                    hasConflicts ? 'bg-red-50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                  }`}
+                >
+                  {/* ID */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <span className="text-sm font-mono text-gray-600">#{exam.id}</span>
+                  </td>
+
+                  {/* Date & Day */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <CalendarDays className={`w-4 h-4 ${theme.iconColor} mr-2`} />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">
+                          {formatDate(exam.date)}
+                        </div>
+                        <div className="text-xs text-gray-600">{exam.day}</div>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Time */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <Clock className="w-4 h-4 text-orange-600 mr-2" />
+                      <div className="text-sm">
+                        <div className="font-semibold text-gray-900">
+                          {formatTime(exam.start_time)}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          to {formatTime(exam.end_time)}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Unit */}
+                  <td className="px-4 py-4">
+                    <div className="flex items-center">
+                      <BookOpen className={`w-4 h-4 ${theme.iconColor} mr-2 flex-shrink-0`} />
+                      <div className="min-w-0">
+                        <div className={`text-sm font-bold ${theme.iconColor} truncate`}>
+                          {exam.unit_code}
+                        </div>
+                        <div className="text-xs text-gray-700 truncate max-w-xs">
+                          {exam.unit_name}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Class & Section */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    {/* Class & Section */}
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <School className="w-4 h-4 text-indigo-600 mr-2" />
+                        <div>
+                          <div className="text-sm font-bold text-gray-900">
+                            {exam.class_name}
+                          </div>
+                          {/* ✅ SIMPLIFIED - Just show group_name directly */}
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">
+                              Section {exam.group_name || 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </td>
+
+                  {/* Students */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center justify-center">
+                      <Users className="w-4 h-4 text-purple-600 mr-2" />
+                      <span className="text-lg font-bold text-purple-900">{exam.no}</span>
+                    </div>
+                  </td>
+
+                  {/* Venue & Location */}
+                  <td className="px-4 py-4">
+                    <div className="flex items-center">
+                      <MapPin className="w-4 h-4 text-green-600 mr-2 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-gray-900 truncate">
+                          {exam.venue}
+                        </div>
+                        {exam.location && (
+                          <div className="text-xs text-gray-600 truncate">
+                            {exam.location}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Invigilator */}
+                  <td className="px-4 py-4">
+                    <div className="flex items-center">
+                      <User className="w-4 h-4 text-orange-600 mr-2 flex-shrink-0" />
+                      <span className="text-sm text-gray-900 truncate max-w-xs">
+                        {exam.chief_invigilator}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* Semester */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${theme.cardBg} ${theme.iconColor}`}>
+                      {exam.semester_name}
+                    </span>
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    {hasConflicts ? (
+                      <div className="relative group">
+                        <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 cursor-help">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          {errorConflicts.length} Conflict{errorConflicts.length > 1 ? 's' : ''}
+                        </div>
+                        {/* Tooltip */}
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block z-50 w-64">
+                          <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl">
+                            {conflicts.map((conflict, idx) => (
+                              <div key={idx} className="mb-2 last:mb-0">
+                                <div className="font-bold text-red-300 mb-1">
+                                  {conflict.type.toUpperCase()}
+                                </div>
+                                <div>{conflict.message}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        No Conflicts
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Actions */}
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => onView(exam)}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="View Details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => onEdit(exam)}
+                          className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                          title="Edit Exam"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => onDelete(exam)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete Exam"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Table Footer */}
+      <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
+        <div className="flex items-center justify-between text-sm text-gray-600">
+          <div>
+            Showing <span className="font-semibold text-gray-900">{exams.length}</span> exam{exams.length !== 1 ? 's' : ''}
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-100 border border-green-300 rounded"></div>
+              <span>No Conflicts</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-red-100 border border-red-300 rounded"></div>
+              <span>Has Conflicts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ============================================
 // EXAM CARD COMPONENT
 // ============================================
@@ -249,7 +609,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
   }
 
   const formatTime = (time: string) => {
-    console.log('formatTime received:', time) // ADD THIS TOO
+    console.log('formatTime received:', time) 
     const parts = time.split(':')
     const hours = parseInt(parts[0])
     const minutes = parts[1]
@@ -258,7 +618,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
     return `${displayHours}:${minutes} ${ampm}`
   }
   
-  // ... rest of your code
+
   const hasConflicts = conflicts.length > 0
   const errorConflicts = conflicts.filter(c => c.severity === 'error')
   const warningConflicts = conflicts.filter(c => c.severity === 'warning')
@@ -357,14 +717,35 @@ const ExamCard: React.FC<ExamCardProps> = ({
             <div className="flex-1 min-w-0">
               <h3 className="text-lg font-bold text-gray-900 mb-1">{exam.unit_name}</h3>
               <p className={`text-sm font-bold ${theme.iconColor} mb-2`}>{exam.unit_code}</p>
-              {exam.class_name && (
-                <div className="flex items-center mt-2 text-sm">
-                  <School className="w-4 h-4 text-gray-500 mr-2" />
-                  <span className="font-semibold text-gray-700">{exam.class_name}</span>
-                  <span className="mx-2 text-gray-400">•</span>
-                  <span className="text-gray-600 font-medium">{exam.class_code}</span>
-                </div>
-              )}
+
+              {/* In ExamCard component, update the class display section */}
+                {exam.class_name && (
+                  <div className="mt-2 p-2 bg-white rounded-lg border-2 border-indigo-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <School className="w-4 h-4 text-indigo-600 mr-2" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-900 text-base">
+                              {exam.class_name}
+                            </span>
+                            {/* ✅ SIMPLIFIED - Direct display */}
+                            {exam.group_name && (
+                              <span className="px-2 py-1 bg-indigo-600 text-white text-xs font-bold rounded">
+                                Section {exam.group_name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center text-purple-600">
+                        <Users className="w-4 h-4 mr-1" />
+                        <span className="font-bold">{exam.no}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
             </div>
           </div>
         </div>
@@ -461,272 +842,7 @@ const ExamCard: React.FC<ExamCardProps> = ({
   )
 }
 
-
-const ExamTableView: React.FC<{
-  exams: ExamTimetable[]
-  theme: any
-  onView: (exam: ExamTimetable) => void
-  onEdit: (exam: ExamTimetable) => void
-  onDelete: (exam: ExamTimetable) => void
-  canEdit: boolean
-  canDelete: boolean
-  allExams: ExamTimetable[]
-  classrooms: ClassroomType[]  // ✅ ADD THIS
-}> = ({ exams, theme, onView, onEdit, onDelete, canEdit, canDelete, allExams, classrooms }) => {  
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    })
-  }
-
-  const formatTime = (time: string) => {
-    return time.substring(0, 5)
-  }
-
-  const checkConflicts = (exam: ExamTimetable): Conflict[] => {
-    const conflicts: Conflict[] = []
-
-    allExams.forEach(otherExam => {
-      if (otherExam.id === exam.id) return
-
-      const sameDate = otherExam.date === exam.date
-      const timeOverlap = (
-        (otherExam.start_time <= exam.start_time && exam.start_time < otherExam.end_time) ||
-        (otherExam.start_time < exam.end_time && exam.end_time <= otherExam.end_time) ||
-        (exam.start_time <= otherExam.start_time && otherExam.end_time <= exam.end_time)
-      )
-
-      if (sameDate && timeOverlap) {
-        if (otherExam.class_id === exam.class_id) {
-          conflicts.push({
-            type: 'class',
-            severity: 'error',
-            message: `Class ${exam.class_name} has another exam (${otherExam.unit_code}) at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
-            conflictingExam: otherExam
-          })
-        }
-
-        if (otherExam.chief_invigilator === exam.chief_invigilator && exam.chief_invigilator !== 'No lecturer assigned') {
-          conflicts.push({
-            type: 'lecturer',
-            severity: 'error',
-            message: `${exam.chief_invigilator} is already invigilating ${otherExam.unit_code} at ${formatTime(otherExam.start_time)} in ${otherExam.venue}`,
-            conflictingExam: otherExam
-          })
-        }
-
-        if (otherExam.venue === exam.venue) {
-  const classroom = classrooms.find(c => c.name === exam.venue)
-  
-  if (classroom) {
-    const totalStudents = allExams
-      .filter(e => {
-        if (e.date !== exam.date || e.venue !== exam.venue) return false
-        
-        const eStart = e.start_time
-        const eEnd = e.end_time
-        const examStart = exam.start_time
-        const examEnd = exam.end_time
-        
-        return (
-          (eStart <= examStart && examStart < eEnd) ||
-          (eStart < examEnd && examEnd <= eEnd) ||
-          (examStart <= eStart && eEnd <= examEnd)
-        )
-      })
-      .reduce((sum, e) => sum + (e.no || 0), 0)
-    
-    const remainingCapacity = classroom.capacity - totalStudents
-    
-    if (remainingCapacity < 0) {
-      conflicts.push({
-        type: 'venue',
-        severity: 'error',
-        message: `${exam.venue} capacity exceeded (${totalStudents}/${classroom.capacity})`,
-        conflictingExam: otherExam
-      })
-    }
-  }
-}
-      }
-    })
-
-    return conflicts
-  }
-
-  return (
-    <div className={`bg-white rounded-2xl shadow-xl border-2 ${theme.tableBorder} overflow-hidden`}>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className={`bg-gradient-to-r ${theme.buttonGradient} text-white`}>
-            <tr>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Status</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Date & Day</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Time</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Semester</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Unit</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Class</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Venue</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Location</th>
-              <th className="px-4 py-4 text-center text-xs font-bold uppercase">Students</th>
-              <th className="px-4 py-4 text-left text-xs font-bold uppercase">Invigilator</th>
-              <th className="px-4 py-4 text-center text-xs font-bold uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {exams.map((exam, index) => {
-              const conflicts = checkConflicts(exam)
-              const hasConflicts = conflicts.length > 0
-              const hasErrors = conflicts.some(c => c.severity === 'error')
-
-              return (
-                <tr
-                  key={exam.id}
-                  className={`transition-colors ${
-                    hasErrors
-                      ? 'bg-red-50 hover:bg-red-100'
-                      : hasConflicts
-                      ? 'bg-yellow-50 hover:bg-yellow-100'
-                      : index % 2 === 0
-                      ? 'bg-white hover:bg-slate-50'
-                      : 'bg-slate-50/50 hover:bg-slate-100'
-                  }`}
-                >
-                  <td className="px-4 py-4">
-                    {hasErrors ? (
-                      <div className="flex items-center space-x-2" title={conflicts.map(c => c.message).join(', ')}>
-                        <AlertTriangle className="w-5 h-5 text-red-600" />
-                        <span className="text-xs font-bold text-red-700">{conflicts.filter(c => c.severity === 'error').length}</span>
-                      </div>
-                    ) : hasConflicts ? (
-                      <div className="flex items-center space-x-2" title={conflicts.map(c => c.message).join(', ')}>
-                        <AlertCircle className="w-5 h-5 text-yellow-600" />
-                        <span className="text-xs font-bold text-yellow-700">{conflicts.length}</span>
-                      </div>
-                    ) : (
-                      <CheckCircle className="w-5 h-5 text-green-600" title="No conflicts" />
-                    )}
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
-                      <Calendar className={`w-5 h-5 ${theme.iconColor} flex-shrink-0`} />
-                      <div>
-                        <div className="text-sm font-bold text-gray-900">{formatDate(exam.date)}</div>
-                        <div className="text-xs text-gray-600 font-medium">{exam.day}</div>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center space-x-1 text-sm">
-                      <Clock className="w-4 h-4 text-gray-500" />
-                      <span className="font-semibold text-gray-900">
-                        {formatTime(exam.start_time)}
-                      </span>
-                      <span className="text-gray-500">-</span>
-                      <span className="font-semibold text-gray-900">
-                        {formatTime(exam.end_time)}
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className={`inline-flex items-center px-2 py-1 ${theme.cardBg} border ${theme.cardBorder} rounded-md`}>
-                      <Layers className={`w-3 h-3 ${theme.iconColor} mr-1`} />
-                      <span className={`text-xs font-bold ${theme.iconColor}`}>{exam.semester_name}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
-                      <BookOpen className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                      <div>
-                        <div className="text-sm font-bold text-gray-900 max-w-xs truncate">{exam.unit_name}</div>
-                        <div className={`text-xs font-semibold ${theme.iconColor}`}>{exam.unit_code}</div>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
-                      <School className="w-4 h-4 text-indigo-500" />
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900">{exam.class_name}</div>
-                        <div className="text-xs text-gray-600">{exam.class_code}</div>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
-                      <MapPinIcon className="w-4 h-4 text-green-600" />
-                      <span className="text-sm font-semibold text-gray-900">{exam.venue}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
-                      <MapPin className="w-4 h-4 text-green-500" />
-                      <span className="text-sm text-gray-700">{exam.location || 'N/A'}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4 text-center">
-                    <div className="inline-flex items-center px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg">
-                      <Users className="w-4 h-4 text-purple-600 mr-2" />
-                      <span className="text-base font-bold text-purple-900">{exam.no}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
-                      <User className="w-4 h-4 text-orange-600" />
-                      <span className="text-sm font-medium text-gray-900 max-w-xs truncate">{exam.chief_invigilator}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex items-center justify-center space-x-2">
-                      <button
-                        onClick={() => onView(exam)}
-                        className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="View details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      {canEdit && (
-                        <button
-                          onClick={() => onEdit(exam)}
-                          className="p-2 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded-lg transition-colors"
-                          title="Edit exam"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => onDelete(exam)}
-                          className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete exam"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
+ 
 // ============================================
 // EXAM MODAL COMPONENT (CREATE/EDIT)
 // ============================================
@@ -739,6 +855,7 @@ interface ExamModalProps {
   theme: any
   schoolCode: string
   allExams: ExamTimetable[]
+  classrooms: ClassroomType[]  // ✅ ADD THIS LINE
 }
 
 const ExamModal: React.FC<ExamModalProps> = ({
@@ -749,7 +866,8 @@ const ExamModal: React.FC<ExamModalProps> = ({
   semesters,
   theme,
   schoolCode,
-  allExams
+  allExams,
+  classrooms,  // ✅ ADD THIS LINE
 }) => {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [units, setUnits] = useState<Unit[]>([])
@@ -757,35 +875,22 @@ const ExamModal: React.FC<ExamModalProps> = ({
   const [loadingUnits, setLoadingUnits] = useState(false)
   const [conflicts, setConflicts] = useState<Conflict[]>([])
   const [checkingConflicts, setCheckingConflicts] = useState(false)
+  const [conflictsModalOpen, setConflictsModalOpen] = useState(false)
+  const [schedulingConflicts, setSchedulingConflicts] = useState([])
 
-  const { data, setData, post, put, processing, errors, reset } = useForm({
-    semester_id: '',
-    class_id: '',
-    unit_id: '',
-    date: '',
-    day: '',
-    start_time: '',
-    end_time: '',
-    chief_invigilator: '',
-    no: ''
-  })
-
-  // ✅ FIX: Populate form when exam prop changes (for editing)
-  useEffect(() => {
-    if (exam && isOpen) {
-      setData({
-        semester_id: exam.semester_id || '',
-        class_id: exam.class_id || '',
-        unit_id: exam.unit_id || '',
-        date: exam.date || '',
-        day: exam.day || '',
-        start_time: exam.start_time || '',
-        end_time: exam.end_time || '',
-        chief_invigilator: exam.chief_invigilator || '',
-        no: exam.no || ''
-      })
-    }
-  }, [exam, isOpen])
+ const { data, setData, post, put, processing, errors, reset } = useForm({
+  semester_id: exam?.semester_id || '',
+  class_id: exam?.class_id || '',
+  unit_id: exam?.unit_id || '',
+  date: exam?.date || '',
+  day: exam?.day || '',
+  start_time: exam?.start_time || '',
+  end_time: exam?.end_time || '',
+  venue: exam?.venue || '',        // ✅ ADD THIS
+  location: exam?.location || '',  // ✅ ADD THIS
+  chief_invigilator: exam?.chief_invigilator || '',
+  no: exam?.no || ''
+})
 
   useEffect(() => {
     if (!isOpen) {
@@ -1375,6 +1480,47 @@ const ExamModal: React.FC<ExamModalProps> = ({
                 )}
               </div>
 
+              {/* ✅ VENUE DROPDOWN - ADD THIS SECTION */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Venue <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={data.venue}
+                  onChange={(e) => {
+                    const selectedRoom = classrooms.find(c => c.name === e.target.value)
+                    setData({
+                      ...data,
+                      venue: e.target.value,
+                      location: selectedRoom?.location || ''
+                    })
+                  }}
+                  className={`w-full px-4 py-2 border rounded-lg ${theme.filterFocus} ${
+                    errors.venue ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                >
+                  <option value="">Select Venue</option>
+                  {classrooms.map((room) => (
+                    <option key={room.id} value={room.name}>
+                      {room.name} (Capacity: {room.capacity}) - {room.location}
+                    </option>
+                  ))}
+                </select>
+                {errors.venue && (
+                  <p className="mt-1 text-sm text-red-600">{errors.venue}</p>
+                )}
+                {data.venue && data.location && (
+                  <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-xs text-green-800 flex items-center">
+                      <MapPin className="w-3 h-3 mr-1" />
+                      <span className="font-medium">Location:</span>
+                      <span className="ml-1">{data.location}</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Number of Students <span className="text-red-500">*</span>
@@ -1889,7 +2035,7 @@ useEffect(() => {
     }
   }, [bulkFormState.semester_id])
 
-  const handleBulkProgramChange = useCallback(async (programId: number | string) => {
+const handleBulkProgramChange = useCallback(async (programId: number | string) => {
   const numericProgramId = programId === "" ? null : Number(programId)
 
   setBulkFormState(prev => ({
@@ -1912,7 +2058,7 @@ useEffect(() => {
       program_id: numericProgramId
     })
 
-    // ✅ Get classes
+    // ✅ Get all classes for this program/semester
     const classesResponse = await axios.get(
       `/api/exam-timetables/classes-by-semester/${bulkFormState.semester_id}?program_id=${numericProgramId}`
     )
@@ -1925,9 +2071,9 @@ useEffect(() => {
     }
 
     const classes = classesResponse.data.classes
-    console.log(`✅ Found ${classes.length} classes`)
+    console.log(`✅ Found ${classes.length} classes/sections`)
     
-    // ✅ Get ALL units across all classes and group by unit_id
+    // ✅ Get units for EACH class/section separately
     const allUnitsPromises = classes.map(async (classItem: any) => {
       try {
         const unitsResponse = await axios.get(
@@ -1936,11 +2082,19 @@ useEffect(() => {
         
         const units = Array.isArray(unitsResponse.data) ? unitsResponse.data : []
         
+        // ✅ Backend now returns units with class_section already included!
         return units.map((unit: any) => ({
-          ...unit,
-          class_id: classItem.id,
-          class_name: classItem.name,
-          class_code: classItem.code
+          id: unit.id,
+          code: unit.code,
+          name: unit.name,
+          lecturer_name: unit.lecturer_name || 'No lecturer assigned',
+          lecturer_code: unit.lecturer_code || '',
+          // ✅ Each unit already has its specific class/section info from backend
+          class_id: unit.class_id || classItem.id,
+          class_name: unit.class_name || classItem.name,
+          class_section: unit.class_section || classItem.section || 'N/A',
+          // ✅ student_count is already per-section from backend
+          student_count: unit.student_count || 0
         }))
       } catch (error) {
         console.error(`❌ Error fetching units for class ${classItem.id}:`, error)
@@ -1949,56 +2103,14 @@ useEffect(() => {
     })
 
     const allUnitsArrays = await Promise.all(allUnitsPromises)
-    const allUnits = allUnitsArrays.flat()
+    // ✅ Flat array - each entry is ONE section with its units
+    const sectionUnitCombinations = allUnitsArrays.flat()
     
-    // ✅ Group units by unit_id (same unit across multiple classes)
-    const unitMap = new Map<number, {
-      unit: any
-      classes: Array<{ id: number; name: string; code: string }>
-      total_students: number
-    }>()
-
-    allUnits.forEach((unit: any) => {
-      if (!unitMap.has(unit.id)) {
-        unitMap.set(unit.id, {
-          unit: {
-            id: unit.id,
-            code: unit.code,
-            name: unit.name,
-            lecturer_name: unit.lecturer_name,
-            lecturer_code: unit.lecturer_code
-          },
-          classes: [],
-          total_students: 0
-        })
-      }
-      
-      const unitData = unitMap.get(unit.id)!
-      unitData.classes.push({
-        id: unit.class_id,
-        name: unit.class_name,
-        code: unit.class_code
-      })
-      unitData.total_students += unit.student_count || 0
-    })
-
-    // ✅ Convert to array format for display
-    const groupedUnits = Array.from(unitMap.values()).map(({ unit, classes, total_students }) => ({
-      id: unit.id,
-      code: unit.code,
-      name: unit.name,
-      lecturer_name: unit.lecturer_name || 'No lecturer assigned',
-      lecturer_code: unit.lecturer_code || '',
-      classes: classes,
-      class_count: classes.length,
-      total_students: total_students
-    }))
-
-    setAvailableClassesWithUnits(groupedUnits)
+    setAvailableClassesWithUnits(sectionUnitCombinations)
     
-    if (groupedUnits.length > 0) {
-      console.log(`✅ Grouped ${groupedUnits.length} unique units across ${classes.length} classes`)
-      toast.success(`Found ${groupedUnits.length} units across ${classes.length} classes`)
+    if (sectionUnitCombinations.length > 0) {
+      console.log(`✅ Found ${sectionUnitCombinations.length} section-unit combinations`)
+      toast.success(`Found ${sectionUnitCombinations.length} section-unit combinations`)
     } else {
       console.warn('No units found')
       toast.warning("No units found for this program")
@@ -2012,7 +2124,7 @@ useEffect(() => {
     setLoadingClassesWithUnits(false)
   }
 }, [bulkFormState.semester_id])
-  
+
 const handleBulkSchedule = useCallback(async () => {
   if (!bulkFormState.semester_id || !bulkFormState.school_id || !bulkFormState.program_id) {
     toast.error('Please select semester, school, and program')
@@ -2037,79 +2149,68 @@ const handleBulkSchedule = useCallback(async () => {
   setIsBulkSubmitting(true)
 
   try {
-    // Assign time slots to exams (randomly distributed across 4 slots)
-    const examsWithTimeSlots = bulkFormState.selected_class_units.map((item) => {
-      // Pick random slot from the 4 available slots
-      const randomSlot = timeSlots[Math.floor(Math.random() * timeSlots.length)]
-      
-      return {
-        ...item,
-        assigned_start_time: randomSlot.start_time,
-        assigned_end_time: randomSlot.end_time,
-        slot_number: randomSlot.slot_number
-      }
-    })
-
+    // ✅ FIXED: Send selections WITHOUT pre-assigned times
+    // Backend will handle BOTH date selection AND time assignment
     const response = await axios.post('/api/exams/bulk-schedule', {
       semester_id: bulkFormState.semester_id,
       school_id: bulkFormState.school_id,
       program_id: bulkFormState.program_id,
-      selected_class_units: examsWithTimeSlots, // With pre-assigned times
+      selected_class_units: bulkFormState.selected_class_units, // No time assignments!
       start_date: bulkFormState.start_date,
       end_date: bulkFormState.end_date,
       exam_duration_hours: bulkFormState.exam_duration_hours,
       gap_between_exams_days: bulkFormState.gap_between_exams_days,
-      start_time: bulkFormState.start_time,
+      start_time: bulkFormState.start_time, // Backend uses this for ALL exams
       excluded_days: bulkFormState.excluded_days,
       max_exams_per_day: bulkFormState.max_exams_per_day,
-      selected_examrooms: bulkFormState.selected_examrooms
+      selected_examrooms: bulkFormState.selected_examrooms,
+      break_minutes: bulkFormState.break_minutes
     })
 
     if (response.data.success) {
-  const scheduled = response.data.scheduled || []
-  const conflicts = response.data.conflicts || []
-  
-  toast.success(
-    `Successfully scheduled ${scheduled.length} exam${scheduled.length !== 1 ? 's' : ''}!`,
-    { duration: 5000 }
-  )
-  
-  if (conflicts.length > 0) {
-    toast.error(
-      `Warning: ${conflicts.length} exam${conflicts.length !== 1 ? 's' : ''} could not be scheduled`,
-      { duration: 7000 }
-    )
-  }
-  
-  // Reset form first
-  setBulkFormState({
-    semester_id: 0,
-    school_id: null,
-    program_id: null,
-    selected_class_units: [],
-    start_date: '',
-    end_date: '',
-    exam_duration_hours: 2,
-    gap_between_exams_days: 1,
-    start_time: '',
-    excluded_days: [],
-    max_exams_per_day: 4,
-    selected_examrooms: [],
-    break_minutes: 30
-  })
-  
-  // Close modal
-  setIsBulkModalOpen(false)
-  
-  // ✅ FIX: Force refresh with fresh data
-  router.reload({ 
-    only: ['examTimetables'],
-    preserveScroll: true
-  })
-  
-} else {
-  toast.error(response.data.message || 'Failed to schedule exams')
-}  } catch (error: any) {
+      const scheduled = response.data.scheduled || []
+      const conflicts = response.data.conflicts || []
+
+      toast.success(
+        `Successfully scheduled ${scheduled.length} exam${scheduled.length !== 1 ? 's' : ''}!`,
+        { duration: 5000 }
+      )
+
+      if (conflicts.length > 0) {
+        toast.error(
+          `Warning: ${conflicts.length} exam${conflicts.length !== 1 ? 's' : ''} could not be scheduled`,
+          { duration: 7000 }
+        )
+      }
+
+      // Reset form
+      setBulkFormState({
+        semester_id: 0,
+        school_id: null,
+        program_id: null,
+        selected_class_units: [],
+        start_date: '',
+        end_date: '',
+        exam_duration_hours: 2,
+        gap_between_exams_days: 1,
+        start_time: '',
+        excluded_days: [],
+        max_exams_per_day: 4,
+        selected_examrooms: [],
+        break_minutes: 30
+      })
+
+      setIsBulkModalOpen(false)
+
+      // Refresh
+      router.reload({
+        only: ['examTimetables'],
+        preserveScroll: true
+      })
+    } else {
+      toast.error(response.data.message || 'Failed to schedule exams')
+    }
+  } catch (error: any) {
     console.error('Bulk schedule error:', error)
     toast.error(
       error.response?.data?.message || 'An error occurred while scheduling exams'
@@ -2117,9 +2218,7 @@ const handleBulkSchedule = useCallback(async () => {
   } finally {
     setIsBulkSubmitting(false)
   }
-}, [bulkFormState, router, timeSlots])
-
-
+}, [bulkFormState, router])
 
   const checkConflicts = (exam: ExamTimetable): Conflict[] => {
     const conflicts: Conflict[] = []
@@ -2366,6 +2465,18 @@ const calculateRequiredCapacity = () => {
                       <Layers className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform duration-300" />
                       Bulk Schedule
                     </button>
+                    
+                    {/* ✅ ADD THIS NEW BUTTON */}
+                    
+                      <a
+                      href={route(`schools.${schoolCode.toLowerCase()}.programs.exam-timetables.download`, program.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-red-500 via-orange-500 to-amber-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-red-600 hover:via-orange-600 hover:to-amber-600 transform hover:scale-105 hover:-translate-y-0.5 transition-all duration-300 group"
+                    >
+                      <FileText className="w-5 h-5 mr-2 group-hover:animate-bounce" />
+                      Download PDF
+                    </a>
                   </div>
                 )}
               </div>
@@ -2471,16 +2582,16 @@ const calculateRequiredCapacity = () => {
               ) : (
                 <div className="mb-8">
                   <ExamTableView
-  exams={examTimetables.data}
-  theme={theme}
-  onView={handleView}
-  onEdit={handleEdit}
-  onDelete={handleDeleteClick}
-  canEdit={can.edit}
-  canDelete={can.delete}
-  allExams={examTimetables.data}
-  classrooms={classrooms}  // ✅ ADD THIS LINE
-/>
+                    exams={examTimetables.data}
+                    theme={theme}
+                    onView={handleView}
+                    onEdit={handleEdit}
+                    onDelete={handleDeleteClick}
+                    canEdit={can.edit}
+                    canDelete={can.delete}
+                    allExams={examTimetables.data}
+                    classrooms={classrooms}  // ✅ ADD THIS LINE
+                  />
                 </div>
               )}
             </>
@@ -2577,8 +2688,10 @@ const calculateRequiredCapacity = () => {
         theme={theme}
         schoolCode={schoolCode}
         allExams={examTimetables.data}
+        classrooms={classrooms}  // ✅ ADD THIS
       />
 
+      {/* EDIT MODAL */}
       <ExamModal
         isOpen={isEditModalOpen}
         onClose={() => {
@@ -2591,6 +2704,7 @@ const calculateRequiredCapacity = () => {
         theme={theme}
         schoolCode={schoolCode}
         allExams={examTimetables.data}
+        classrooms={classrooms}  // ✅ ADD THIS
       />
 
       <DeleteModal
@@ -2769,65 +2883,69 @@ const calculateRequiredCapacity = () => {
 {availableClassesWithUnits.length > 0 && (
   <div>
     <label className="block text-sm font-medium text-gray-700 mb-2">
-      Select Units to Schedule <span className="text-red-500">*</span>
+      Select Section-Unit Combinations <span className="text-red-500">*</span>
       <span className="text-green-600 text-xs ml-2">
         ({bulkFormState.selected_class_units.length} selected)
       </span>
     </label>
     
-    {/* ✅ ADD: Select All / Deselect All for entire list */}
+    {/* Select All / Deselect All */}
     <div className="flex justify-end mb-2">
       <button
         type="button"
         onClick={() => {
-          const allSelected = availableClassesWithUnits.every(unitData =>
-            bulkFormState.selected_class_units.some(cu => cu.unit_id === unitData.id)
+          const allSelected = availableClassesWithUnits.every(item =>
+            bulkFormState.selected_class_units.some(cu => 
+              cu.unit_id === item.id && cu.class_id === item.class_id
+            )
           )
 
           if (allSelected) {
-            // Deselect all
             setBulkFormState(prev => ({
               ...prev,
               selected_class_units: []
             }))
-            toast.success('Deselected all units')
+            toast.success('Deselected all')
           } else {
-            // Select all units
-            const allSelections = availableClassesWithUnits.map(unitData => ({
-              class_id: unitData.classes[0].id, // Use first class as primary
-              class_name: unitData.classes.map(c => c.name).join(', '),
-              class_code: unitData.classes.map(c => c.code).join(', '),
-              unit_id: unitData.id,
-              unit_code: unitData.code,
-              unit_name: unitData.name,
-              student_count: unitData.total_students,
-              lecturer: unitData.lecturer_name || 'TBD'
+            const allSelections = availableClassesWithUnits.map(item => ({
+              class_id: item.class_id,
+              class_name: item.class_name,
+              class_code: item.class_code || `CLASS-${item.class_id}`,
+              class_section: item.class_section,
+              unit_id: item.id,
+              unit_code: item.code,
+              unit_name: item.name,
+              student_count: item.student_count, // ✅ Per-section count!
+              lecturer: item.lecturer_name || 'TBD'
             }))
 
             setBulkFormState(prev => ({
               ...prev,
               selected_class_units: allSelections
             }))
-            toast.success(`Selected all ${allSelections.length} units`)
+            toast.success(`Selected all ${allSelections.length} combinations`)
           }
         }}
         className="text-xs text-blue-600 hover:underline font-medium"
       >
-        {availableClassesWithUnits.every(unitData =>
-          bulkFormState.selected_class_units.some(cu => cu.unit_id === unitData.id)
+        {availableClassesWithUnits.every(item =>
+          bulkFormState.selected_class_units.some(cu => 
+            cu.unit_id === item.id && cu.class_id === item.class_id
+          )
         ) ? 'Deselect All' : 'Select All'}
       </button>
     </div>
     
     <div className="border rounded p-3 max-h-80 overflow-y-auto space-y-2">
-      {availableClassesWithUnits.map(unitData => {
+      {availableClassesWithUnits.map((item, index) => {
+        const uniqueKey = `${item.id}-${item.class_id}`
         const isSelected = bulkFormState.selected_class_units.some(cu =>
-          cu.unit_id === unitData.id
+          cu.unit_id === item.id && cu.class_id === item.class_id
         )
 
         return (
           <label
-            key={unitData.id}
+            key={uniqueKey}
             className={`flex items-start text-sm p-3 rounded cursor-pointer border-2 transition-all ${
               isSelected
                 ? 'bg-green-50 border-green-300 shadow-sm'
@@ -2844,14 +2962,15 @@ const calculateRequiredCapacity = () => {
                     selected_class_units: [
                       ...prev.selected_class_units,
                       {
-                        class_id: unitData.classes[0].id, // Use first class as primary
-                        class_name: unitData.classes.map(c => c.name).join(', '),
-                        class_code: unitData.classes.map(c => c.code).join(', '),
-                        unit_id: unitData.id,
-                        unit_code: unitData.code,
-                        unit_name: unitData.name,
-                        student_count: unitData.total_students,
-                        lecturer: unitData.lecturer_name || 'TBD'
+                        class_id: item.class_id,
+                        class_name: item.class_name,
+                        class_code: item.class_code || `CLASS-${item.class_id}`,
+                        class_section: item.class_section,
+                        unit_id: item.id,
+                        unit_code: item.code,
+                        unit_name: item.name,
+                        student_count: item.student_count, // ✅ Per-section!
+                        lecturer: item.lecturer_name || 'TBD'
                       }
                     ]
                   }))
@@ -2859,44 +2978,58 @@ const calculateRequiredCapacity = () => {
                   setBulkFormState(prev => ({
                     ...prev,
                     selected_class_units: prev.selected_class_units.filter(cu =>
-                      cu.unit_id !== unitData.id
+                      !(cu.unit_id === item.id && cu.class_id === item.class_id)
                     )
                   }))
                 }
               }}
               className="mt-1 mr-3"
             />
+            
             <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-900">{unitData.code}</span>
-                {isSelected && <CheckCircle className="w-4 h-4 text-green-600" />}
+              {/* ✅ Unit Header */}
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <span className="font-bold text-gray-900 text-base">{item.code}</span>
+                  <span className="text-gray-600 ml-2">-</span>
+                  <span className="text-gray-700 ml-2">{item.name}</span>
+                </div>
+                {isSelected && <CheckCircle className="w-5 h-5 text-green-600" />}
               </div>
-              <div className="text-gray-700 font-medium mt-0.5">{unitData.name}</div>
               
-              {/* ✅ Show which classes this unit spans */}
-              <div className="mt-2 text-xs text-gray-600">
-                <div className="flex items-center">
-                  <School className="w-3 h-3 mr-1" />
-                  <span className="font-medium">Classes:</span>
-                  <span className="ml-1">
-                    {unitData.classes.map(c => `${c.name} (${c.code})`).join(', ')}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-1.5 flex items-center gap-4 text-xs">
-                <div className="flex items-center text-purple-600">
-                  <Users className="w-3 h-3 mr-1" />
-                  <span className="font-semibold">{unitData.total_enrolled} students</span>
-                  <span className="text-gray-500 ml-1">across {unitData.class_count} class{unitData.class_count > 1 ? 'es' : ''}</span>
-                </div>
-                {unitData.lecturer_name && (
-                  <div className="flex items-center text-orange-600">
-                    <User className="w-3 h-3 mr-1" />
-                    <span>{unitData.lecturer_name}</span>
+              {/* ✅ SECTION INFO - CLEARLY DISPLAYED */}
+              <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg mb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <School className="w-4 h-4 text-indigo-600 mr-2" />
+                    <div>
+                      <span className="font-bold text-indigo-900">{item.class_name}</span>
+                      {/* ✅ SECTION BADGE - VERY VISIBLE */}
+                      {item.class_section && item.class_section !== 'N/A' && (
+                        <span className="ml-2 px-2 py-1 bg-indigo-600 text-white text-xs font-bold rounded">
+                          Section {item.class_section}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
+                  
+                  {/* ✅ STUDENT COUNT - PER SECTION */}
+                  <div className="flex items-center bg-purple-100 px-2 py-1 rounded">
+                    <Users className="w-4 h-4 text-purple-600 mr-1" />
+                    <span className="font-bold text-purple-900 text-sm">
+                      {item.student_count}
+                    </span>
+                  </div>
+                </div>
               </div>
+              
+              {/* ✅ Lecturer Info */}
+              {item.lecturer_name && (
+                <div className="flex items-center text-xs text-orange-600 mt-1">
+                  <User className="w-3 h-3 mr-1" />
+                  <span>{item.lecturer_name}</span>
+                </div>
+              )}
             </div>
           </label>
         )
@@ -2906,15 +3039,43 @@ const calculateRequiredCapacity = () => {
     {/* ✅ ADD: Summary of selection */}
     {bulkFormState.selected_class_units.length > 0 && (
       <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
-        <div className="font-medium text-blue-900 mb-1">
+        <div className="font-medium text-blue-900 mb-2">
           📋 Selection Summary:
         </div>
-        <div className="text-blue-800">
-          • {bulkFormState.selected_class_units.length} unit{bulkFormState.selected_class_units.length > 1 ? 's' : ''} selected
-          <br />
-          • {bulkFormState.selected_class_units.reduce((sum, cu) => sum + cu.student_count, 0)} total students
-          <br />
-          • Each exam will cover all students across multiple classes for that unit
+        <div className="text-blue-800 space-y-1">
+          <div>
+            • {bulkFormState.selected_class_units.length} section-unit combination{bulkFormState.selected_class_units.length > 1 ? 's' : ''} selected
+          </div>
+          <div>
+            • {bulkFormState.selected_class_units.reduce((sum, cu) => sum + cu.student_count, 0)} total students
+          </div>
+          
+          {/* ✅ Show breakdown by section */}
+          <div className="mt-2 pt-2 border-t border-blue-300">
+            <div className="font-semibold text-blue-900 mb-1">Section Breakdown:</div>
+            {(() => {
+              // Group by unit to show sections
+              const groupedByUnit = bulkFormState.selected_class_units.reduce((acc, cu) => {
+                const key = `${cu.unit_code}-${cu.unit_name}`
+                if (!acc[key]) {
+                  acc[key] = []
+                }
+                acc[key].push(cu)
+                return acc
+              }, {} as Record<string, typeof bulkFormState.selected_class_units>)
+              
+              return Object.entries(groupedByUnit).map(([unitKey, sections]) => (
+                <div key={unitKey} className="ml-2 mb-1 text-xs">
+                  <div className="font-medium text-blue-900">{unitKey}:</div>
+                  {sections.map((sec, idx) => (
+                    <div key={idx} className="ml-3 text-blue-700">
+                      → {sec.class_name} Sec {sec.class_section}: {sec.student_count} students
+                    </div>
+                  ))}
+                </div>
+              ))
+            })()}
+          </div>
         </div>
       </div>
     )}
@@ -3304,8 +3465,9 @@ const calculateRequiredCapacity = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>        
       )}
+      
     </AuthenticatedLayout>
   )
 }
