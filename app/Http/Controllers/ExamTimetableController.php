@@ -792,7 +792,11 @@ class ExamTimetableController extends Controller
         }
     }
 
-   public function getUnitsByClassAndSemesterForExam(Request $request)
+
+// ✅ CORRECTED: Fix for elective exam scheduling
+// Replace in ExamTimetableController.php
+
+public function getUnitsByClassAndSemesterForExam(Request $request)
 {
     try {
         $classId = $request->input('class_id');
@@ -843,7 +847,8 @@ class ExamTimetableController extends Controller
                     'units.credit_hours',
                     'enrollments.lecturer_code',
                     DB::raw('COUNT(DISTINCT enrollments.student_code) as total_students'),
-                    DB::raw('COUNT(DISTINCT enrollments.group_id) as sections_count')
+                    DB::raw('COUNT(DISTINCT enrollments.group_id) as sections_count'),
+                    DB::raw('MIN(enrollments.group_id) as first_class_id') // ✅ Get first class_id as representative
                 )
                 ->groupBy(
                     'units.id',
@@ -862,7 +867,8 @@ class ExamTimetableController extends Controller
                     'unit' => $g->unit_code,
                     'lecturer' => $g->lecturer_code,
                     'total_students' => $g->total_students,
-                    'sections' => $g->sections_count
+                    'sections' => $g->sections_count,
+                    'representative_class' => $g->first_class_id
                 ])->toArray()
             ]);
 
@@ -908,9 +914,8 @@ class ExamTimetableController extends Controller
                     'name' => $group->unit_name,
                     'credit_hours' => $group->credit_hours ?? 3,
                     
-                    // ✅ CRITICAL: For electives, we don't tie to a specific class
-                    // We create a virtual "combined" class entry
-                    'class_id' => 0, // Special flag: 0 means "ALL SECTIONS COMBINED"
+                    // ✅ CRITICAL FIX: Use first class_id as representative
+                    'class_id' => (int)$group->first_class_id,
                     'class_name' => 'All Sections Combined',
                     'class_section' => 'ELECTIVE',
                     
@@ -924,6 +929,7 @@ class ExamTimetableController extends Controller
                     // ✅ Show which sections are included
                     'sections_included' => $sectionsInfo->count(),
                     'sections_list' => $sectionsList,
+                    'sections_details' => $sectionsInfo->toArray(), // ✅ Full details for backend
                     
                     // ✅ Display label for UI
                     'display_label' => sprintf(
@@ -936,16 +942,15 @@ class ExamTimetableController extends Controller
                         $sectionsInfo->count() > 1 ? 's' : ''
                     ),
                     
-                    // ✅ Additional info for display
-                    'note' => 'Students from ' . implode(', ', array_slice($sectionsList, 0, 3)) . 
-                             ($sectionsInfo->count() > 3 ? ' and ' . ($sectionsInfo->count() - 3) . ' more' : '')
+                    // ✅ Flag this as elective
+                    '_is_elective' => true
                 ];
             })->values();
 
             return response()->json($formattedUnits->all());
         }
 
-        // ✅ CASE 2: REGULAR PROGRAM - Require class_id and keep sections separate
+        // ✅ CASE 2: REGULAR PROGRAM - Rest remains same...
         if (!$classId) {
             return response()->json([
                 'error' => 'Class ID is required for regular programs.'
@@ -1020,6 +1025,7 @@ class ExamTimetableController extends Controller
                 'class_id' => $classInfo->id,
                 'class_name' => $classInfo->name,
                 'class_section' => $classInfo->section ?? 'N/A',
+                '_is_elective' => false
             ];
         });
 
@@ -1880,6 +1886,8 @@ private function groupSectionsByUnitAndLecturer($selections)
     return $groups;
 }
 
+// ✅ CORRECTED bulkScheduleExams - handles electives with real class IDs
+
 public function bulkScheduleExams(Request $request, Program $program, $schoolCode)
 {
     try {
@@ -1898,15 +1906,13 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             'break_minutes' => 'required|integer|min:15',
         ]);
 
-        // ✅ CRITICAL: Set batch_id IMMEDIATELY after validation
         $validated['batch_id'] = 'BATCH_' . now()->format('YmdHis') . '_' . uniqid();
 
-        Log::info('🎓 Starting INTELLIGENT bulk exam scheduling', [
-            'batch_id' => $validated['batch_id'],  // ✅ Confirm it's set
+        Log::info('🎓 Starting bulk exam scheduling', [
+            'batch_id' => $validated['batch_id'],
             'total_selections' => count($validated['selected_class_units']),
         ]);
 
-        
         $scheduled = [];
         $conflicts = [];
         
@@ -1921,134 +1927,79 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             4
         );
 
-        Log::info('🕐 Generated time slots', [
-            'slots' => array_map(function($slot) {
-                return [
-                    'slot' => $slot['slot_number'],
-                    'time' => "{$slot['start_time']} - {$slot['end_time']}"
-                ];
-            }, $timeSlots)
-        ]);
-
-        $unitGroups = $this->groupSectionsByUnitAndLecturer(
-            $validated['selected_class_units']
-        );
-
-        Log::info('📦 Grouped sections by unit and lecturer', [
-            'total_groups' => count($unitGroups)
-        ]);
-
         $availableDates = $this->generateAvailableDates(
             $validated['start_date'],
             $validated['end_date'],
             $validated['excluded_days'] ?? []
         );
 
-        Log::info('📅 Available dates', [
-            'total_dates' => count($availableDates),
-            'dates' => $availableDates
-        ]);
-
-        $classScheduleTracking = [];
-        foreach ($validated['selected_class_units'] as $selection) {
-            $classId = $selection['class_id'];
-            
-            if (!isset($classScheduleTracking[$classId])) {
-                $classScheduleTracking[$classId] = [
-                    'class_id' => $classId,
-                    'class_name' => $selection['class_name'],
-                    'exams_scheduled' => 0,
-                    'scheduled_dates' => []
-                ];
-            }
-        }
-
         $venueCapacityUsage = [];
         $unitTimeSlotAssignments = [];
+        $unitScheduleLocks = []; // unit_id => ['date', 'start_time', 'end_time', 'slot']
 
-        foreach ($unitGroups as $groupKey => $unitGroup) {
-            $totalStudents = $unitGroup['total_students'];
-            $unitCode = $unitGroup['unit_code'];
-            $unitName = $unitGroup['unit_name'];
-            $lecturer = $unitGroup['lecturer'];
-            $sections = $unitGroup['sections'];
 
-            Log::info('🎯 Processing unit group', [
+        // ✅ Process each selection
+        foreach ($validated['selected_class_units'] as $selection) {
+            $unitId = $selection['unit_id'];
+            $unitCode = $selection['unit_code'];
+            $unitName = $selection['unit_name'];
+            $lecturer = $selection['lecturer'] ?? 'Not Assigned';
+            $totalStudents = $selection['student_count'];
+            
+            // ✅ CRITICAL: Use the class_id from selection (already a valid ID from database)
+            $classId = $selection['class_id'];
+
+            Log::info('🎯 Processing selection', [
                 'unit' => $unitCode,
-                'lecturer' => $lecturer,
-                'sections' => count($sections),
-                'total_students' => $totalStudents
+                'class_id' => $classId,
+                'students' => $totalStudents,
+                'lecturer' => $lecturer
             ]);
 
-            // ✅ Find suitable date
-            $targetDate = null;
-            $classIds = array_unique(array_column($sections, 'class_id'));
-            
-            foreach ($availableDates as $candidateDate) {
-                $dateWorksForAll = true;
-                
-                foreach ($classIds as $classId) {
-                    if (isset($classScheduleTracking[$classId])) {
-                        $scheduledDates = $classScheduleTracking[$classId]['scheduled_dates'];
-                        
-                        if (in_array($candidateDate, $scheduledDates)) {
-                            $dateWorksForAll = false;
-                            break;
-                        }
-                        
-                        if (!empty($scheduledDates)) {
-                            $lastDate = Carbon::parse(end($scheduledDates));
-                            $currentDate = Carbon::parse($candidateDate);
-                            $daysBetween = $lastDate->diffInDays($currentDate);
-                            
-                            if ($daysBetween < 1) {
-                                $dateWorksForAll = false;
-                                break;
-                            }
-                        }
+            // ✅ LOCK DATE & TIME PER UNIT (CRITICAL FIX)
+                if (isset($unitScheduleLocks[$unitId])) {
+
+                    // Reuse already assigned date & time for this unit
+                    $locked = $unitScheduleLocks[$unitId];
+
+                    $targetDate = $locked['date'];
+                    $startTime  = $locked['start_time'];
+                    $endTime    = $locked['end_time'];
+                    $assignedSlot = $locked['slot'];
+
+                } else {
+
+                    // First encounter of this unit → assign date & time
+                    $targetDate = $availableDates[0] ?? null;
+
+                    if (!$targetDate) {
+                        $conflicts[] = [
+                            'unit' => $unitCode,
+                            'reason' => 'No available dates'
+                        ];
+                        continue;
                     }
-                }
-                
-                if ($dateWorksForAll) {
-                    $targetDate = $candidateDate;
-                    break;
-                }
-            }
 
-            if (!$targetDate) {
-                foreach ($sections as $section) {
-                    $conflicts[] = [
-                        'unit' => $unitCode,
-                        'class' => $section['class_name'],
-                        'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => 'No available date with proper spacing'
+                    $assignedSlot = $timeSlots[array_rand($timeSlots)];
+
+                    $startTime = $assignedSlot['start_time'];
+                    $endTime   = $assignedSlot['end_time'];
+
+                    // 🔐 LOCK IT FOR ALL GROUPS OF THIS UNIT
+                    $unitScheduleLocks[$unitId] = [
+                        'date' => $targetDate,
+                        'start_time' => $startTime,
+                        'end_time' => $endTime,
+                        'slot' => $assignedSlot,
                     ];
-
-                    $this->logSchedulingFailure(
-                        $validated,
-                        $section,
-                        'No available date with proper spacing',
-                        null,
-                        null
-                    );
                 }
-                continue;
-            }
-
-            $unitLecturerKey = $unitCode . '_' . ($lecturer ?? 'NO_LECTURER');
-            
-            if (isset($unitTimeSlotAssignments[$unitLecturerKey])) {
-                $assignedSlot = $unitTimeSlotAssignments[$unitLecturerKey];
-            } else {
-                $assignedSlot = $timeSlots[array_rand($timeSlots)];
-                $unitTimeSlotAssignments[$unitLecturerKey] = $assignedSlot;
-            }
 
             $startTime = $assignedSlot['start_time'];
             $endTime = $assignedSlot['end_time'];
             $timeSlotKey = "{$startTime}-{$endTime}";
 
-            $venueResult = $this->findVenuesForGroup(
+            // Find venue
+            $venueResult = $this->findVenueWithRemainingCapacity(
                 $selectedRooms,
                 $totalStudents,
                 $targetDate,
@@ -2057,196 +2008,80 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             );
 
             if (!$venueResult['success']) {
-                foreach ($sections as $section) {
-                    $conflicts[] = [
-                        'unit' => $unitCode,
-                        'class' => $section['class_name'],
-                        'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => $venueResult['message']
-                    ];
-
-                    $this->logSchedulingFailure(
-                        $validated,
-                        $section,
-                        $venueResult['message'],
-                        $targetDate,
-                        $timeSlotKey
-                    );
-                }
-                continue;
-            }
-
-            $hasAnyConflict = false;
-            foreach ($sections as $section) {
-                $hasConflict = $this->checkSchedulingConflicts(
-                    $validated['semester_id'],
-                    $section['class_id'],
-                    $section['unit_id'],
-                    $targetDate,
-                    $startTime,
-                    $endTime,
-                    $lecturer
-                );
-
-                if ($hasConflict) {
-                    $hasAnyConflict = true;
-                    break;
-                }
-            }
-
-            if ($hasAnyConflict) {
-                foreach ($sections as $section) {
-                    $conflicts[] = [
-                        'unit' => $unitCode,
-                        'class' => $section['class_name'],
-                        'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => 'Scheduling conflict detected'
-                    ];
-
-                    $this->logSchedulingFailure(
-                        $validated,
-                        $section,
-                        'Scheduling conflict detected',
-                        $targetDate,
-                        $timeSlotKey
-                    );
-                }
-                continue;
-            }
-
-            // ✅ CREATE EXAM RECORDS - KEEP SECTIONS TOGETHER
-            $scheduledInGroup = [];
-
-            foreach ($sections as $section) {
-                $sectionStudents = $section['student_count'];
-                $classInfo = DB::table('classes')->where('id', $section['class_id'])->first();
-                
-                // ✅ Find a venue that can fit THIS ENTIRE SECTION
-                $sectionVenue = null;
-                $sectionLocation = null;
-                
-                foreach ($venueResult['venues'] as $venueOption) {
-                    $venueName = $venueOption['name'];
-                    $venueCapacity = $venueOption['total_capacity'];
-                    
-                    $usedCapacity = $venueCapacityUsage[$venueName][$targetDate][$timeSlotKey] ?? 0;
-                    $availableCapacity = $venueCapacity - $usedCapacity;
-                    
-                    // ✅ KEY FIX: Venue must fit the ENTIRE section
-                    if ($availableCapacity >= $sectionStudents) {
-                        $sectionVenue = $venueName;
-                        $sectionLocation = $venueOption['location'];
-                        
-                        Log::info('✅ Found venue for entire section', [
-                            'section' => $classInfo->name . ' ' . ($classInfo->section ?? ''),
-                            'students' => $sectionStudents,
-                            'venue' => $sectionVenue,
-                            'available_capacity' => $availableCapacity
-                        ]);
-                        break;
-                    }
-                }
-                
-                if (!$sectionVenue) {
-                    Log::warning('⚠️ No single venue can fit entire section', [
-                        'section' => $classInfo->name . ' ' . ($classInfo->section ?? ''),
-                        'students' => $sectionStudents,
-                        'unit' => $unitCode
-                    ]);
-                    
-                    $conflicts[] = [
-                        'unit' => $unitCode,
-                        'class' => $section['class_name'],
-                        'section' => $section['class_section'] ?? 'N/A',
-                        'reason' => "No single venue available with capacity for {$sectionStudents} students"
-                    ];
-                    
-                    $this->logSchedulingFailure(
-                        $validated,
-                        $section,
-                        "No single venue available with capacity for {$sectionStudents} students",
-                        $targetDate,
-                        $timeSlotKey
-                    );
-                    
-                    continue;
-                }
-                
-                $examId = DB::table('exam_timetables')->insertGetId([
-                    'semester_id' => $validated['semester_id'],
-                    'class_id' => $section['class_id'],
-                    'unit_id' => $section['unit_id'],
-                    'program_id' => $validated['program_id'],
-                    'school_id' => $validated['school_id'],
-                    'date' => $targetDate,
-                    'day' => Carbon::parse($targetDate)->format('l'),
-                    'start_time' => $startTime,
-                    'end_time' => $endTime,
-                    'venue' => $sectionVenue,
-                    'location' => $sectionLocation ?? 'Phase 2',
-                    'group_name' => $classInfo->section ?? 'N/A',
-                    'no' => $sectionStudents,
-                    'chief_invigilator' => $lecturer ?? 'TBD',
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $scheduledInGroup[] = [
-                    'id' => $examId,
-                    'unit_code' => $unitCode,
-                    'unit_name' => $unitName,
-                    'class_name' => $classInfo->name,
-                    'class_section' => $classInfo->section ?? 'N/A',
-                    'student_count' => $sectionStudents,
-                    'date' => $targetDate,
-                    'time' => "$startTime - $endTime",
-                    'slot_number' => $assignedSlot['slot_number'],
-                    'venue' => $sectionVenue
-                ];
-
-                $this->updateVenueCapacityUsage(
-                    $venueCapacityUsage,
-                    $sectionVenue,
-                    $targetDate,
-                    $timeSlotKey,
-                    $sectionStudents
-                );
-
-                $classScheduleTracking[$section['class_id']]['scheduled_dates'][] = $targetDate;
-                $classScheduleTracking[$section['class_id']]['exams_scheduled']++;
-            }
-
-            if (count($scheduledInGroup) > 0) {
-                Log::info('✅ Unit group scheduled together', [
+                $conflicts[] = [
                     'unit' => $unitCode,
-                    'lecturer' => $lecturer,
-                    'sections_requested' => count($sections),
-                    'sections_scheduled' => count($scheduledInGroup),
-                    'date' => $targetDate,
-                    'time' => "$startTime - $endTime",
-                    'venues' => implode(', ', array_unique(array_column($scheduledInGroup, 'venue')))
-                ]);
-
-                $scheduled = array_merge($scheduled, $scheduledInGroup);
+                    'reason' => $venueResult['message']
+                ];
+                continue;
             }
+
+            // ✅ CREATE EXAM RECORD with valid class_id
+            $examId = DB::table('exam_timetables')->insertGetId([
+                'semester_id' => $validated['semester_id'],
+                'class_id' => $classId, // ✅ Valid class_id from database
+                'unit_id' => $unitId,
+                'program_id' => $validated['program_id'],
+                'school_id' => $validated['school_id'],
+                'date' => $targetDate,
+                'day' => Carbon::parse($targetDate)->format('l'),
+                'start_time' => $startTime,
+                'end_time' => $endTime,
+                'venue' => $venueResult['venue'],
+                'location' => $venueResult['location'] ?? 'Phase 2',
+                'group_name' => isset($selection['_is_elective']) && $selection['_is_elective'] 
+                    ? 'ELECTIVE-COMBINED' 
+                    : ($selection['class_section'] ?? 'N/A'),
+                'no' => $totalStudents,
+                'chief_invigilator' => $lecturer,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $scheduled[] = [
+                'id' => $examId,
+                'unit_code' => $unitCode,
+                'unit_name' => $unitName,
+                'class_name' => $selection['class_name'],
+                'class_section' => $selection['class_section'] ?? 'COMBINED',
+                'student_count' => $totalStudents,
+                'date' => $targetDate,
+                'time' => "$startTime - $endTime",
+                'slot_number' => $assignedSlot['slot_number'],
+                'venue' => $venueResult['venue']
+            ];
+
+            // Update venue usage
+            $this->updateVenueCapacityUsage(
+                $venueCapacityUsage,
+                $venueResult['venue'],
+                $targetDate,
+                $timeSlotKey,
+                $totalStudents
+            );
+
+            Log::info('✅ Exam scheduled', [
+                'exam_id' => $examId,
+                'unit' => $unitCode,
+                'class_id' => $classId,
+                'students' => $totalStudents,
+                'venue' => $venueResult['venue']
+            ]);
         }
 
-        Log::info('🎉 Intelligent bulk scheduling complete', [
+        Log::info('🎉 Bulk scheduling complete', [
             'scheduled' => count($scheduled),
-            'conflicts' => count($conflicts),
-            'date_distribution' => collect($scheduled)->groupBy('date')->map->count()->toArray()
+            'conflicts' => count($conflicts)
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => count($scheduled) . ' exams scheduled with section grouping',
+            'message' => count($scheduled) . ' exams scheduled',
             'scheduled' => $scheduled,
             'conflicts' => $conflicts,
             'summary' => [
                 'total_requested' => count($validated['selected_class_units']),
                 'successfully_scheduled' => count($scheduled),
-                'conflicts' => count($conflicts),
-                'date_distribution' => collect($scheduled)->groupBy('date')->map->count()->toArray()
+                'conflicts' => count($conflicts)
             ]
         ]);
 
