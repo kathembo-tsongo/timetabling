@@ -640,8 +640,7 @@ const ProgramClassesIndex: React.FC = () => {
                         value={formData.section}
                         onChange={(e) => setFormData({...formData, section: e.target.value.toUpperCase()})}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        placeholder="A"
-                        maxLength={1}
+                        placeholder="A"                        
                         required
                       />
                     </div>
@@ -748,7 +747,6 @@ const ProgramClassesIndex: React.FC = () => {
                         value={formData.section}
                         onChange={(e) => setFormData({...formData, section: e.target.value.toUpperCase()})}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        maxLength={1}
                         required
                       />
                     </div>

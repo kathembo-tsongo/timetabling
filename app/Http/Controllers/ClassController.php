@@ -67,7 +67,7 @@ class ClassController extends Controller
             'semester_id' => 'required|exists:semesters,id',
             'program_id' => 'required|exists:programs,id',
             'year_level' => 'nullable|integer|min:1|max:6',
-            'section' => 'required|string|max:10', // This will be A, B, C, etc.
+            'section' => 'required|string|max:255', // This will be A, B, C, etc.
             'capacity' => 'nullable|integer|min:1|max:200',
         ]);
 
@@ -122,7 +122,7 @@ class ClassController extends Controller
             'classes.*.semester_id' => 'required|exists:semesters,id',
             'classes.*.program_id' => 'required|exists:programs,id',
             'classes.*.year_level' => 'required|integer|min:1|max:6',
-            'classes.*.section' => 'required|string|max:10',
+            'classes.*.section' => 'required|string|max:255',
             'classes.*.capacity' => 'nullable|integer|min:1|max:200',
         ]);
 
@@ -191,7 +191,7 @@ class ClassController extends Controller
             'semester_id' => 'required|exists:semesters,id',
             'program_id' => 'required|exists:programs,id',
             'year_level' => 'nullable|integer|min:1|max:6',
-            'section' => 'required|string|max:10',
+            'section' => 'required|string|max:255',
             'capacity' => 'nullable|integer|min:1|max:200',
         ]);
 
@@ -722,7 +722,7 @@ public function getByProgramAndSemester(Request $request)
             'name' => 'required|string|max:255',
             'semester_id' => 'required|exists:semesters,id',
             'year_level' => 'nullable|integer|min:1|max:6',
-            'section' => 'required|string|max:10',
+            'section' => 'required|string|max:255',
             'capacity' => 'nullable|integer|min:1|max:200',
         ]);
 
@@ -863,7 +863,7 @@ public function getByProgramAndSemester(Request $request)
             'name' => 'required|string|max:255',
             'semester_id' => 'required|exists:semesters,id',
             'year_level' => 'nullable|integer|min:1|max:6',
-            'section' => 'required|string|max:10',
+            'section' => 'required|string|max:255',
             'capacity' => 'nullable|integer|min:1|max:200',
         ]);
 

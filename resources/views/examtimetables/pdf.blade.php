@@ -446,10 +446,10 @@
                     <th>Time</th>
                     <th>Unit Code</th>
                     <th>Unit Name</th>
-                    <th>Class</th>
-                    <th>Section</th>
+                    <!-- <th>Class</th> -->
+                    <th>Group</th>
                     <th>Students</th>
-                    <th>Semester</th>
+                    <!-- <th>Semester</th> -->
                     <th>Venue</th>
                     <th>Chief Invigilator</th>
                 </tr>
@@ -473,9 +473,9 @@
                     <td>{{ $exam->unit_name ?? 'N/A' }}</td>
                     
                     {{-- Class Name --}}
-                    <td>
+                    <!-- <td>
                         <span class="class-name">{{ $exam->class_name ?? 'N/A' }}</span>
-                    </td>
+                    </td> -->
                     
                     {{-- Section (group_name) - FIXED --}}
                     <td>
@@ -490,7 +490,7 @@
                     </td>
                     
                     {{-- Semester --}}
-                    <td>{{ $exam->semester_name ?? 'N/A' }}</td>
+                    <!-- <td>{{ $exam->semester_name ?? 'N/A' }}</td> -->
                     
                     {{-- Venue & Location --}}
                     <td>
