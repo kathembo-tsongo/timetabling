@@ -15,59 +15,94 @@ use Illuminate\Support\Facades\DB;
 class ClassController extends Controller
 {
     public function index(Request $request)
-{
-    $perPage = $request->per_page ?? 15;
-    $search = $request->search ?? '';
-    $semesterId = $request->semester_id;
-    $programId = $request->program_id;
-    $yearLevel = $request->year_level;
-    
-    $user = auth()->user(); // Add this
-    
-    // ... rest of the query code ...
-    
-    return Inertia::render('Admin/Classes/Index', [
-        'classes' => $classes,
-        'semesters' => $semesters,
-        'programs' => $programs,
-        'filters' => [
-            'search' => $search,
-            'semester_id' => $semesterId ? (int) $semesterId : null,
-            'program_id' => $programId ? (int) $programId : null,
-            'year_level' => $yearLevel ? (int) $yearLevel : null,
-            'per_page' => (int) $perPage,
-        ],
-        'can' => [
-            // ✅ Fixed: Use hyphens
-            'create' => $user->hasRole('Admin') || 
-                       $user->can('manage-classes') || 
-                       $user->can('create-classes'),
-            
-            'update' => $user->hasRole('Admin') || 
-                       $user->can('manage-classes') || 
-                       $user->can('edit-classes'),
-            
-            'delete' => $user->hasRole('Admin') || 
-                       $user->can('manage-classes') || 
-                       $user->can('delete-classes'),
-        ],
-        'flash' => [
-            'success' => session('success'),
-            'error' => session('error'),
-        ],
-        'errors' => session('errors') ? session('errors')->getBag('default')->toArray() : [],
-    ]);
-}
+    {
+        $perPage = $request->per_page ?? 15;
+        $search = $request->search ?? '';
+        $semesterId = $request->semester_id;
+        $programId = $request->program_id;
+        $yearLevel = $request->year_level;
+        
+        $user = auth()->user();
+        
+        // ✅ BUILD QUERY WITH is_elective_class FILTER
+        $query = ClassModel::with(['semester', 'program.school'])
+            ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
+            ->when($search, function($q) use ($search) {
+                $q->where('name', 'like', '%' . $search . '%')
+                  ->orWhere('section', 'like', '%' . $search . '%')
+                  ->orWhereHas('semester', function($sq) use ($search) {
+                      $sq->where('name', 'like', '%' . $search . '%');
+                  })
+                  ->orWhereHas('program', function($sq) use ($search) {
+                      $sq->where('name', 'like', '%' . $search . '%')
+                         ->orWhere('code', 'like', '%' . $search . '%');
+                  });
+            })
+            ->when($semesterId, function($q) use ($semesterId) {
+                $q->where('semester_id', $semesterId);
+            })
+            ->when($programId, function($q) use ($programId) {
+                $q->where('program_id', $programId);
+            })
+            ->when($yearLevel, function($q) use ($yearLevel) {
+                $q->where('year_level', $yearLevel);
+            })
+            ->orderBy('name')
+            ->orderBy('section');
+        
+        $classes = $query->paginate($perPage)->withQueryString();
+        
+        $semesters = Semester::select('id', 'name', 'is_active')
+            ->orderBy('name')
+            ->get();
+        
+        $programs = Program::with('school')
+            ->select('id', 'name', 'code', 'school_id')
+            ->orderBy('name')
+            ->get();
+        
+        return Inertia::render('Admin/Classes/Index', [
+            'classes' => $classes,
+            'semesters' => $semesters,
+            'programs' => $programs,
+            'filters' => [
+                'search' => $search,
+                'semester_id' => $semesterId ? (int) $semesterId : null,
+                'program_id' => $programId ? (int) $programId : null,
+                'year_level' => $yearLevel ? (int) $yearLevel : null,
+                'per_page' => (int) $perPage,
+            ],
+            'can' => [
+                'create' => $user->hasRole('Admin') || 
+                           $user->can('manage-classes') || 
+                           $user->can('create-classes'),
+                
+                'update' => $user->hasRole('Admin') || 
+                           $user->can('manage-classes') || 
+                           $user->can('edit-classes'),
+                
+                'delete' => $user->hasRole('Admin') || 
+                           $user->can('manage-classes') || 
+                           $user->can('delete-classes'),
+            ],
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
+            'errors' => session('errors') ? session('errors')->getBag('default')->toArray() : [],
+        ]);
+    }
+
     public function store(Request $request)
     {
         Log::info('Form Data Received:', $request->all());
         
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255', // This will be something like "BBIT 1.1"
+            'name' => 'required|string|max:255',
             'semester_id' => 'required|exists:semesters,id',
             'program_id' => 'required|exists:programs,id',
             'year_level' => 'nullable|integer|min:1|max:6',
-            'section' => 'required|string|max:255', // This will be A, B, C, etc.
+            'section' => 'required|string|max:255',
             'capacity' => 'nullable|integer|min:1|max:200',
         ]);
 
@@ -79,7 +114,6 @@ class ClassController extends Controller
         }
 
         try {
-            // Use the name as provided (e.g., "BBIT 1.1") and section separately
             $className = $request->name;
             $section = strtoupper($request->section);
 
@@ -88,6 +122,7 @@ class ClassController extends Controller
                 ->where('section', $section)
                 ->where('semester_id', $request->semester_id)
                 ->where('program_id', $request->program_id)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                 ->first();
 
             if ($existingClass) {
@@ -105,6 +140,7 @@ class ClassController extends Controller
                 'capacity' => $request->capacity,
                 'students_count' => 0,
                 'is_active' => true,
+                'is_elective_class' => false,  // ✅ ENSURE NEW CLASSES ARE NOT ELECTIVE
             ]);
             
             return redirect()->back()->with('success', 'Class created successfully!');
@@ -115,7 +151,8 @@ class ClassController extends Controller
                 ->with('error', 'Error creating class. Please try again.');
         }
     }
-     public function bulkStore(Request $request)
+
+    public function bulkStore(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'classes' => 'required|array|min:1',
@@ -144,6 +181,7 @@ class ClassController extends Controller
                     ->where('name', $classData['name'])
                     ->where('semester_id', $classData['semester_id'])
                     ->where('program_id', $classData['program_id'])
+                    ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                     ->first();
 
                 if ($existingClass) {
@@ -160,6 +198,7 @@ class ClassController extends Controller
                     'capacity' => $classData['capacity'] ?? 50,
                     'students_count' => 0,
                     'is_active' => true,
+                    'is_elective_class' => false,  // ✅ ENSURE BULK CLASSES ARE NOT ELECTIVE
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -216,6 +255,7 @@ class ClassController extends Controller
                 ->where('section', $section)
                 ->where('semester_id', $request->semester_id)
                 ->where('program_id', $request->program_id)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                 ->where('id', '!=', $id)
                 ->first();
 
@@ -298,6 +338,7 @@ class ClassController extends Controller
             $existingSections = ClassModel::where('name', $request->name)
                 ->where('semester_id', $request->semester_id)
                 ->where('program_id', $request->program_id)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                 ->pluck('section')
                 ->toArray();
 
@@ -319,11 +360,15 @@ class ClassController extends Controller
     public function destroy($id)
     {
         try {
-            // Find class using model
             $class = ClassModel::find($id);
             
             if (!$class) {
                 return redirect()->back()->with('error', 'Class not found.');
+            }
+            
+            // ✅ PREVENT DELETION OF ELECTIVE CLASS
+            if ($class->is_elective_class) {
+                return redirect()->back()->with('error', 'Cannot delete the university-wide elective class.');
             }
             
             // Check if class has students
@@ -331,7 +376,6 @@ class ClassController extends Controller
                 return redirect()->back()->with('error', "Cannot delete class with {$class->students_count} enrolled students.");
             }
             
-            // Delete the class using model
             $class->delete();
             
             return redirect()->back()->with('success', 'Class deleted successfully!');
@@ -400,32 +444,32 @@ class ClassController extends Controller
         }
     }
 
+    /**
+     * Get classes by program and semester
+     */
+    public function getByProgramAndSemester(Request $request)
+    {
+        $request->validate([
+            'program_id' => 'required|exists:programs,id',
+            'semester_id' => 'required|exists:semesters,id',
+        ]);
 
-/**
- * Get classes by program and semester
- */
-public function getByProgramAndSemester(Request $request)
-{
-    $request->validate([
-        'program_id' => 'required|exists:programs,id',
-        'semester_id' => 'required|exists:semesters,id',
-    ]);
+        try {
+            $classes = ClassModel::with(['program', 'semester'])
+                ->where('program_id', $request->program_id)
+                ->where('semester_id', $request->semester_id)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->orderBy('section')
+                ->get();
 
-    try {
-        $classes = ClassModel::with(['program', 'semester'])
-            ->where('program_id', $request->program_id)
-            ->where('semester_id', $request->semester_id)
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->orderBy('section')
-            ->get();
-
-        return response()->json($classes);
-    } catch (\Exception $e) {
-        Log::error('Error fetching classes by program and semester: ' . $e->getMessage());
-        return response()->json(['error' => 'Failed to fetch classes'], 500);
+            return response()->json($classes);
+        } catch (\Exception $e) {
+            Log::error('Error fetching classes by program and semester: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch classes'], 500);
+        }
     }
-}
 
     public function getProgramsBySchool($schoolId)
     {
@@ -447,10 +491,14 @@ public function getByProgramAndSemester(Request $request)
     {
         try {
             $stats = [
-                'total_classes' => ClassModel::count(),
-                'active_classes' => ClassModel::where('is_active', true)->count(),
-                'total_students' => ClassModel::sum('students_count'),
+                'total_classes' => ClassModel::where('is_elective_class', false)->count(),  // ✅ EXCLUDE ELECTIVE CLASSES
+                'active_classes' => ClassModel::where('is_active', true)
+                    ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
+                    ->count(),
+                'total_students' => ClassModel::where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
+                    ->sum('students_count'),
                 'classes_by_semester' => ClassModel::with('semester:id,name')
+                    ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                     ->select('semester_id', DB::raw('count(*) as count'))
                     ->groupBy('semester_id')
                     ->get()
@@ -461,6 +509,7 @@ public function getByProgramAndSemester(Request $request)
                         ];
                     }),
                 'classes_by_program' => ClassModel::with('program:id,code,name')
+                    ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                     ->select('program_id', DB::raw('count(*) as count'))
                     ->groupBy('program_id')
                     ->orderBy('count', 'desc')
@@ -474,6 +523,7 @@ public function getByProgramAndSemester(Request $request)
                     }),
                 'classes_by_year_level' => ClassModel::select('year_level', DB::raw('count(*) as count'))
                     ->whereNotNull('year_level')
+                    ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                     ->groupBy('year_level')
                     ->orderBy('year_level')
                     ->get(),
@@ -501,6 +551,16 @@ public function getByProgramAndSemester(Request $request)
         }
         
         try {
+            // ✅ PREVENT DELETION OF ELECTIVE CLASSES
+            $electiveClasses = ClassModel::whereIn('id', $request->ids)
+                ->where('is_elective_class', true)
+                ->pluck('name');
+
+            if ($electiveClasses->isNotEmpty()) {
+                return redirect()->back()->with('error', 
+                    'Cannot delete elective classes: ' . $electiveClasses->implode(', '));
+            }
+
             // Check for classes with students using model
             $classesWithStudents = ClassModel::whereIn('id', $request->ids)
                 ->where('students_count', '>', 0)
@@ -535,7 +595,18 @@ public function getByProgramAndSemester(Request $request)
         }
 
         try {
+            // ✅ PREVENT STATUS UPDATE OF ELECTIVE CLASSES
+            $electiveClasses = ClassModel::whereIn('id', $request->ids)
+                ->where('is_elective_class', true)
+                ->count();
+
+            if ($electiveClasses > 0) {
+                return redirect()->back()->with('error', 
+                    'Cannot change status of elective classes.');
+            }
+
             $updated = ClassModel::whereIn('id', $request->ids)
+                ->where('is_elective_class', false)  // ✅ DOUBLE CHECK
                 ->update(['is_active' => $request->status]);
 
             $statusText = $request->status ? 'activated' : 'deactivated';
@@ -560,6 +631,7 @@ public function getByProgramAndSemester(Request $request)
             $existingSections = ClassModel::where('program_id', $request->program_id)
                 ->where('year_level', $request->year_level)
                 ->where('semester_id', $request->semester_id)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                 ->whereNotNull('section')
                 ->pluck('section')
                 ->toArray();
@@ -604,6 +676,7 @@ public function getByProgramAndSemester(Request $request)
         try {
             $classes = ClassModel::with(['semester:id,name'])
                 ->where('program_id', $programId)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                 ->where('is_active', true)
                 ->orderBy('year_level')
                 ->orderBy('section')
@@ -630,90 +703,84 @@ public function getByProgramAndSemester(Request $request)
         }
     }
 
-    
     public function programClasses(Program $program, Request $request, $schoolCode)
-{
-    // Get pagination parameter with default
-    $perPage = (int) $request->input('per_page', 15);
-    $search = $request->search ?? '';
-    $semesterId = $request->semester_id;
-    $yearLevel = $request->year_level;
-    
-    // Verify program belongs to the correct school
-    if ($program->school->code !== $schoolCode) {
-        abort(404, 'Program not found in this school.');
+    {
+        $perPage = (int) $request->input('per_page', 15);
+        $search = $request->search ?? '';
+        $semesterId = $request->semester_id;
+        $yearLevel = $request->year_level;
+        
+        if ($program->school->code !== $schoolCode) {
+            abort(404, 'Program not found in this school.');
+        }
+
+        $user = auth()->user();
+
+        $query = ClassModel::with(['semester', 'program.school'])
+            ->where('program_id', $program->id)
+            ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
+            ->when($search, function($q) use ($search) {
+                $q->where('name', 'like', '%' . $search . '%')
+                  ->orWhere('section', 'like', '%' . $search . '%')
+                  ->orWhereHas('semester', function($sq) use ($search) {
+                      $sq->where('name', 'like', '%' . $search . '%');
+                  });
+            })
+            ->when($semesterId, function($q) use ($semesterId) {
+                $q->where('semester_id', $semesterId);
+            })
+            ->when($yearLevel, function($q) use ($yearLevel) {
+                $q->where('year_level', $yearLevel);
+            })
+            ->orderBy('year_level')
+            ->orderBy('name')
+            ->orderBy('section');
+        
+        $classes = $query->paginate($perPage)->withQueryString();
+        
+        $semesters = Semester::select('id', 'name', 'is_active')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        $componentPathForProgramClasses = "Schools/{$schoolCode}/Programs/Classes/Index";
+
+        return Inertia::render($componentPathForProgramClasses, [
+            'classes' => $classes,
+            'program' => $program->load('school'),
+            'semesters' => $semesters,
+            'schoolCode' => $schoolCode,
+            'filters' => [
+                'search' => $search,
+                'semester_id' => $semesterId ? (int) $semesterId : null,
+                'year_level' => $yearLevel ? (int) $yearLevel : null,
+                'per_page' => $perPage,
+            ],
+            'can' => [
+                'create' => $user->hasRole('Admin') || 
+                           $user->can('manage-classes') || 
+                           $user->can('create-classes'),
+                
+                'update' => $user->hasRole('Admin') || 
+                           $user->can('manage-classes') || 
+                           $user->can('edit-classes'),
+                
+                'delete' => $user->hasRole('Admin') || 
+                           $user->can('manage-classes') || 
+                           $user->can('delete-classes'),
+            ],
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
+        ]);
     }
-
-    $user = auth()->user();
-
-    // Build the query for program-specific classes
-    $query = ClassModel::with(['semester', 'program.school'])
-        ->where('program_id', $program->id)
-        ->when($search, function($q) use ($search) {
-            $q->where('name', 'like', '%' . $search . '%')
-              ->orWhere('section', 'like', '%' . $search . '%')
-              ->orWhereHas('semester', function($sq) use ($search) {
-                  $sq->where('name', 'like', '%' . $search . '%');
-              });
-        })
-        ->when($semesterId, function($q) use ($semesterId) {
-            $q->where('semester_id', $semesterId);
-        })
-        ->when($yearLevel, function($q) use ($yearLevel) {
-            $q->where('year_level', $yearLevel);
-        })
-        ->orderBy('year_level')
-        ->orderBy('name')
-        ->orderBy('section');
-    
-    // ✅ Get paginated results with query string preservation
-    $classes = $query->paginate($perPage)->withQueryString();
-    
-    // Get semesters for dropdowns
-    $semesters = Semester::select('id', 'name', 'is_active')
-        ->where('is_active', true)
-        ->orderBy('name')
-        ->get();
-
-    $componentPathForProgramClasses = "Schools/{$schoolCode}/Programs/Classes/Index";
-
-    return Inertia::render($componentPathForProgramClasses, [
-        'classes' => $classes,
-        'program' => $program->load('school'),
-        'semesters' => $semesters,
-        'schoolCode' => $schoolCode,
-        'filters' => [
-            'search' => $search,
-            'semester_id' => $semesterId ? (int) $semesterId : null,
-            'year_level' => $yearLevel ? (int) $yearLevel : null,
-            'per_page' => $perPage,
-        ],
-        'can' => [
-            'create' => $user->hasRole('Admin') || 
-                       $user->can('manage-classes') || 
-                       $user->can('create-classes'),
-            
-            'update' => $user->hasRole('Admin') || 
-                       $user->can('manage-classes') || 
-                       $user->can('edit-classes'),
-            
-            'delete' => $user->hasRole('Admin') || 
-                       $user->can('manage-classes') || 
-                       $user->can('delete-classes'),
-        ],
-        'flash' => [
-            'success' => session('success'),
-            'error' => session('error'),
-        ],
-    ]);
-}
 
     /**
      * Store a new class for a specific program
      */
     public function storeProgramClass(Program $program, Request $request, $schoolCode)
     {
-        // Verify program belongs to the correct school
         if ($program->school->code !== $schoolCode) {
             abort(404, 'Program not found in this school.');
         }
@@ -737,11 +804,11 @@ public function getByProgramAndSemester(Request $request)
             $className = $request->name;
             $section = strtoupper($request->section);
 
-            // Check for duplicate class names with same section in this program
             $existingClass = ClassModel::where('name', $className)
                 ->where('section', $section)
                 ->where('semester_id', $request->semester_id)
                 ->where('program_id', $program->id)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                 ->first();
 
             if ($existingClass) {
@@ -759,6 +826,7 @@ public function getByProgramAndSemester(Request $request)
                 'capacity' => $request->capacity,
                 'students_count' => 0,
                 'is_active' => true,
+                'is_elective_class' => false,  // ✅ ENSURE NEW CLASSES ARE NOT ELECTIVE
             ]);
             
             return redirect()->back()->with('success', 'Class created successfully!');
@@ -775,7 +843,6 @@ public function getByProgramAndSemester(Request $request)
      */
     public function createProgramClass(Program $program, $schoolCode)
     {
-        // Verify program belongs to the correct school
         if ($program->school->code !== $schoolCode) {
             abort(404, 'Program not found in this school.');
         }
@@ -797,12 +864,10 @@ public function getByProgramAndSemester(Request $request)
      */
     public function showProgramClass(Program $program, ClassModel $class, $schoolCode)
     {
-        // Verify program belongs to the correct school
         if ($program->school->code !== $schoolCode) {
             abort(404, 'Program not found in this school.');
         }
 
-        // Verify class belongs to this program
         if ($class->program_id !== $program->id) {
             abort(404, 'Class not found in this program.');
         }
@@ -821,12 +886,10 @@ public function getByProgramAndSemester(Request $request)
      */
     public function editProgramClass(Program $program, ClassModel $class, $schoolCode)
     {
-        // Verify program belongs to the correct school
         if ($program->school->code !== $schoolCode) {
             abort(404, 'Program not found in this school.');
         }
 
-        // Verify class belongs to this program
         if ($class->program_id !== $program->id) {
             abort(404, 'Class not found in this program.');
         }
@@ -849,12 +912,10 @@ public function getByProgramAndSemester(Request $request)
      */
     public function updateProgramClass(Program $program, ClassModel $class, Request $request, $schoolCode)
     {
-        // Verify program belongs to the correct school
         if ($program->school->code !== $schoolCode) {
             abort(404, 'Program not found in this school.');
         }
 
-        // Verify class belongs to this program
         if ($class->program_id !== $program->id) {
             abort(404, 'Class not found in this program.');
         }
@@ -878,11 +939,11 @@ public function getByProgramAndSemester(Request $request)
             $className = $request->name;
             $section = strtoupper($request->section);
 
-            // Check for duplicate class names with same section (excluding current class)
             $duplicateClass = ClassModel::where('name', $className)
                 ->where('section', $section)
                 ->where('semester_id', $request->semester_id)
                 ->where('program_id', $program->id)
+                ->where('is_elective_class', false)  // ✅ EXCLUDE ELECTIVE CLASSES
                 ->where('id', '!=', $class->id)
                 ->first();
 
@@ -914,18 +975,20 @@ public function getByProgramAndSemester(Request $request)
      */
     public function destroyProgramClass(Program $program, ClassModel $class, $schoolCode)
     {
-        // Verify program belongs to the correct school
         if ($program->school->code !== $schoolCode) {
             abort(404, 'Program not found in this school.');
         }
 
-        // Verify class belongs to this program
         if ($class->program_id !== $program->id) {
             abort(404, 'Class not found in this program.');
         }
 
         try {
-            // Check if class has students
+            // ✅ PREVENT DELETION OF ELECTIVE CLASS
+            if ($class->is_elective_class) {
+                return redirect()->back()->with('error', 'Cannot delete the university-wide elective class.');
+            }
+
             if ($class->students_count > 0) {
                 return redirect()->back()->with('error', "Cannot delete class with {$class->students_count} enrolled students.");
             }
@@ -939,5 +1002,3 @@ public function getByProgramAndSemester(Request $request)
         }
     }
 }
-
-   

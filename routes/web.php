@@ -370,9 +370,10 @@ Route::middleware(['auth'])->group(function () {
     // ADMIN ROUTES - PERMISSION-BASED
     Route::prefix('admin')->group(function () {
         
-        Route::get('/', [DashboardController::class, 'adminDashboard'])
-            ->middleware(['role:Admin'])
+        Route::get('/', [DashboardController::class, 'adminDashboard'])->middleware(['role:Admin'])
             ->name('admin.dashboard'); 
+
+
             
         // Dynamic Permissions - Admin only
         Route::middleware(['role:Admin'])->group(function () {
@@ -524,6 +525,9 @@ Route::middleware(['auth'])->group(function () {
         Route::prefix('lecturerassignment')->name('lecturerassignment.')->middleware(['permission:view-lecturer-assignments'])->group(function () {
             Route::get('/', [LecturerAssignmentController::class, 'index'])->name('index');
             Route::post('/', [LecturerAssignmentController::class, 'store'])->middleware(['permission:create-lecturer-assignments'])->name('store');
+            Route::post('/electives', [LecturerAssignmentController::class, 'assignElectives'])
+                ->middleware(['permission:create-lecturer-assignments'])
+                ->name('assign-electives');
             Route::delete('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'destroy'])->middleware(['permission:delete-lecturer-assignments'])->name('destroy');
             Route::put('/{unitId}/{semesterId}', [LecturerAssignmentController::class, 'update'])->middleware(['permission:edit-lecturer-assignments'])->name('update');
             Route::get('/available-units', [LecturerAssignmentController::class, 'getAvailableUnits'])->name('available-units');
@@ -540,6 +544,9 @@ Route::middleware(['auth'])->group(function () {
         
         // API Routes
         Route::prefix('api')->group(function () {
+            Route::get('/electives/by-school', [EnrollmentController::class, 'getElectivesBySchool'])
+                ->name('admin.api.electives.by-school');
+    
             Route::get('/units/by-class', [EnrollmentController::class, 'getUnitsForClass']);
             Route::get('/class-capacity', [EnrollmentController::class, 'getClassCapacityInfo']);
             Route::get('/timetable/units/by-class', [ClassTimetableController::class, 'getUnitsByClass']);
@@ -859,45 +866,43 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('schools/shss')->name('schools.shss.')->middleware(['auth'])->group(function () {    
         
         Route::prefix('electives')->name('electives.')->group(function () {
-            Route::get('/', [ElectiveController::class, 'index'])
-                ->middleware(['permission:view-programs'])
-                ->name('index');
-            
-            // ✅ MOVE THESE BEFORE THE DYNAMIC ROUTES
-            Route::get('/available', [ElectiveController::class, 'getAvailableElectivesForStudent'])
-                ->middleware(['permission:view-programs'])
-                ->name('available');
+
+                       // ✅ ONLY KEEP THESE ROUTES (no /api route here)
+                Route::get('/', [ElectiveController::class, 'index'])
+                    ->middleware(['permission:view-programs'])
+                    ->name('index');
                 
-            // ✅ ADD PROPER MIDDLEWARE
-            Route::get('/available-for-scheduling', [ElectiveController::class, 'getAvailableForScheduling'])
-                ->middleware(['permission:view-exam-timetables'])
-                ->name('available-for-scheduling');
-            
-            // ✅ ENROLLMENT ROUTE
-            Route::post('/enroll', [ElectiveController::class, 'enrollStudentInElectives'])
-                ->middleware(['permission:create-enrollments'])
-                ->name('enroll');
-            
-            // ✅ NOW THE DYNAMIC ROUTES (AFTER STATIC ROUTES)
-            Route::post('/', [ElectiveController::class, 'store'])
-                ->middleware(['permission:create-programs'])
-                ->name('store');
-            
-            Route::get('/{elective}', [ElectiveController::class, 'show'])
-                ->middleware(['permission:view-programs'])
-                ->name('show');
-            
-            Route::put('/{elective}', [ElectiveController::class, 'update'])
-                ->middleware(['permission:edit-programs'])
-                ->name('update');
-            
-            Route::patch('/{elective}/toggle-status', [ElectiveController::class, 'toggleStatus'])
-                ->middleware(['permission:edit-programs'])
-                ->name('toggle-status');
-            
-            Route::delete('/{elective}', [ElectiveController::class, 'destroy'])
-                ->middleware(['permission:delete-programs'])
-                ->name('destroy');
+                Route::get('/available', [ElectiveController::class, 'getAvailableElectivesForStudent'])
+                    ->middleware(['permission:view-programs'])
+                    ->name('available');
+                    
+                Route::get('/available-for-scheduling', [ElectiveController::class, 'getAvailableForScheduling'])
+                    ->middleware(['permission:view-exam-timetables'])
+                    ->name('available-for-scheduling');
+                
+                Route::post('/enroll', [ElectiveController::class, 'enrollStudentInElectives'])
+                    ->middleware(['permission:create-enrollments'])
+                    ->name('enroll');
+                
+                Route::post('/', [ElectiveController::class, 'store'])
+                    ->middleware(['permission:create-programs'])
+                    ->name('store');
+                
+                Route::get('/{elective}', [ElectiveController::class, 'show'])
+                    ->middleware(['permission:view-programs'])
+                    ->name('show');
+                
+                Route::put('/{elective}', [ElectiveController::class, 'update'])
+                    ->middleware(['permission:edit-programs'])
+                    ->name('update');
+                
+                Route::patch('/{elective}/toggle-status', [ElectiveController::class, 'toggleStatus'])
+                    ->middleware(['permission:edit-programs'])
+                    ->name('toggle-status');
+                
+                Route::delete('/{elective}', [ElectiveController::class, 'destroy'])
+                    ->middleware(['permission:delete-programs'])
+                    ->name('destroy');
         });
 
         // PROGRAMS - PERMISSION-BASED
@@ -2382,6 +2387,7 @@ Route::middleware(['auth'])->group(function () {
                     return response()->json(['error' => 'Failed to fetch units'], 500);
                 }
             });
+            
         });
     });
 

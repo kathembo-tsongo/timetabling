@@ -708,4 +708,249 @@ public function destroy($unitId, $semesterId)
             return response()->json(['error' => 'Failed to fetch workload'], 500);
         }
     }
+
+ 
+    public function assignElectives(Request $request)
+{
+    Log::info('🚀 Elective assignment request:', $request->all());
+
+    $validated = $request->validate([
+        'lecturer_code' => 'required|exists:users,code',
+        'semester_id' => 'required|exists:semesters,id',
+        'elective_ids' => 'required|array|min:1',
+        'elective_ids.*' => 'required|exists:units,id',
+    ]);
+
+    // Verify the user has lecturer role
+    $lecturer = User::where('code', $validated['lecturer_code'])
+        ->whereHas('roles', function($query) {
+            $query->where('name', 'Lecturer');
+        })
+        ->first();
+
+    if (!$lecturer) {
+        Log::error('❌ Lecturer not found:', ['code' => $validated['lecturer_code']]);
+        return redirect()->back()->withErrors(['error' => 'User is not a lecturer']);
+    }
+
+    DB::beginTransaction();
+    try {
+        $assignedCount = 0;
+        $errors = [];
+        
+        foreach ($validated['elective_ids'] as $unitId) {
+            // Get the unit
+            $unit = Unit::find($unitId);
+            
+            if (!$unit) {
+                Log::warning('⚠️ Unit not found:', ['unit_id' => $unitId]);
+                $errors[] = "Unit ID {$unitId} not found";
+                continue;
+            }
+
+            Log::info('📚 Processing unit:', [
+                'unit_id' => $unitId,
+                'unit_code' => $unit->code,
+                'unit_name' => $unit->name
+            ]);
+
+            // ✅ Get the elective record to determine category
+            $elective = DB::table('electives')
+                ->where('unit_id', $unitId)
+                ->where('is_active', 1)
+                ->first();
+            
+            if (!$elective) {
+                Log::warning('⚠️ Unit is not an elective:', ['unit_id' => $unitId, 'code' => $unit->code]);
+                $errors[] = "Unit {$unit->code} is not configured as an elective";
+                continue;
+            }
+            
+            // ✅ Determine which elective class name based on category
+            $className = ($elective->category === 'language') ? 'Languages' : 'Others';
+            
+            Log::info('🔍 Looking for elective class:', [
+                'unit_id' => $unitId,
+                'unit_code' => $unit->code,
+                'category' => $elective->category,
+                'class_name' => $className,
+                'semester_id' => $validated['semester_id']
+            ]);
+            
+            // ✅ Find the elective class by name and semester
+            $electiveClass = ClassModel::where('name', $className)
+                ->where('semester_id', $validated['semester_id'])
+                ->where('is_elective_class', 1)
+                ->first();
+            
+            if (!$electiveClass) {
+                Log::error('❌ Elective class not found:', [
+                    'class_name' => $className,
+                    'semester_id' => $validated['semester_id']
+                ]);
+                $errors[] = "Elective class '{$className}' not found for semester {$validated['semester_id']}";
+                continue;
+            }
+
+            Log::info('✅ Found elective class:', [
+                'class_id' => $electiveClass->id,
+                'class_name' => $electiveClass->name,
+                'section' => $electiveClass->section,
+                'program_id' => $electiveClass->program_id
+            ]);
+            
+            // ✅ Check if unit_assignment already exists for this unit+class+semester
+            $existingAssignment = UnitAssignment::where('unit_id', $unitId)
+                ->where('class_id', $electiveClass->id)
+                ->where('semester_id', $validated['semester_id'])
+                ->first();
+
+            if ($existingAssignment) {
+                Log::info('📝 Found existing assignment, updating lecturer:', [
+                    'assignment_id' => $existingAssignment->id,
+                    'old_lecturer_code' => $existingAssignment->lecturer_code,
+                    'new_lecturer_code' => $validated['lecturer_code']
+                ]);
+                
+                // Update the existing assignment
+                $existingAssignment->update([
+                    'lecturer_code' => $validated['lecturer_code'],
+                    'is_active' => 1,
+                ]);
+                
+                $assignment = $existingAssignment;
+            } else {
+                Log::info('✨ Creating new assignment:', [
+                    'unit_id' => $unitId,
+                    'class_id' => $electiveClass->id,
+                    'semester_id' => $validated['semester_id'],
+                    'lecturer_code' => $validated['lecturer_code']
+                ]);
+                
+                // Create new assignment
+                $assignment = UnitAssignment::create([
+                    'unit_id' => $unitId,
+                    'semester_id' => $validated['semester_id'],
+                    'class_id' => $electiveClass->id,
+                    'lecturer_code' => $validated['lecturer_code'],
+                    'is_active' => 1,
+                ]);
+            }
+
+            // ✅ Verify the assignment was saved correctly
+            $assignment->refresh();
+            
+            Log::info('✅ Assignment saved successfully:', [
+                'assignment_id' => $assignment->id,
+                'unit_id' => $assignment->unit_id,
+                'unit_code' => $unit->code,
+                'class_id' => $assignment->class_id,
+                'class_name' => $electiveClass->name,
+                'semester_id' => $assignment->semester_id,
+                'lecturer_code' => $assignment->lecturer_code,
+                'is_active' => $assignment->is_active
+            ]);
+            
+            // ✅ Double-check the database
+            $verifyAssignment = UnitAssignment::where('unit_id', $unitId)
+                ->where('class_id', $electiveClass->id)
+                ->where('semester_id', $validated['semester_id'])
+                ->first();
+                
+            if ($verifyAssignment && $verifyAssignment->lecturer_code === $validated['lecturer_code']) {
+                Log::info('✅ VERIFIED: Lecturer code saved in database');
+                $assignedCount++;
+            } else {
+                Log::error('❌ VERIFICATION FAILED: Lecturer code not in database', [
+                    'expected' => $validated['lecturer_code'],
+                    'actual' => $verifyAssignment->lecturer_code ?? 'NULL'
+                ]);
+                $errors[] = "Failed to verify assignment for unit {$unit->code}";
+            }
+        }
+        
+        if ($assignedCount === 0) {
+            $errorMessage = 'No electives were assigned.';
+            if (!empty($errors)) {
+                $errorMessage .= ' Errors: ' . implode('; ', $errors);
+            }
+            throw new \Exception($errorMessage);
+        }
+        
+        DB::commit();
+        
+        $successMessage = "✅ {$assignedCount} elective(s) assigned to {$lecturer->first_name} {$lecturer->last_name} successfully!";
+        if (!empty($errors)) {
+            $successMessage .= ' (with ' . count($errors) . ' warnings)';
+        }
+        
+        Log::info('🎉 Elective assignment completed successfully:', [
+            'count' => $assignedCount,
+            'lecturer_code' => $validated['lecturer_code'],
+            'lecturer_name' => "{$lecturer->first_name} {$lecturer->last_name}",
+            'errors_count' => count($errors)
+        ]);
+        
+        return redirect()->back()->with('success', $successMessage);
+        
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('❌ Elective assignment error: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString(),
+            'validated' => $validated
+        ]);
+        return redirect()->back()->withErrors(['error' => 'Failed to assign electives: ' . $e->getMessage()]);
+    }
+}
+/**
+ * Get or create the university-wide elective class for a semester
+ */
+private function getUniversityElectiveClass($semesterId)
+{
+    // Get the University-Wide school
+    $universitySchool = School::where('code', 'UNI')->first();
+    
+    if (!$universitySchool) {
+        // Create it if it doesn't exist
+        $universitySchool = School::create([
+            'code' => 'UNI',
+            'name' => 'University-Wide Programs',
+            'description' => 'Programs and units available across all schools',
+            'is_active' => true,
+        ]);
+    }
+
+    // Get or create the Electives program
+    $electiveProgram = Program::firstOrCreate(
+        [
+            'school_id' => $universitySchool->id,
+            'code' => 'ELECTIVES',
+        ],
+        [
+            'name' => 'University Electives',
+            'description' => 'Elective courses available to all students across all programs',
+            'duration' => 0,
+            'is_active' => true,
+        ]
+    );
+
+    // Get or create the elective class for this semester
+    $electiveClass = ClassModel::firstOrCreate(
+        [
+            'program_id' => $electiveProgram->id,
+            'semester_id' => $semesterId,
+            'is_elective_class' => true,
+        ],
+        [
+            'name' => 'University Electives',
+            'section' => 'ALL',
+            'year_level' => 0,
+            'capacity' => 99999, // Unlimited capacity
+            'is_active' => true,
+            'students_count' => 0,
+        ]
+    );
+
+    return $electiveClass;
+}
 }
