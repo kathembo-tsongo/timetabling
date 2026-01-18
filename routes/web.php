@@ -2448,8 +2448,11 @@ Route::prefix('examoffice')->middleware(['role:Exam Office'])->group(function ()
     Route::get('/', [DashboardController::class, 'examofficeDashboard'])
         ->name('examoffice.dashboard');
 
-      Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
+     // ✅ DOWNLOAD ROUTES - Keep them together
+    Route::get('/download/pdf', [ExamTimetableController::class, 'downloadAllPDF'])
         ->name('exam-timetables.pdf');
+    Route::get('/download/excel', [ExamTimetableController::class, 'downloadExcel'])
+        ->name('exam-timetables.excel');
     
     // ✅ EXAM TIMETABLE ROUTES (you had these before!)
     Route::get('/manage', [ExamTimetableController::class, 'index'])

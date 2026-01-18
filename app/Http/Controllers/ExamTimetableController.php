@@ -23,6 +23,12 @@ use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+
 
 class ExamTimetableController extends Controller
 {
@@ -1885,14 +1891,24 @@ private function groupSectionsByUnitAndLecturer($selections)
 
     return $groups;
 }
+
 public function bulkScheduleExams(Request $request, Program $program, $schoolCode)
 {
+    // ✅ Log before validation
+    Log::debug('🔍 BULK SCHEDULE START', [
+        'raw_input' => $request->all(),
+        'first_selection' => $request->input('selected_class_units.0'),
+    ]);
+
     try {
         $validated = $request->validate([
             'semester_id' => 'required|integer',
             'school_id' => 'required|integer',
             'program_id' => 'required|integer',
             'selected_class_units' => 'required|array|min:1',
+            'selected_class_units.*.class_id' => 'nullable|integer', // ✅ CHANGED: nullable for electives
+            'selected_class_units.*.unit_id' => 'required|integer',
+            'selected_class_units.*.student_count' => 'required|integer|min:1',
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
             'exam_duration_hours' => 'required|integer|min:1|max:8',
@@ -1905,7 +1921,8 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
 
         Log::info('🎓 Starting INTELLIGENT bulk exam scheduling', [
             'total_selections' => count($validated['selected_class_units']),
-            'date_range' => $validated['start_date'] . ' to ' . $validated['end_date']
+            'date_range' => $validated['start_date'] . ' to ' . $validated['end_date'],
+            'has_electives' => collect($validated['selected_class_units'])->contains(fn($s) => !$s['class_id'] || $s['class_id'] == 0)
         ]);
 
         $scheduled = [];
@@ -1915,24 +1932,59 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ->whereIn('id', $validated['selected_examrooms'])
             ->get();
 
-        // ✅ STEP 1: Analyze student workload PER CLASS
-        $classWorkloads = $this->analyzeClassWorkloads(
-            $validated['selected_class_units'],
-            $validated['semester_id']
-        );
+        // ✅ MODIFIED: Handle electives (class_id = 0 or null) AND ensure all fields exist
+$validSelections = collect($validated['selected_class_units'])
+    ->map(function($selection) {
+        // Convert class_id of 0 to null for consistency
+        if (!isset($selection['class_id']) || $selection['class_id'] == 0) {
+            $selection['class_id'] = null;
+        }
+        
+        // ✅ CRITICAL: Ensure all required fields exist (especially for electives from frontend)
+        if (!isset($selection['class_name']) || $selection['class_name'] === 'All Sections Combined') {
+            $selection['class_name'] = 'Electives';
+        }
+        if (!isset($selection['class_code']) || $selection['class_code'] === 'CLASS-0') {
+            $selection['class_code'] = 'ELECTIVE';
+        }
+        if (!isset($selection['class_section'])) {
+            $selection['class_section'] = 'ELECTIVE';
+        }
+        if (!isset($selection['unit_code'])) {
+            $selection['unit_code'] = 'UNKNOWN';
+        }
+        if (!isset($selection['unit_name'])) {
+            $selection['unit_name'] = 'Unknown Unit';
+        }
+        if (!isset($selection['lecturer'])) {
+            $selection['lecturer'] = 'Not Assigned';
+        }
+        if (!isset($selection['student_count'])) {
+            $selection['student_count'] = 0;
+        }
+        
+        return $selection;
+    });
 
-        Log::info('📊 Class workload analysis', [
-            'classes_analyzed' => count($classWorkloads),
-            'breakdown' => array_map(function($class) {
-                return [
-                    'class_id' => $class['class_id'],
-                    'class_name' => $class['class_name'],
-                    'total_units' => $class['total_units'],
-                    'policy' => $class['policy'],
-                    'pattern_name' => $class['pattern']['name']
-                ];
-            }, $classWorkloads)
-        ]);
+// ✅ Separate electives from regular classes
+$regularExams = $validSelections->filter(fn($s) => $s['class_id'] !== null);
+$electiveExams = $validSelections->filter(fn($s) => $s['class_id'] === null);
+
+Log::info('📊 Exam type breakdown', [
+    'regular_exams' => $regularExams->count(),
+    'elective_exams' => $electiveExams->count(),
+    'sample_elective' => $electiveExams->first() // ✅ Debug: see what fields electives have
+]);        // ✅ Separate electives from regular classes
+        
+
+        // ✅ STEP 1: Analyze workload ONLY for regular classes
+        $classWorkloads = [];
+        if ($regularExams->isNotEmpty()) {
+            $classWorkloads = $this->analyzeClassWorkloads(
+                $regularExams->toArray(),
+                $validated['semester_id']
+            );
+        }
 
         // ✅ STEP 2: Generate available dates
         $availableDates = $this->generateAvailableDates(
@@ -1946,7 +1998,7 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
         $week2Dates = [];
         
         $startCarbon = Carbon::parse($validated['start_date']);
-        $week1End = $startCarbon->copy()->addDays(6); // First 7 days
+        $week1End = $startCarbon->copy()->addDays(6);
         
         foreach ($availableDates as $date) {
             $dateCarbon = Carbon::parse($date);
@@ -1957,70 +2009,64 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             }
         }
 
-        Log::info('📅 Week distribution', [
-            'week1_dates' => count($week1Dates),
-            'week2_dates' => count($week2Dates),
-            'week1' => $week1Dates,
-            'week2' => array_slice($week2Dates, 0, 5) // Sample
-        ]);
-
-        // ✅ STEP 4: Sort selections BY CLASS first, then by unit
-        $sortedSelections = collect($validated['selected_class_units'])
+        // ✅ STEP 4: Sort - regular exams first, then electives
+        $sortedSelections = $regularExams
             ->sortBy([
                 ['class_id', 'asc'],
                 ['unit_id', 'asc']
             ])
+            ->concat($electiveExams) // Append electives at the end
             ->values();
 
-        Log::info('📦 Sorted selections by class', [
-            'total' => $sortedSelections->count(),
-            'by_class' => $sortedSelections->groupBy('class_id')->map->count()->toArray()
-        ]);
-
-        // ✅ STEP 5: Initialize class tracking with proper structure
+        // ✅ STEP 5: Initialize tracking
         $classScheduleTracking = [];
         foreach ($classWorkloads as $classId => $workload) {
             $classScheduleTracking[$classId] = [
                 'policy' => $workload['policy'],
                 'total_units' => $workload['total_units'],
-                'pattern' => $workload['pattern'],           // ✅ CRITICAL: Pattern data
-                'exams_scheduled' => 0,                       // ✅ Start at 0
-                'scheduled_dates' => []                       // ✅ Track used dates
+                'pattern' => $workload['pattern'],
+                'exams_scheduled' => 0,
+                'scheduled_dates' => []
             ];
         }
 
-        $venueCapacityUsage = []; // Track 3D: venue -> date -> time_slot
+        $venueCapacityUsage = [];
+        $usedDates = []; // Track all used dates for simple distribution
 
-        // ✅ STEP 6: Schedule each exam individually
+        // ✅ STEP 6: Schedule each exam
         foreach ($sortedSelections as $selection) {
             $studentCount = $selection['student_count'];
+            $isElective = $selection['class_id'] === null;
 
             Log::info('🎯 Processing exam', [
+                'type' => $isElective ? 'ELECTIVE' : 'REGULAR',
                 'class' => $selection['class_name'],
                 'section' => $selection['class_section'] ?? 'N/A',
                 'unit' => $selection['unit_code'],
                 'students' => $studentCount
             ]);
 
-            // ✅ Find suitable date for THIS class
-            $targetDate = $this->selectDateWithSpacing(
-                collect([$selection]),
-                $classScheduleTracking,
-                $week1Dates,
-                $week2Dates
-            );
+            // ✅ Date selection logic
+            if ($isElective) {
+                // Simple round-robin for electives
+                $targetDate = $this->selectDateForElective($availableDates, $usedDates);
+            } else {
+                // Intelligent spacing for regular classes
+                $targetDate = $this->selectDateWithSpacing(
+                    collect([$selection]),
+                    $classScheduleTracking,
+                    $week1Dates,
+                    $week2Dates
+                );
+            }
 
             if (!$targetDate) {
                 $conflicts[] = [
                     'unit' => $selection['unit_code'],
                     'class' => $selection['class_name'],
                     'section' => $selection['class_section'] ?? 'N/A',
-                    'reason' => 'No available date matching spacing policy'
+                    'reason' => 'No available date'
                 ];
-                Log::warning('⚠️ No date found', [
-                    'class' => $selection['class_name'],
-                    'unit' => $selection['unit_code']
-                ]);
                 continue;
             }
 
@@ -2049,38 +2095,33 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 continue;
             }
 
-            // ✅ Check conflicts
-            $hasConflict = $this->checkSchedulingConflicts(
-                $validated['semester_id'],
-                $selection['class_id'],
-                $selection['unit_id'],
-                $targetDate,
-                $startTime,
-                $endTime,
-                $selection['lecturer'] ?? null
-            );
+            // ✅ Check conflicts (skip class conflict check for electives)
+            if (!$isElective) {
+                $hasConflict = $this->checkSchedulingConflicts(
+                    $validated['semester_id'],
+                    $selection['class_id'],
+                    $selection['unit_id'],
+                    $targetDate,
+                    $startTime,
+                    $endTime,
+                    $selection['lecturer'] ?? null
+                );
 
-            if ($hasConflict) {
-                $conflicts[] = [
-                    'unit' => $selection['unit_code'],
-                    'class' => $selection['class_name'],
-                    'section' => $selection['class_section'] ?? 'N/A',
-                    'reason' => 'Scheduling conflict detected'
-                ];
-                continue;
+                if ($hasConflict) {
+                    $conflicts[] = [
+                        'unit' => $selection['unit_code'],
+                        'class' => $selection['class_name'],
+                        'section' => $selection['class_section'] ?? 'N/A',
+                        'reason' => 'Scheduling conflict detected'
+                    ];
+                    continue;
+                }
             }
 
-            // ✅ Create exam
-            $classInfo = DB::table('classes')->where('id', $selection['class_id'])->first();
-
-            if (!$classInfo) {
-                Log::warning("Class not found", ['class_id' => $selection['class_id']]);
-                continue;
-            }
-
-            $examId = DB::table('exam_timetables')->insertGetId([
+            // ✅ Create exam (handle null class_id for electives)
+            $examData = [
                 'semester_id' => $validated['semester_id'],
-                'class_id' => $selection['class_id'],
+                'class_id' => $selection['class_id'], // Can be null for electives
                 'unit_id' => $selection['unit_id'],
                 'program_id' => $validated['program_id'],
                 'school_id' => $validated['school_id'],
@@ -2090,36 +2131,42 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 'end_time' => $endTime,
                 'venue' => $venueResult['venue'],
                 'location' => $venueResult['location'] ?? 'Phase 2',
-                'group_name' => $classInfo->section ?? 'N/A',
+                'group_name' => $selection['class_section'] ?? 'ELECTIVE',
                 'no' => $studentCount,
                 'chief_invigilator' => $selection['lecturer'] ?? 'TBD',
                 'created_at' => now(),
                 'updated_at' => now(),
-            ]);
+            ];
 
-            // ✅ CRITICAL: Update class tracking IMMEDIATELY
-            $classScheduleTracking[$selection['class_id']]['scheduled_dates'][] = $targetDate;
-            $classScheduleTracking[$selection['class_id']]['exams_scheduled']++;
+            $examId = DB::table('exam_timetables')->insertGetId($examData);
 
-            Log::info('✅ Exam created and tracking updated', [
+            // ✅ Update tracking (only for regular classes)
+            if (!$isElective && isset($classScheduleTracking[$selection['class_id']])) {
+                $classScheduleTracking[$selection['class_id']]['scheduled_dates'][] = $targetDate;
+                $classScheduleTracking[$selection['class_id']]['exams_scheduled']++;
+            }
+
+            // Track date usage for electives
+            $usedDates[] = $targetDate;
+
+            Log::info('✅ Exam created', [
                 'exam_id' => $examId,
-                'date' => $targetDate,
-                'exams_scheduled_for_class' => $classScheduleTracking[$selection['class_id']]['exams_scheduled']
+                'type' => $isElective ? 'ELECTIVE' : 'REGULAR',
+                'date' => $targetDate
             ]);
 
             $scheduled[] = [
                 'id' => $examId,
                 'unit_code' => $selection['unit_code'],
                 'unit_name' => $selection['unit_name'],
-                'class_name' => $classInfo->name,
-                'class_section' => $classInfo->section ?? 'N/A',
+                'class_name' => $selection['class_name'],
+                'class_section' => $selection['class_section'] ?? 'ELECTIVE',
                 'student_count' => $studentCount,
                 'date' => $targetDate,
                 'time' => "$startTime - $endTime",
                 'venue' => $venueResult['venue']
             ];
 
-            // ✅ Update venue usage
             $this->updateVenueCapacityUsage(
                 $venueCapacityUsage,
                 $venueResult['venue'],
@@ -2136,7 +2183,7 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
 
         return response()->json([
             'success' => true,
-            'message' => count($scheduled) . ' exams scheduled with intelligent spacing',
+            'message' => count($scheduled) . ' exams scheduled successfully',
             'scheduled' => $scheduled,
             'conflicts' => $conflicts,
             'summary' => [
@@ -2159,6 +2206,25 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
     }
 }
 
+// ✅ ADD THIS NEW HELPER METHOD
+private function selectDateForElective(array $availableDates, array $usedDates): ?string
+{
+    // Simple round-robin: pick least used date
+    $dateCounts = array_count_values($usedDates);
+    
+    $leastUsed = null;
+    $minCount = PHP_INT_MAX;
+    
+    foreach ($availableDates as $date) {
+        $count = $dateCounts[$date] ?? 0;
+        if ($count < $minCount) {
+            $minCount = $count;
+            $leastUsed = $date;
+        }
+    }
+    
+    return $leastUsed;
+}
 /**
  * ✅ INTELLIGENT: Analyze workload and create optimal scheduling patterns
  */
@@ -3383,6 +3449,192 @@ private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $
         'capacity_used' => $bestVenue['used_capacity'] + $requiredCapacity,
         'remaining_capacity' => $bestVenue['space_left_after']
     ];
+}
+public function downloadExcel()
+{
+    try {
+        Log::info('📊 Starting Excel export');
+
+        // Fetch all exam timetables with relationships
+        $examTimetables = DB::table('exam_timetables')
+            ->join('units', 'exam_timetables.unit_id', '=', 'units.id')
+            ->leftJoin('classes', 'exam_timetables.class_id', '=', 'classes.id') // ✅ leftJoin for electives
+            ->join('semesters', 'exam_timetables.semester_id', '=', 'semesters.id')
+            ->join('programs', 'exam_timetables.program_id', '=', 'programs.id')
+            ->join('schools', 'exam_timetables.school_id', '=', 'schools.id')
+            ->select(
+                'exam_timetables.*',
+                'units.code as unit_code',
+                'units.name as unit_name',
+                'classes.name as class_name',
+                'classes.section as class_section',
+                'semesters.name as semester_name',
+                'programs.name as program_name',
+                'programs.code as program_code',
+                'schools.name as school_name',
+                'schools.code as school_code'
+            )
+            ->orderBy('exam_timetables.date')
+            ->orderBy('exam_timetables.start_time')
+            ->get();
+
+        Log::info('📊 Exam timetables fetched', [
+            'count' => $examTimetables->count(),
+            'sample' => $examTimetables->first()
+        ]);
+
+        if ($examTimetables->isEmpty()) {
+            Log::warning('⚠️ No exam timetables found for export');
+            return back()->with('error', 'No exam timetables available to export');
+        }
+
+        // Create new spreadsheet
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Exam Timetables');
+
+        // Set header row
+        $headers = [
+            'ID',
+            'Date',
+            'Day',
+            'Start Time',
+            'End Time',
+            'Unit Code',
+            'Unit Name',
+            'Class',
+            'Section',
+            'Students',
+            'Venue',
+            'Location',
+            'Chief Invigilator',           
+        ];
+
+        $column = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($column . '1', $header);
+            $column++;
+        }
+
+        // Style header row
+        $sheet->getStyle('A1:P1')->applyFromArray([
+            'font' => [
+                'bold' => true,
+                'color' => ['rgb' => 'FFFFFF'],
+                'size' => 12
+            ],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => '4472C4']
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical' => Alignment::VERTICAL_CENTER
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color' => ['rgb' => '000000']
+                ]
+            ]
+        ]);
+
+        // Set row height for header
+        $sheet->getRowDimension('1')->setRowHeight(25);
+
+        // Add data rows
+        $row = 2;
+        foreach ($examTimetables as $exam) {
+            Log::debug('Adding row', ['row' => $row, 'unit' => $exam->unit_code]);
+
+            $sheet->setCellValue('A' . $row, $exam->id);
+            $sheet->setCellValue('B' . $row, $exam->date);
+            $sheet->setCellValue('C' . $row, $exam->day);
+            $sheet->setCellValue('D' . $row, substr($exam->start_time, 0, 5));
+            $sheet->setCellValue('E' . $row, substr($exam->end_time, 0, 5));
+            $sheet->setCellValue('F' . $row, $exam->unit_code);
+            $sheet->setCellValue('G' . $row, $exam->unit_name);
+            
+            // ✅ Handle electives - use group_name from exam_timetables table
+            $className = $exam->class_name ?? 'Electives';
+            $classSection = $exam->class_section ?? $exam->group_name ?? 'ELECTIVE';
+            
+            $sheet->setCellValue('H' . $row, $className);
+            $sheet->setCellValue('I' . $row, $classSection);
+            $sheet->setCellValue('J' . $row, $exam->no);
+            $sheet->setCellValue('K' . $row, $exam->venue);
+            $sheet->setCellValue('L' . $row, $exam->location ?? '');
+            $sheet->setCellValue('M' . $row, $exam->chief_invigilator);
+           
+
+            // Apply borders to data rows
+            $sheet->getStyle('A' . $row . ':P' . $row)->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                        'color' => ['rgb' => 'CCCCCC']
+                    ]
+                ],
+                'alignment' => [
+                    'vertical' => Alignment::VERTICAL_CENTER
+                ]
+            ]);
+
+            // Alternate row colors
+            if ($row % 2 == 0) {
+                $sheet->getStyle('A' . $row . ':P' . $row)->applyFromArray([
+                    'fill' => [
+                        'fillType' => Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => 'F2F2F2']
+                    ]
+                ]);
+            }
+
+            $row++;
+        }
+
+        Log::info('✅ Excel data rows added', ['total_rows' => $row - 2]);
+
+        // Auto-size columns
+        foreach (range('A', 'P') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Freeze header row
+        $sheet->freezePane('A2');
+
+        // Create filename
+        $filename = 'University_Exam_Timetables_' . now()->format('Y-m-d_His') . '.xlsx';
+
+        Log::info('💾 Generating Excel file', ['filename' => $filename]);
+
+        // Create writer and save to temporary file first (better for debugging)
+        $writer = new Xlsx($spreadsheet);
+        
+        // Output directly to browser
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: max-age=0');
+        header('Cache-Control: max-age=1');
+        header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');
+        header('Last-Modified: ' . gmdate('D, d M Y H:i:s') . ' GMT');
+        header('Cache-Control: cache, must-revalidate');
+        header('Pragma: public');
+        
+        $writer->save('php://output');
+        
+        Log::info('✅ Excel file generated and sent');
+        
+        exit;
+
+    } catch (\Exception $e) {
+        Log::error('❌ Excel export failed', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return back()->with('error', 'Failed to generate Excel file: ' . $e->getMessage());
+    }
 }
 
 

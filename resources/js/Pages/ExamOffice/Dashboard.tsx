@@ -46,7 +46,7 @@ const Dashboard: React.FC<Props> = ({ stats, recentExams, activeSemesters, can }
             <Head title="Exam Office Dashboard" />
             
             <div className="p-6 space-y-6">
-                {/* Header with Download Button */}
+                                {/* Header with Download Buttons */}
                 <div className="bg-white rounded-lg shadow-md p-6">
                     <div className="flex items-center justify-between">
                         <div>
@@ -58,14 +58,26 @@ const Dashboard: React.FC<Props> = ({ stats, recentExams, activeSemesters, can }
                             </p>
                         </div>
 
-                        {/* Download PDF Button */}
-                        <button
-                             onClick={() => window.open(route('exam-timetables.pdf'), '_blank')}
-                             className="inline-flex items-center px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
-                        >
-                            <Download className="w-5 h-5 mr-2" />
-                            Univ. Exam Schedule PDF
-                        </button>
+                        {/* Download Buttons */}
+                        <div className="flex gap-3">
+                            {/* Excel Download Button */}
+                            <button
+                                onClick={() => window.open(route('exam-timetables.excel'), '_blank')}
+                                className="inline-flex items-center px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+                            >
+                                <Download className="w-5 h-5 mr-2" />
+                                Download Excel
+                            </button>
+
+                            {/* PDF Download Button */}
+                            <button
+                                onClick={() => window.open(route('exam-timetables.pdf'), '_blank')}
+                                className="inline-flex items-center px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+                            >
+                                <Download className="w-5 h-5 mr-2" />
+                                Download PDF
+                            </button>
+                        </div>
                     </div>
                 </div>
 
