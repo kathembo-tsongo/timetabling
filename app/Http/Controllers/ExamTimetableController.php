@@ -1892,21 +1892,19 @@ private function groupSectionsByUnitAndLecturer($selections)
     return $groups;
 }
 
+
+/**
+ * ✅ FIXED: Bulk schedule exams with proper elective handling and lecturer assignment
+ */
 public function bulkScheduleExams(Request $request, Program $program, $schoolCode)
 {
-    // ✅ Log before validation
-    Log::debug('🔍 BULK SCHEDULE START', [
-        'raw_input' => $request->all(),
-        'first_selection' => $request->input('selected_class_units.0'),
-    ]);
-
     try {
         $validated = $request->validate([
             'semester_id' => 'required|integer',
             'school_id' => 'required|integer',
             'program_id' => 'required|integer',
             'selected_class_units' => 'required|array|min:1',
-            'selected_class_units.*.class_id' => 'nullable|integer', // ✅ CHANGED: nullable for electives
+            'selected_class_units.*.class_id' => 'nullable|integer',
             'selected_class_units.*.unit_id' => 'required|integer',
             'selected_class_units.*.student_count' => 'required|integer|min:1',
             'start_date' => 'required|date',
@@ -1922,7 +1920,6 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
         Log::info('🎓 Starting INTELLIGENT bulk exam scheduling', [
             'total_selections' => count($validated['selected_class_units']),
             'date_range' => $validated['start_date'] . ' to ' . $validated['end_date'],
-            'has_electives' => collect($validated['selected_class_units'])->contains(fn($s) => !$s['class_id'] || $s['class_id'] == 0)
         ]);
 
         $scheduled = [];
@@ -1932,52 +1929,139 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ->whereIn('id', $validated['selected_examrooms'])
             ->get();
 
-        // ✅ MODIFIED: Handle electives (class_id = 0 or null) AND ensure all fields exist
-$validSelections = collect($validated['selected_class_units'])
-    ->map(function($selection) {
-        // Convert class_id of 0 to null for consistency
-        if (!isset($selection['class_id']) || $selection['class_id'] == 0) {
-            $selection['class_id'] = null;
-        }
-        
-        // ✅ CRITICAL: Ensure all required fields exist (especially for electives from frontend)
-        if (!isset($selection['class_name']) || $selection['class_name'] === 'All Sections Combined') {
-            $selection['class_name'] = 'Electives';
-        }
-        if (!isset($selection['class_code']) || $selection['class_code'] === 'CLASS-0') {
-            $selection['class_code'] = 'ELECTIVE';
-        }
-        if (!isset($selection['class_section'])) {
-            $selection['class_section'] = 'ELECTIVE';
-        }
-        if (!isset($selection['unit_code'])) {
-            $selection['unit_code'] = 'UNKNOWN';
-        }
-        if (!isset($selection['unit_name'])) {
-            $selection['unit_name'] = 'Unknown Unit';
-        }
-        if (!isset($selection['lecturer'])) {
-            $selection['lecturer'] = 'Not Assigned';
-        }
-        if (!isset($selection['student_count'])) {
-            $selection['student_count'] = 0;
-        }
-        
-        return $selection;
-    });
+        // ✅ STEP 1: Enrich ALL selections with complete lecturer data
+        $validSelections = collect($validated['selected_class_units'])
+            ->map(function($selection) use ($validated) {
+                // ✅ CRITICAL: Get lecturer from unit_assignments table (this is where ALL lecturers are stored)
+                $lecturerCode = null;
+                
+                // Method 1: Try with both unit_id + class_id (for regular classes)
+                if (isset($selection['class_id']) && $selection['class_id']) {
+                    $lecturerCode = DB::table('unit_assignments')
+                        ->where('unit_id', $selection['unit_id'])
+                        ->where('semester_id', $validated['semester_id'])
+                        ->where('class_id', $selection['class_id'])
+                        ->value('lecturer_code');
+                    
+                    Log::debug('Lecturer lookup attempt 1 (unit_assignments with class_id)', [
+                        'unit_id' => $selection['unit_id'],
+                        'class_id' => $selection['class_id'],
+                        'semester_id' => $validated['semester_id'],
+                        'found' => $lecturerCode ? 'YES' : 'NO',
+                        'lecturer_code' => $lecturerCode
+                    ]);
+                }
+                
+                // Method 2: Try with just unit_id + semester_id (for electives or when class_id match fails)
+                if (!$lecturerCode) {
+                    $lecturerCode = DB::table('unit_assignments')
+                        ->where('unit_id', $selection['unit_id'])
+                        ->where('semester_id', $validated['semester_id'])
+                        ->value('lecturer_code');
+                    
+                    Log::debug('Lecturer lookup attempt 2 (unit_assignments without class_id)', [
+                        'unit_id' => $selection['unit_id'],
+                        'semester_id' => $validated['semester_id'],
+                        'found' => $lecturerCode ? 'YES' : 'NO',
+                        'lecturer_code' => $lecturerCode
+                    ]);
+                }
 
-// ✅ Separate electives from regular classes
-$regularExams = $validSelections->filter(fn($s) => $s['class_id'] !== null);
-$electiveExams = $validSelections->filter(fn($s) => $s['class_id'] === null);
+                // Get lecturer full name
+                $lecturerName = 'Not Assigned';
+                
+                if ($lecturerCode) {
+                    $lecturer = DB::table('users')
+                        ->where('code', $lecturerCode)
+                        ->first();
+                    
+                    if ($lecturer) {
+                        $lecturerName = trim(($lecturer->first_name ?? '') . ' ' . ($lecturer->last_name ?? ''));
+                    } else {
+                        Log::warning('Lecturer code found but user not found', [
+                            'lecturer_code' => $lecturerCode,
+                            'unit_id' => $selection['unit_id']
+                        ]);
+                    }
+                }
+                
+                // Get unit info
+                $unit = DB::table('units')->where('id', $selection['unit_id'])->first();
+                
+                // Log final result
+                Log::info('✅ Lecturer assignment resolved', [
+                    'unit_id' => $selection['unit_id'],
+                    'unit_code' => $unit->code ?? 'UNKNOWN',
+                    'class_id' => $selection['class_id'] ?? 'null',
+                    'lecturer_code' => $lecturerCode ?? 'NOT FOUND',
+                    'lecturer_name' => $lecturerName,
+                ]);
+                
+                // Determine if this is an elective
+                $isElective = !isset($selection['class_id']) || $selection['class_id'] == 0 || $selection['class_id'] === null;
 
-Log::info('📊 Exam type breakdown', [
-    'regular_exams' => $regularExams->count(),
-    'elective_exams' => $electiveExams->count(),
-    'sample_elective' => $electiveExams->first() // ✅ Debug: see what fields electives have
-]);        // ✅ Separate electives from regular classes
-        
+                // ✅ For electives, get the first actual class_id from enrollments
+                $actualClassId = null; // ✅ Default to NULL
+                
+                if (!$isElective && $selection['class_id']) {
+                    // Regular class - use provided class_id
+                    $actualClassId = $selection['class_id'];
+                } else {
+                    // Elective - try to get a representative class_id
+                    $actualClassId = DB::table('enrollments')
+                        ->where('unit_id', $selection['unit_id'])
+                        ->where('semester_id', $validated['semester_id'])
+                        ->where('status', 'enrolled')
+                        ->value('group_id'); // or class_id depending on your FK
+                    
+                    // ✅ CRITICAL: If still no class found, keep as NULL
+                    $actualClassId = $actualClassId ?: null;
+                }
 
-        // ✅ STEP 1: Analyze workload ONLY for regular classes
+                // Get unit info
+                $unit = DB::table('units')->where('id', $selection['unit_id'])->first();
+                
+                // Get class info (if available)
+                $class = null;
+                if ($actualClassId) {
+                    $class = DB::table('classes')->where('id', $actualClassId)->first();
+                }
+
+                return [
+                    'unit_id' => $selection['unit_id'],
+                    'unit_code' => $unit->code ?? 'UNKNOWN',
+                    'unit_name' => $unit->name ?? 'Unknown Unit',
+                    'class_id' => $actualClassId ?: null, // ✅ ENSURE NULL not empty string
+                    'class_name' => $isElective ? 'Electives' : ($class->name ?? 'Unknown'),
+                    'class_code' => $isElective ? 'ELECTIVE' : ($class->name ? str_replace(' ', '-', $class->name) : 'CLASS-' . $actualClassId),
+                    'class_section' => $isElective ? 'ELECTIVE' : ($class->section ?? 'N/A'),
+                    'student_count' => $selection['student_count'],
+                    'lecturer_code' => $lecturerCode ?? 'N/A', // ✅ Now properly set
+                    'lecturer' => $lecturerName, // ✅ Now properly set
+                    '_is_elective' => $isElective,
+                ];
+            });
+
+        Log::info('📊 Enriched selections', [
+            'total' => $validSelections->count(),
+            'sample_lecturer_info' => $validSelections->take(3)->map(fn($s) => [
+                'unit' => $s['unit_code'],
+                'lecturer' => $s['lecturer'],
+                'lecturer_code' => $s['lecturer_code'],
+                'is_elective' => $s['_is_elective']
+            ])->toArray()
+        ]);
+
+        // Separate electives from regular classes
+        $regularExams = $validSelections->filter(fn($s) => !$s['_is_elective']);
+        $electiveExams = $validSelections->filter(fn($s) => $s['_is_elective']);
+
+        Log::info('📊 Exam type breakdown', [
+            'regular_exams' => $regularExams->count(),
+            'elective_exams' => $electiveExams->count(),
+        ]);
+
+        // ✅ STEP 2: Analyze workload ONLY for regular classes
         $classWorkloads = [];
         if ($regularExams->isNotEmpty()) {
             $classWorkloads = $this->analyzeClassWorkloads(
@@ -1986,14 +2070,14 @@ Log::info('📊 Exam type breakdown', [
             );
         }
 
-        // ✅ STEP 2: Generate available dates
+        // ✅ STEP 3: Generate available dates
         $availableDates = $this->generateAvailableDates(
             $validated['start_date'],
             $validated['end_date'],
             $validated['excluded_days'] ?? []
         );
 
-        // ✅ STEP 3: Split dates into weeks
+        // ✅ STEP 4: Split dates into weeks
         $week1Dates = [];
         $week2Dates = [];
         
@@ -2009,16 +2093,16 @@ Log::info('📊 Exam type breakdown', [
             }
         }
 
-        // ✅ STEP 4: Sort - regular exams first, then electives
+        // ✅ STEP 5: Sort - regular exams first, then electives
         $sortedSelections = $regularExams
             ->sortBy([
                 ['class_id', 'asc'],
                 ['unit_id', 'asc']
             ])
-            ->concat($electiveExams) // Append electives at the end
+            ->concat($electiveExams)
             ->values();
 
-        // ✅ STEP 5: Initialize tracking
+        // ✅ STEP 6: Initialize tracking
         $classScheduleTracking = [];
         foreach ($classWorkloads as $classId => $workload) {
             $classScheduleTracking[$classId] = [
@@ -2031,27 +2115,27 @@ Log::info('📊 Exam type breakdown', [
         }
 
         $venueCapacityUsage = [];
-        $usedDates = []; // Track all used dates for simple distribution
+        $usedDates = [];
 
-        // ✅ STEP 6: Schedule each exam
+        // ✅ STEP 7: Schedule each exam
         foreach ($sortedSelections as $selection) {
             $studentCount = $selection['student_count'];
-            $isElective = $selection['class_id'] === null;
+            $isElective = $selection['_is_elective'];
 
             Log::info('🎯 Processing exam', [
                 'type' => $isElective ? 'ELECTIVE' : 'REGULAR',
                 'class' => $selection['class_name'],
                 'section' => $selection['class_section'] ?? 'N/A',
                 'unit' => $selection['unit_code'],
-                'students' => $studentCount
+                'students' => $studentCount,
+                'lecturer' => $selection['lecturer'], // ✅ Now shows correctly
+                'lecturer_code' => $selection['lecturer_code'], // ✅ Now shows correctly
             ]);
 
-            // ✅ Date selection logic
+            // ✅ Date selection
             if ($isElective) {
-                // Simple round-robin for electives
                 $targetDate = $this->selectDateForElective($availableDates, $usedDates);
             } else {
-                // Intelligent spacing for regular classes
                 $targetDate = $this->selectDateWithSpacing(
                     collect([$selection]),
                     $classScheduleTracking,
@@ -2070,10 +2154,8 @@ Log::info('📊 Exam type breakdown', [
                 continue;
             }
 
-            $startTime = $selection['assigned_start_time'] ?? $validated['start_time'];
-            $endTime = $selection['assigned_end_time'] ?? 
-                $this->calculateEndTime($startTime, $validated['exam_duration_hours']);
-            
+            $startTime = $validated['start_time'];
+            $endTime = $this->calculateEndTime($startTime, $validated['exam_duration_hours']);
             $timeSlotKey = "{$startTime}-{$endTime}";
 
             // ✅ Find venue
@@ -2096,7 +2178,7 @@ Log::info('📊 Exam type breakdown', [
             }
 
             // ✅ Check conflicts (skip class conflict check for electives)
-            if (!$isElective) {
+            if (!$isElective && $selection['class_id']) {
                 $hasConflict = $this->checkSchedulingConflicts(
                     $validated['semester_id'],
                     $selection['class_id'],
@@ -2104,7 +2186,7 @@ Log::info('📊 Exam type breakdown', [
                     $targetDate,
                     $startTime,
                     $endTime,
-                    $selection['lecturer'] ?? null
+                    $selection['lecturer_code']
                 );
 
                 if ($hasConflict) {
@@ -2118,10 +2200,10 @@ Log::info('📊 Exam type breakdown', [
                 }
             }
 
-            // ✅ Create exam (handle null class_id for electives)
+            // ✅ Create exam with CORRECT lecturer assignment
             $examData = [
                 'semester_id' => $validated['semester_id'],
-                'class_id' => $selection['class_id'], // Can be null for electives
+                'class_id' => $selection['class_id'] ?: null, // ✅ CRITICAL: NULL not empty string
                 'unit_id' => $selection['unit_id'],
                 'program_id' => $validated['program_id'],
                 'school_id' => $validated['school_id'],
@@ -2131,28 +2213,28 @@ Log::info('📊 Exam type breakdown', [
                 'end_time' => $endTime,
                 'venue' => $venueResult['venue'],
                 'location' => $venueResult['location'] ?? 'Phase 2',
-                'group_name' => $selection['class_section'] ?? 'ELECTIVE',
+                'group_name' => $selection['class_section'],
                 'no' => $studentCount,
-                'chief_invigilator' => $selection['lecturer'] ?? 'TBD',
+                'chief_invigilator' => $selection['lecturer'], // ✅ FIXED: Now shows actual lecturer name
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
 
             $examId = DB::table('exam_timetables')->insertGetId($examData);
 
-            // ✅ Update tracking (only for regular classes)
+            // ✅ Update tracking
             if (!$isElective && isset($classScheduleTracking[$selection['class_id']])) {
                 $classScheduleTracking[$selection['class_id']]['scheduled_dates'][] = $targetDate;
                 $classScheduleTracking[$selection['class_id']]['exams_scheduled']++;
             }
 
-            // Track date usage for electives
             $usedDates[] = $targetDate;
 
             Log::info('✅ Exam created', [
                 'exam_id' => $examId,
                 'type' => $isElective ? 'ELECTIVE' : 'REGULAR',
-                'date' => $targetDate
+                'date' => $targetDate,
+                'lecturer' => $selection['lecturer'], // ✅ Confirms correct lecturer
             ]);
 
             $scheduled[] = [
@@ -2160,8 +2242,9 @@ Log::info('📊 Exam type breakdown', [
                 'unit_code' => $selection['unit_code'],
                 'unit_name' => $selection['unit_name'],
                 'class_name' => $selection['class_name'],
-                'class_section' => $selection['class_section'] ?? 'ELECTIVE',
+                'class_section' => $selection['class_section'],
                 'student_count' => $studentCount,
+                'lecturer' => $selection['lecturer'], // ✅ Include in response
                 'date' => $targetDate,
                 'time' => "$startTime - $endTime",
                 'venue' => $venueResult['venue']
@@ -2206,10 +2289,11 @@ Log::info('📊 Exam type breakdown', [
     }
 }
 
-// ✅ ADD THIS NEW HELPER METHOD
+/**
+ * ✅ Helper: Select date for elective (simple round-robin)
+ */
 private function selectDateForElective(array $availableDates, array $usedDates): ?string
 {
-    // Simple round-robin: pick least used date
     $dateCounts = array_count_values($usedDates);
     
     $leastUsed = null;
@@ -2225,6 +2309,7 @@ private function selectDateForElective(array $availableDates, array $usedDates):
     
     return $leastUsed;
 }
+
 /**
  * ✅ INTELLIGENT: Analyze workload and create optimal scheduling patterns
  */
