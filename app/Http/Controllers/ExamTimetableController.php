@@ -1929,6 +1929,24 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
             ->whereIn('id', $validated['selected_examrooms'])
             ->get();
 
+             // ✅ Generate time slots for random selection
+            $timeSlots = $this->generateTimeSlots(
+                $validated['start_time'],
+                $validated['exam_duration_hours'],
+                $validated['break_minutes'],
+                4 // Generate 4 time slots
+            );
+
+            Log::info('🕐 Time slots generated for random assignment', [
+                'total_slots' => count($timeSlots),
+                'slots' => array_map(function($slot) {
+                    return [
+                        'slot' => $slot['slot_number'],
+                        'time' => $slot['start_time'] . ' - ' . $slot['end_time']
+                    ];
+                }, $timeSlots)
+            ]);
+
         // ✅ STEP 1: Enrich ALL selections with complete lecturer data
         $validSelections = collect($validated['selected_class_units'])
             ->map(function($selection) use ($validated) {
@@ -2154,9 +2172,18 @@ public function bulkScheduleExams(Request $request, Program $program, $schoolCod
                 continue;
             }
 
-            $startTime = $validated['start_time'];
-            $endTime = $this->calculateEndTime($startTime, $validated['exam_duration_hours']);
+            // ✅ CRITICAL FIX: Randomly select time slot for THIS exam
+            $assignedSlot = $timeSlots[array_rand($timeSlots)];
+            $startTime = $assignedSlot['start_time'];
+            $endTime = $assignedSlot['end_time'];
             $timeSlotKey = "{$startTime}-{$endTime}";
+
+            Log::info('🎲 Random time slot assigned', [
+                'unit' => $selection['unit_code'],
+                'slot_number' => $assignedSlot['slot_number'],
+                'time' => $timeSlotKey,
+                'date' => $targetDate
+            ]);
 
             // ✅ Find venue
             $venueResult = $this->findVenueWithRemainingCapacity(
@@ -3415,6 +3442,7 @@ private function checkSchedulingConflicts($semesterId, $classId, $unitId, $examD
     
     return false;
 }
+
 
 /**
  * ✅ Find venue with remaining capacity for bulk scheduling
