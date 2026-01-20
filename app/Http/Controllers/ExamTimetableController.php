@@ -2763,186 +2763,149 @@ private function generateTimeSlots($startTime, $examDurationHours, $breakMinutes
     }
     
     return $slots;
+}/**
+ * ✅ ENHANCED: Find venue with remaining capacity - RANDOM selection from suitable venues
+ * This method ensures proper global capacity tracking across ALL units and time slots
+ */
+private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $examDate, $timeSlotKey, &$venueCapacityUsage)
+{
+    \Log::info('🔍 Searching for venue with RANDOM selection', [
+        'required_capacity' => $requiredCapacity,
+        'date' => $examDate,
+        'time_slot' => $timeSlotKey,
+        'available_rooms_count' => count($examrooms)
+    ]);
+
+    $suitableVenues = [];
+    
+    // ✅ STEP 1: Find ALL suitable venues (not just the first one)
+    foreach ($examrooms as $room) {
+        // Skip rooms that are physically too small
+        if ($room->capacity < $requiredCapacity) {
+            \Log::debug("  ⛔ {$room->name} too small", [
+                'capacity' => $room->capacity,
+                'required' => $requiredCapacity
+            ]);
+            continue;
+        }
+        
+        // ✅ CRITICAL: Get CURRENT usage from global tracking
+        $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
+        $remainingCapacity = $room->capacity - $usedCapacity;
+        
+        \Log::debug("  📊 {$room->name} analysis", [
+            'total_capacity' => $room->capacity,
+            'already_used' => $usedCapacity,
+            'remaining' => $remainingCapacity,
+            'required' => $requiredCapacity,
+            'can_fit' => $remainingCapacity >= $requiredCapacity ? 'YES ✅' : 'NO ❌'
+        ]);
+        
+        // ✅ ONLY accept if remaining capacity can fit ALL students
+        if ($remainingCapacity >= $requiredCapacity) {
+            $utilizationBefore = $usedCapacity > 0 ? ($usedCapacity / $room->capacity) * 100 : 0;
+            $utilizationAfter = (($usedCapacity + $requiredCapacity) / $room->capacity) * 100;
+            
+            $suitableVenues[] = [
+                'room' => $room,
+                'total_capacity' => $room->capacity,
+                'used_capacity' => $usedCapacity,
+                'remaining_capacity' => $remainingCapacity,
+                'utilization_before' => $utilizationBefore,
+                'utilization_after' => $utilizationAfter,
+                'space_left_after' => $remainingCapacity - $requiredCapacity
+            ];
+            
+            \Log::debug("    ✅ {$room->name} added to suitable list", [
+                'utilization_before' => round($utilizationBefore, 1) . '%',
+                'utilization_after' => round($utilizationAfter, 1) . '%',
+                'space_remaining' => $remainingCapacity - $requiredCapacity
+            ]);
+        }
+    }
+    
+    // ✅ STEP 2: If no suitable venue, return detailed error
+    if (empty($suitableVenues)) {
+        // Show current status of all rooms
+        $roomStatus = [];
+        foreach ($examrooms as $room) {
+            $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
+            $roomStatus[] = "{$room->name}: {$usedCapacity}/{$room->capacity} used";
+        }
+        
+        \Log::warning('❌ No venue available', [
+            'required' => $requiredCapacity,
+            'date' => $examDate,
+            'time_slot' => $timeSlotKey,
+            'room_status' => implode(' | ', $roomStatus)
+        ]);
+        
+        return [
+            'success' => false,
+            'message' => "❌ No venue with capacity for {$requiredCapacity} students at {$timeSlotKey} on {$examDate}.\n" .
+                        "Room status: " . implode(' | ', $roomStatus),
+            'required' => $requiredCapacity
+        ];
+    }
+    
+    // ✅ STEP 3: RANDOMLY select from suitable venues (for variety!)
+    $randomIndex = array_rand($suitableVenues);
+    $bestVenue = $suitableVenues[$randomIndex];
+    
+    \Log::info('✅ Venue RANDOMLY selected', [
+        'venue' => $bestVenue['room']->name,
+        'selected_from' => count($suitableVenues) . ' suitable options',
+        'students_to_add' => $requiredCapacity,
+        'capacity_before' => $bestVenue['used_capacity'],
+        'capacity_after' => $bestVenue['used_capacity'] + $requiredCapacity,
+        'total_capacity' => $bestVenue['total_capacity'],
+        'utilization_after' => round($bestVenue['utilization_after'], 1) . '%',
+        'remaining_after' => $bestVenue['space_left_after']
+    ]);
+    
+    return [
+        'success' => true,
+        'venue' => $bestVenue['room']->name,
+        'location' => $bestVenue['room']->location,
+        'total_capacity' => $bestVenue['room']->capacity,
+        'capacity_used' => $bestVenue['used_capacity'] + $requiredCapacity,
+        'remaining_capacity' => $bestVenue['space_left_after'],
+        'suitable_venues_count' => count($suitableVenues)
+    ];
 }
 
 /**
-     * Update venue capacity usage (3D tracking: venue -> date -> time_slot)
-     */
-    private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $examDate, $timeSlotKey, $studentCount)
-    {
-        if (!isset($venueCapacityUsage[$venueName])) {
-            $venueCapacityUsage[$venueName] = [];
-        }
-        
-        if (!isset($venueCapacityUsage[$venueName][$examDate])) {
-            $venueCapacityUsage[$venueName][$examDate] = [];
-        }
-        
-        if (!isset($venueCapacityUsage[$venueName][$examDate][$timeSlotKey])) {
-            $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] = 0;
-        }
-        
-        $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] += $studentCount;
-    }
-
-   private function assignSmartVenue($studentCount, $date, $startTime, $endTime, $excludeExamId = null)
+ * ✅ ENHANCED: Update venue capacity usage with detailed logging
+ * 3D tracking structure: venue → date → time_slot → capacity_used
+ */
+private function updateVenueCapacityUsage(&$venueCapacityUsage, $venueName, $examDate, $timeSlotKey, $studentCount)
 {
-    \Log::info('🔍 Smart venue assignment requested', [
-        'student_count' => $studentCount,
-        'date' => $date,
-        'time' => "{$startTime} - {$endTime}"
-    ]);
-
-    try {
-        $examrooms = Examroom::where('is_active', true)
-            ->orderBy('capacity', 'asc')
-            ->get();
-        
-        if ($examrooms->isEmpty()) {
-            return [
-                'success' => false,
-                'message' => 'No exam rooms configured in the system'
-            ];
-        }
-
-        // ✅ FIX: Handle both 12-hour (with AM/PM) and 24-hour formats
-        $startTimeClean = trim($startTime);
-        $endTimeClean = trim($endTime);
-        
-        // Check if time contains AM/PM
-        if (stripos($startTimeClean, 'AM') !== false || stripos($startTimeClean, 'PM') !== false) {
-            // Parse 12-hour format with AM/PM
-            $examStartTime = Carbon::createFromFormat('Y-m-d h:i A', $date . ' ' . $startTimeClean);
-            $examEndTime = Carbon::createFromFormat('Y-m-d h:i A', $date . ' ' . $endTimeClean);
-        } else {
-            // Parse 24-hour format (existing logic)
-            $startTimeClean = substr($startTime, 0, 5);
-            $endTimeClean = substr($endTime, 0, 5);
-            $examStartTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $startTimeClean);
-            $examEndTime = Carbon::createFromFormat('Y-m-d H:i', $date . ' ' . $endTimeClean);
-        }
-
-        \Log::info('🕐 Parsed times', [
-            'original_start' => $startTime,
-            'original_end' => $endTime,
-            'exam_start' => $examStartTime->format('Y-m-d H:i:s'),
-            'exam_end' => $examEndTime->format('Y-m-d H:i:s')
-        ]);
-
-        $suitableVenues = [];
-        
-        foreach ($examrooms as $room) {
-            if ($room->capacity < $studentCount) {
-                \Log::debug("  ⛔ {$room->name} too small", [
-                    'capacity' => $room->capacity,
-                    'required' => $studentCount
-                ]);
-                continue;
-            }
-
-            $existingExamsQuery = ExamTimetable::where('venue', $room->name)
-                ->where('date', $date);
-            
-            if ($excludeExamId) {
-                $existingExamsQuery->where('id', '!=', $excludeExamId);
-            }
-            
-            $existingExams = $existingExamsQuery->get();
-
-            $occupiedCapacity = 0;
-            foreach ($existingExams as $exam) {
-                // ✅ FIX: Handle AM/PM format in existing exams too
-                $examStartStr = trim($exam->start_time);
-                $examEndStr = trim($exam->end_time);
-                
-                if (stripos($examStartStr, 'AM') !== false || stripos($examStartStr, 'PM') !== false) {
-                    $existingStart = Carbon::createFromFormat('Y-m-d h:i A', $exam->date . ' ' . $examStartStr);
-                    $existingEnd = Carbon::createFromFormat('Y-m-d h:i A', $exam->date . ' ' . $examEndStr);
-                } else {
-                    $examStartClean = substr($examStartStr, 0, 5);
-                    $examEndClean = substr($examEndStr, 0, 5);
-                    $existingStart = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examStartClean);
-                    $existingEnd = Carbon::createFromFormat('Y-m-d H:i', $exam->date . ' ' . $examEndClean);
-                }
-
-                if ($existingStart->lt($examEndTime) && $existingEnd->gt($examStartTime)) {
-                    $occupiedCapacity += $exam->no;
-                }
-            }
-
-            $remainingCapacity = $room->capacity - $occupiedCapacity;
-
-            \Log::debug("  📊 {$room->name} analysis", [
-                'total_capacity' => $room->capacity,
-                'occupied' => $occupiedCapacity,
-                'remaining' => $remainingCapacity,
-                'required' => $studentCount,
-                'can_fit' => $remainingCapacity >= $studentCount ? 'YES ✅' : 'NO ❌'
-            ]);
-
-            if ($remainingCapacity >= $studentCount) {
-                $utilizationAfter = (($occupiedCapacity + $studentCount) / $room->capacity) * 100;
-                
-                $suitableVenues[] = [
-                    'room' => $room,
-                    'total_capacity' => $room->capacity,
-                    'occupied_capacity' => $occupiedCapacity,
-                    'remaining_capacity' => $remainingCapacity,
-                    'utilization_after' => $utilizationAfter,
-                    'space_left_after' => $remainingCapacity - $studentCount
-                ];
-            }
-        }
-
-        if (empty($suitableVenues)) {
-            $largestRoom = $examrooms->sortByDesc('capacity')->first();
-            
-            return [
-                'success' => false,
-                'message' => "❌ No single exam room available with capacity for {$studentCount} students.\n\n" .
-                        "Largest room: {$largestRoom->name} ({$largestRoom->capacity} seats).\n\n" .
-                        "💡 Suggestions:\n" .
-                        "• Choose a different time slot\n" .
-                        "• Select a different date",
-                'required_capacity' => $studentCount
-            ];
-        }
-
-        usort($suitableVenues, function($a, $b) {
-            return $a['space_left_after'] <=> $b['space_left_after'];
-        });
-
-        $bestVenue = $suitableVenues[0];
-
-        \Log::info('✅ Venue assigned successfully', [
-            'venue' => $bestVenue['room']->name,
-            'location' => $bestVenue['room']->location,
-            'students_accommodated' => $studentCount,
-            'remaining_after' => $bestVenue['space_left_after'],
-            'utilization' => round($bestVenue['utilization_after'], 1) . '%'
-        ]);
-
-        return [
-            'success' => true,
-            'venue' => $bestVenue['room']->name,
-            'location' => $bestVenue['room']->location,
-            'capacity' => $bestVenue['room']->capacity,
-            'remaining_capacity' => $bestVenue['space_left_after'],
-            'utilization' => round($bestVenue['utilization_after'], 1),
-            'message' => "✅ Assigned {$bestVenue['room']->name} ({$studentCount}/{$bestVenue['room']->capacity} seats)"
-        ];
-
-    } catch (\Exception $e) {
-        \Log::error('❌ Error in smart venue assignment', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-
-        return [
-            'success' => false,
-            'message' => 'System error during venue assignment: ' . $e->getMessage()
-        ];
+    // Initialize if needed
+    if (!isset($venueCapacityUsage[$venueName])) {
+        $venueCapacityUsage[$venueName] = [];
     }
+    
+    if (!isset($venueCapacityUsage[$venueName][$examDate])) {
+        $venueCapacityUsage[$venueName][$examDate] = [];
+    }
+    
+    if (!isset($venueCapacityUsage[$venueName][$examDate][$timeSlotKey])) {
+        $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] = 0;
+    }
+    
+    $previousUsage = $venueCapacityUsage[$venueName][$examDate][$timeSlotKey];
+    $venueCapacityUsage[$venueName][$examDate][$timeSlotKey] += $studentCount;
+    $newUsage = $venueCapacityUsage[$venueName][$examDate][$timeSlotKey];
+    
+    \Log::debug('📊 Updated venue capacity tracking', [
+        'venue' => $venueName,
+        'date' => $examDate,
+        'time_slot' => $timeSlotKey,
+        'students_added' => $studentCount,
+        'capacity_before' => $previousUsage,
+        'capacity_after' => $newUsage,
+        'delta' => '+' . $studentCount
+    ]);
 }
 // ============================================================
 // PDF DOWNLOAD METHODS
@@ -3458,125 +3421,7 @@ private function checkSchedulingConflicts($semesterId, $classId, $unitId, $examD
 }
 
 
-/**
- * ✅ Find venue with remaining capacity for bulk scheduling
- * NO SPLITTING - must fit ALL students in ONE venue
- */
-private function findVenueWithRemainingCapacity($examrooms, $requiredCapacity, $examDate, $timeSlotKey, &$venueCapacityUsage)
-{
-    \Log::info('🔍 Searching for venue in bulk schedule', [
-        'required_capacity' => $requiredCapacity,
-        'date' => $examDate,
-        'time_slot' => $timeSlotKey,
-        'available_rooms_count' => count($examrooms)
-    ]);
 
-    $suitableVenues = [];
-    
-    foreach ($examrooms as $room) {
-        // ✅ FIX 1: Skip rooms that are physically too small
-        if ($room->capacity < $requiredCapacity) {
-            \Log::debug("  ⛔ {$room->name} physically too small", [
-                'capacity' => $room->capacity,
-                'required' => $requiredCapacity
-            ]);
-            continue;
-        }
-        
-        // Get current usage for this venue/date/time
-        $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
-        $remainingCapacity = $room->capacity - $usedCapacity;
-        
-        \Log::debug("  📊 Checking venue: {$room->name}", [
-            'total_capacity' => $room->capacity,
-            'used_capacity' => $usedCapacity,
-            'remaining_capacity' => $remainingCapacity,
-            'required' => $requiredCapacity,
-            'can_fit_all' => $remainingCapacity >= $requiredCapacity ? 'YES ✅' : 'NO ❌'
-        ]);
-        
-        // ✅ FIX 2: ONLY accept if remaining capacity can fit ALL students
-        if ($remainingCapacity >= $requiredCapacity) {
-            $utilization = ($usedCapacity / $room->capacity) * 100;
-            $utilizationAfter = (($usedCapacity + $requiredCapacity) / $room->capacity) * 100;
-            
-            $suitableVenues[] = [
-                'room' => $room,
-                'total_capacity' => $room->capacity,
-                'used_capacity' => $usedCapacity,
-                'remaining_capacity' => $remainingCapacity,
-                'utilization_before' => $utilization,
-                'utilization_after' => $utilizationAfter,
-                'space_left_after' => $remainingCapacity - $requiredCapacity
-            ];
-            
-            \Log::debug("    ✅ {$room->name} is suitable", [
-                'utilization_before' => round($utilization, 2) . '%',
-                'utilization_after' => round($utilizationAfter, 2) . '%',
-                'space_remaining_after' => $remainingCapacity - $requiredCapacity
-            ]);
-        }
-    }
-    
-    // ✅ FIX 3: If no suitable venue, return detailed error
-    if (empty($suitableVenues)) {
-        // Find largest available capacity
-        $largestAvailable = 0;
-        $largestRoom = null;
-        
-        foreach ($examrooms as $room) {
-            $usedCapacity = $venueCapacityUsage[$room->name][$examDate][$timeSlotKey] ?? 0;
-            $remainingCapacity = $room->capacity - $usedCapacity;
-            
-            if ($remainingCapacity > $largestAvailable) {
-                $largestAvailable = $remainingCapacity;
-                $largestRoom = $room;
-            }
-        }
-        
-        \Log::warning('❌ No single venue found with sufficient capacity', [
-            'required_capacity' => $requiredCapacity,
-            'largest_available' => $largestAvailable,
-            'largest_room' => $largestRoom ? $largestRoom->name : 'None',
-            'date' => $examDate,
-            'time_slot' => $timeSlotKey,
-            'shortfall' => $requiredCapacity - $largestAvailable
-        ]);
-        
-        return [
-            'success' => false,
-            'message' => "❌ No venue with capacity for {$requiredCapacity} students at {$timeSlotKey}.\n" .
-                        "Largest available: " . ($largestRoom ? "{$largestRoom->name} ({$largestAvailable} seats)" : "None") .
-                        "\nShortfall: " . ($requiredCapacity - $largestAvailable) . " seats",
-            'required' => $requiredCapacity,
-            'largest_available' => $largestAvailable
-        ];
-    }
-    
-    // ✅ FIX 4: Sort by efficiency (prefer smallest room that fits)
-    usort($suitableVenues, function($a, $b) {
-        // Prefer room with least wasted space
-        return $a['space_left_after'] <=> $b['space_left_after'];
-    });
-    
-    $bestVenue = $suitableVenues[0];
-    
-    \Log::info('✅ Venue selected for bulk schedule', [
-        'venue' => $bestVenue['room']->name,
-        'capacity_allocated' => $requiredCapacity,
-        'utilization_after' => round($bestVenue['utilization_after'], 2) . '%',
-        'remaining_after' => $bestVenue['space_left_after']
-    ]);
-    
-    return [
-        'success' => true,
-        'venue' => $bestVenue['room']->name,
-        'location' => $bestVenue['room']->location,
-        'total_capacity' => $bestVenue['room']->capacity,
-        'capacity_used' => $bestVenue['used_capacity'] + $requiredCapacity,
-        'remaining_capacity' => $bestVenue['space_left_after']
-    ];
-}
 public function downloadExcel()
 {
     try {

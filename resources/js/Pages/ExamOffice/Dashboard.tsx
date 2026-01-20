@@ -141,7 +141,8 @@ const Dashboard: React.FC<Props> = ({ stats, recentExams, activeSemesters, can }
                 </div>
 
                 {/* Quick Actions */}
-                <div className="bg-white rounded-lg shadow-md p-6">
+                
+                {/* <div className="bg-white rounded-lg shadow-md p-6">
                     <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {can.create && (
@@ -170,7 +171,7 @@ const Dashboard: React.FC<Props> = ({ stats, recentExams, activeSemesters, can }
                             Manage Exam Rooms
                         </Link>
                     </div>
-                </div>
+                </div> */}
 
                 {/* Recent Exam Timetables */}
                 <div className="bg-white rounded-lg shadow-md p-6">
