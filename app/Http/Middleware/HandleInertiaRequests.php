@@ -1,48 +1,52 @@
 <?php
 namespace App\Http\Middleware;
-
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
-    /**
-     * The root template that's loaded on the first page visit.
-     *
-     * @var string
-     */
     protected $rootView = 'app';
 
-    /**
-     * Determines the current asset version.
-     *
-     * @param \Illuminate\Http\Request $request
-     * @return string|null
-     */
     public function version(Request $request): ?string
     {
         return parent::version($request);
     }
 
-    /**
-     * Defines the props that are shared by default.
-     *
-     * @param \Illuminate\Http\Request $request
-     * @return array
-     */
     public function share(Request $request): array
     {
         return array_merge(parent::share($request), [
             'auth' => [
-                'user' => $request->user(),
-                'roles' => $request->user() ? $request->user()->getRoleNames()->toArray() : [],
+                'user'        => $request->user(),
+                'roles'       => $request->user() ? $request->user()->getRoleNames()->toArray() : [],
                 'permissions' => $request->user() ? $request->user()->getAllPermissions()->pluck('name')->toArray() : [],
             ],
             'flash' => [
-                'message' => fn () => $request->session()->get('message')
+                'message' => fn () => $request->session()->get('message'),
+                'success' => fn () => $request->session()->get('success'),
+                'error'   => fn () => $request->session()->get('error'),
             ],
-            // ADD THIS LINE - Ensures fresh CSRF token after session regeneration
             'csrf_token' => csrf_token(),
+
+            // ── Tenant shared with every page ──────────────────────────
+            'tenant' => fn () => app()->has('tenant') ? [
+                'id'              => tenant()->id,
+                'name'            => tenant()->name,
+                'slug'            => tenant()->slug,
+                'logo'            => tenant()->logo,
+                'primary_color'   => tenant()->primary_color,
+                'secondary_color' => tenant()->secondary_color,
+                'timezone'        => tenant()->timezone,
+                'plan'            => tenant()->plan,
+                'settings'        => tenant()->settings,
+            ] : null,
+
+            // ── Impersonation banner ───────────────────────────────────
+            'impersonating' => fn () => session()->has('impersonating_tenant_id'),
+
+            // ── Plan feature flags ─────────────────────────────────────
+            'plan_features' => fn () => app()->has('tenant')
+                ? \App\Http\Middleware\CheckPlanFeature::planLimits()[tenant()->plan ?? 'free'] ?? []
+                : [],
         ]);
     }
 }

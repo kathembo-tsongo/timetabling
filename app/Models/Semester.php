@@ -1,6 +1,7 @@
 <?php
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -13,6 +14,7 @@ use App\Models\ExamTimetable;
 class Semester extends Model
 {
     use HasFactory;
+    use BelongsToTenant;
     
     protected $fillable = [
         'name',

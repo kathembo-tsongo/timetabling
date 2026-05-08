@@ -4,11 +4,13 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import axios from "axios";
 
 interface Class {
+  [key: string]: any;
     id: number;
     name: string;
 }
 
 interface Group {
+  [key: string]: any;
     id: number;
     name: string;
     class_id: number | null;
@@ -16,12 +18,14 @@ interface Group {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedGroups {
+  [key: string]: any;
     data: Group[];
     links: PaginationLinks[];
     total: number;

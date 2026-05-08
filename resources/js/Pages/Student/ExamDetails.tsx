@@ -5,6 +5,7 @@ import { Calendar, Clock, MapPin, User, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface ExamTimetable {
+  [key: string]: any;
   id: number;
   date: string;
   day: string;
@@ -26,6 +27,7 @@ interface ExamTimetable {
 }
 
 interface Props {
+  [key: string]: any;
   examTimetable: ExamTimetable;
 }
 

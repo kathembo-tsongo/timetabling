@@ -1,16 +1,17 @@
 "use client"
 
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
+import { Button } from "@/Components/ui/button"
+import { Alert, AlertDescription } from "@/Components/ui/alert"
+import { Badge } from "@/Components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Components/ui/card"
+import { Progress } from "@/Components/ui/progress"
 import { AlertCircle, CheckCircle, Clock, RefreshCw, Settings, Brain, Target, Shuffle, BarChart3 } from "lucide-react"
 import { toast } from "react-hot-toast"
 import axios from "axios"
 
 interface AdvancedCSPSolverProps {
+  [key: string]: any;
   classTimetables: any
   constraints: any
   detectedConflicts: any[]

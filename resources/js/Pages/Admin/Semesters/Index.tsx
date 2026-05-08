@@ -31,6 +31,7 @@ import {
 
 // Interfaces
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   is_active: boolean
@@ -55,6 +56,7 @@ interface Semester {
 }
 
 interface PageProps {
+  [key: string]: any;
   semesters: {
     data: Semester[]
     links: any[]
@@ -87,6 +89,7 @@ interface PageProps {
 }
 
 interface SemesterFormData {
+  [key: string]: any;
   name: string
   school_code: string
   intake_type: string

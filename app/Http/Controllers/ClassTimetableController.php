@@ -188,7 +188,14 @@ class ClassTimetableController extends Controller
     $programs = DB::table('programs')->select('id', 'code', 'name')->get();
     $schools = DB::table('schools')->select('id', 'name', 'code')->get();
 
-    return Inertia::render('Schools/SCES/Programs/ClassTimetables/Index', [
+    // Derive school from logged-in user's role or first school
+        $user = auth()->user();
+        $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+        $schoolCode = $facultyRole
+            ? str_replace('Faculty Admin - ', '', $facultyRole)
+            : (\App\Models\School::first()->code ?? 'DEFAULT');
+
+        return Inertia::render('Schools/' . strtoupper($schoolCode) . '/Programs/ClassTimetables/Index', [
         'classTimetables' => $classTimetables,
         'lecturers' => $lecturers,
         'perPage' => $perPage,

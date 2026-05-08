@@ -3,6 +3,7 @@ import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 interface Examroom {
+  [key: string]: any;
     id: number;
     name: string;
     capacity: number;
@@ -10,12 +11,14 @@ interface Examroom {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedExamrooms {
+  [key: string]: any;
     data: Examroom[];
     links: PaginationLinks[];
     total: number;

@@ -43,16 +43,8 @@ class DashboardController extends Controller
         foreach ($roles as $role) {
             if (str_starts_with($role, 'Faculty Admin - ')) {
                 $faculty = str_replace('Faculty Admin - ', '', $role);
-                $schoolRoute = match($faculty) {
-                    'SCES' => 'schoolAdmin.dashboard',
-                    'SBS' => 'schoolAdmin.dashboard',
-                    'SLS' => 'schoolAdmin.dashboard',
-                    'SHSS' => 'schoolAdmin.dashboard',
-                    'SMS' => 'schoolAdmin.dashboard',
-                    'STH' => 'schoolAdmin.dashboard',
-                    'SI' => 'schoolAdmin.dashboard',
-                    default => null
-                };
+                // Dynamic — works for any school code at any university
+                $schoolRoute = 'schoolAdmin.dashboard';
                 
                 if ($schoolRoute) {
                     Log::info('Redirecting to school-specific dashboard', [
@@ -130,7 +122,19 @@ class DashboardController extends Controller
             // ===== REAL STATISTICS FROM YOUR DATABASE =====
             
             // 1. Total Users Statistics (from users table)
-            $totalUsers = User::count();
+            $tenantDebug = app()->has('tenant') ? tenant()->id . ':' . tenant()->name : 'NO TENANT';
+            $scopedCount = User::count();
+            $unscopedCount = User::withoutGlobalScopes()->count();
+            $sqlQuery = User::toBase()->toSql();
+            $sqlBindings = User::toBase()->getBindings();
+            Log::info('DASHBOARD DEBUG', [
+                'tenant' => $tenantDebug,
+                'scoped_count' => $scopedCount,
+                'unscoped_count' => $unscopedCount,
+                'sql' => $sqlQuery,
+                'bindings' => $sqlBindings,
+            ]);
+            $totalUsers = $scopedCount;
             $usersLastMonth = User::whereBetween('created_at', [$lastMonth, $now])->count();
             $usersPreviousMonth = User::whereBetween('created_at', 
                 [$lastMonth->copy()->subMonth(), $lastMonth])->count();
@@ -191,7 +195,7 @@ class DashboardController extends Controller
             $systemInfo = [
                 'totalSchools' => DB::table('schools')->count(), // 3 schools from your DB
                 'totalSemesters' => DB::table('semesters')->count(), // 2 semesters from your DB
-                'totalBuildings' => DB::table('building')->count(), // 6 buildings from your DB
+                'totalBuildings' => DB::table('buildings')->count(), // 6 buildings from your DB
                 'totalClassrooms' => $totalClassrooms, // 7 classrooms from your DB
                 'totalPrograms' => DB::table('programs')->count(), // 9 programs from your DB
                 'activeUsers' => User::where('created_at', '>=', $now->subDays(30))->count(),
@@ -416,15 +420,15 @@ class DashboardController extends Controller
         
         try {
             // REAL Buildings statistics from your 'building' table
-            $totalBuildings = DB::table('building')->count();
-            $activeBuildings = DB::table('building')->where('is_active', true)->count();
+            $totalBuildings = DB::table('buildings')->count();
+            $activeBuildings = DB::table('buildings')->where('is_active', true)->count();
             
             // REAL Classrooms statistics from your 'classrooms' table
             $totalClassrooms = DB::table('classrooms')->count();
             $availableClassrooms = DB::table('classrooms')->where('is_active', 1)->count();
             
             // REAL Building utilization
-            $buildingsWithClassrooms = DB::table('building')
+            $buildingsWithClassrooms = DB::table('buildings')
                 ->join('classrooms', 'building.id', '=', 'classrooms.building_id')
                 ->distinct('building.id')
                 ->count();
@@ -734,7 +738,7 @@ public function examofficeDashboard()
 }
 
    /**
- * SCES Faculty Dashboard - FIXED to use unified units table
+ * Faculty Dashboard - Dynamic school resolution
  */
 
 public function scesDashboard()
@@ -742,13 +746,13 @@ public function scesDashboard()
     $user = auth()->user();
     
     if (!$user->can('view-faculty-dashboard-sces') && !$user->hasRole('Faculty Admin - SCES')) {
-        abort(403, 'Unauthorized access to SCES faculty dashboard.');
+        abort(403, 'Unauthorized access to faculty dashboard.');
     }
 
-    $scesSchool = School::where('code', 'SCES')->first();
+    $scesSchool = School::where('code', $schoolCode)->first();
     
     if (!$scesSchool) {
-        abort(404, 'SCES school not found');
+        abort(404, $schoolCode . ' school not found');
     }
 
     $currentSemester = Semester::where('is_active', true)->first();
@@ -757,7 +761,7 @@ public function scesDashboard()
     }
 
     try {
-        $schoolCode = 'SCES';
+        // $schoolCode already set dynamically above
         
         // Get all SCES programs
         $scesPrograms = Program::where('school_id', $scesSchool->id)->get();
@@ -902,7 +906,7 @@ public function scesDashboard()
         // Prepare data for React
         $dashboardData = [
             'schoolName' => 'School of Computing and Engineering Sciences',
-            'schoolCode' => 'SCES',
+            'schoolCode' => $schoolCode,
             'currentSemester' => $currentSemester ? [
                 'id' => $currentSemester->id,
                 'name' => $currentSemester->name,
@@ -946,7 +950,7 @@ public function scesDashboard()
 
         return Inertia::render('SchoolAdmin/Dashboard', [
             'schoolName' => 'School of Computing and Engineering Sciences',
-            'schoolCode' => 'SCES',
+            'schoolCode' => $schoolCode,
             'currentSemester' => null,
             'stats' => [
                 'totalStudents' => 0,
@@ -970,17 +974,21 @@ public function scesDashboard()
 }
 
 /**
- * SBS Dashboard - Same pattern for SBS
+ * Faculty Dashboard - Dynamic school resolution
  */
 public function sbsDashboard()
 {
     $user = auth()->user();
     
     if (!$user->can('view-faculty-dashboard-sbs') && !$user->hasRole('Faculty Admin - SBS')) {
-        abort(403, 'Unauthorized access to SBS faculty dashboard.');
+        abort(403, 'Unauthorized access to faculty dashboard.');
     }
 
-    return $this->schoolDashboardByCode('SBS', 'School of Business Studies');
+    $user = auth()->user();
+    $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+    $schoolCode = $facultyRole ? str_replace('Faculty Admin - ', '', $facultyRole) : 'SBS';
+    $school = School::where('code', $schoolCode)->first();
+    return $this->schoolDashboardByCode($schoolCode, $school?->name ?? $schoolCode);
 }
 
 public function slsDashboard()
@@ -988,10 +996,14 @@ public function slsDashboard()
         $user = auth()->user();
         
         if (!$user->can('view-faculty-dashboard-sls') && !$user->hasRole('Faculty Admin - SLS')) {
-            abort(403, 'Unauthorized access to SLS faculty dashboard.');
+            abort(403, 'Unauthorized access to faculty dashboard.');
         }
 
-        return $this->schoolDashboardByCode('SLS', 'School of Law Studies');
+        $user = auth()->user();
+        $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+        $schoolCode = $facultyRole ? str_replace('Faculty Admin - ', '', $facultyRole) : 'SLS';
+        $school = School::where('code', $schoolCode)->first();
+        return $this->schoolDashboardByCode($schoolCode, $school?->name ?? $schoolCode);
     }
 
     /**
@@ -1005,7 +1017,10 @@ public function slsDashboard()
             abort(403, 'Unauthorized access to SHSS faculty dashboard.');
         }
 
-        return $this->schoolDashboardByCode('SHSS', 'School of Humanities & Social Sciences');
+        $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+        $schoolCode = $facultyRole ? str_replace('Faculty Admin - ', '', $facultyRole) : 'SHSS';
+        $school = School::where('code', $schoolCode)->first();
+        return $this->schoolDashboardByCode($schoolCode, $school?->name ?? $schoolCode);
     }
 
     /**
@@ -1019,7 +1034,11 @@ public function slsDashboard()
             abort(403, 'Unauthorized access to SMS faculty dashboard.');
         }
 
-        return $this->schoolDashboardByCode('SMS', 'Strathmore Medical School');
+        $user = auth()->user();
+        $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+        $schoolCode = $facultyRole ? str_replace('Faculty Admin - ', '', $facultyRole) : 'SMS';
+        $school = School::where('code', $schoolCode)->first();
+        return $this->schoolDashboardByCode($schoolCode, $school?->name ?? $schoolCode);
     }
 
     /**
@@ -1033,7 +1052,10 @@ public function slsDashboard()
             abort(403, 'Unauthorized access to STH faculty dashboard.');
         }
 
-        return $this->schoolDashboardByCode('STH', 'School of Tourism & Hospitality');
+        $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+        $schoolCode = $facultyRole ? str_replace('Faculty Admin - ', '', $facultyRole) : 'STH';
+        $school = School::where('code', $schoolCode)->first();
+        return $this->schoolDashboardByCode($schoolCode, $school?->name ?? $schoolCode);
     }
 
     /**
@@ -1047,7 +1069,11 @@ public function slsDashboard()
             abort(403, 'Unauthorized access to SI faculty dashboard.');
         }
 
-        return $this->schoolDashboardByCode('SI', 'Strathmore Institute');
+        $user = auth()->user();
+        $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+        $schoolCode = $facultyRole ? str_replace('Faculty Admin - ', '', $facultyRole) : 'SI';
+        $school = School::where('code', $schoolCode)->first();
+        return $this->schoolDashboardByCode($schoolCode, $school?->name ?? $schoolCode);
     }
 
 
@@ -1314,16 +1340,8 @@ private function getProgramColorClass($code)
         foreach ($roles as $role) {
             if (str_starts_with($role, 'Faculty Admin - ')) {
                 $faculty = str_replace('Faculty Admin - ', '', $role);
-                $schoolRoute = match($faculty) {
-                    'SCES' => 'faculty.dashboard.sces',
-                    'SBS' => 'faculty.dashboard.sbs',
-                    'SLS' => 'faculty.dashboard.sls',
-                    'SHSS' => 'faculty.dashboard.shss',
-                    'SMS' => 'faculty.dashboard.sms',
-                    'STH' => 'faculty.dashboard.sth',
-                    'SI' => 'faculty.dashboard.si',
-                    default => null
-                };
+                // Dynamic — generates route from school code (works for any university)
+                $schoolRoute = 'faculty.dashboard.' . strtolower($faculty);
                 
                 if ($schoolRoute) {
                     $dashboardRoute = $schoolRoute;
@@ -1357,7 +1375,7 @@ private function getProgramColorClass($code)
 
 
     /**
-     * Generic faculty dashboard method for all schools (except SCES which has its own method)
+     * Generic faculty dashboard method for all schools
      */
     private function facultyDashboard($schoolCode, $schoolName)
     {

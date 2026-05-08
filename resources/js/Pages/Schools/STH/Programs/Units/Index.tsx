@@ -23,10 +23,10 @@ import {
   AlertTriangle,
   Info
 } from "lucide-react"
-import { route } from 'ziggy-js'
 
 // Interfaces
 interface Unit {
+  [key: string]: any;
   id: number
   code: string
   name: string
@@ -47,6 +47,7 @@ interface Unit {
 }
 
 interface Program {
+  [key: string]: any;
   id: number
   code: string
   name: string
@@ -58,12 +59,14 @@ interface Program {
 }
 
 interface PaginationLink {
+  [key: string]: any;
   url: string | null
   label: string
   active: boolean
 }
 
 interface PageProps {
+  [key: string]: any;
   units: {
     data: Unit[]
     links: PaginationLink[]
@@ -102,6 +105,7 @@ interface PageProps {
 }
 
 interface UnitFormData {
+  [key: string]: any;
   code: string
   name: string
   credit_hours: number

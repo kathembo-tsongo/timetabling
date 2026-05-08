@@ -10,11 +10,13 @@ import Pagination from "@/Components/Pagination"
 
 // Define interfaces
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
 }
 
 interface Group {
+  [key: string]: any;
   id: number
   name: string
   class: { id: number; name: string }
@@ -22,12 +24,14 @@ interface Group {
 }
 
 interface Class {
+  [key: string]: any;
   id: number
   name: string
   semester_id: number
 }
 
 interface Unit {
+  [key: string]: any;
   id: number
   name: string
   code?: string
@@ -36,6 +40,7 @@ interface Unit {
 }
 
 interface Student {
+  [key: string]: any;
   id: number
   code: string
   first_name: string
@@ -44,6 +49,7 @@ interface Student {
 }
 
 interface Enrollment {
+  [key: string]: any;
   id: number
   student_code: string | null
   group_id: string | null
@@ -55,12 +61,14 @@ interface Enrollment {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
   url: string | null
   label: string
   active: boolean
 }
 
 interface PaginatedEnrollments {
+  [key: string]: any;
   data: Enrollment[]
   links: PaginationLinks[]
   total: number
@@ -69,6 +77,7 @@ interface PaginatedEnrollments {
 }
 
 interface PaginatedLecturerAssignments {
+  [key: string]: any;
   data: LecturerAssignment[]
   links: PaginationLinks[]
   total: number
@@ -78,6 +87,7 @@ interface PaginatedLecturerAssignments {
 }
 
 interface LecturerAssignment {
+  [key: string]: any;
   unit_id: number
   unit_name: string
   unit_code: string
@@ -86,6 +96,7 @@ interface LecturerAssignment {
 }
 
 interface PageProps {
+  [key: string]: any;
   enrollments: PaginatedEnrollments | null
   semesters: Semester[] | null
   groups: Group[] | null

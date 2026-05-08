@@ -1,97 +1,73 @@
 <?php
-
 namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class SchoolBasedAccess
 {
-    /**
-     * Handle school-based access using Spatie permissions
-     */
     public function handle(Request $request, Closure $next, $schoolCode = null)
     {
         $user = Auth::user();
-
         if (!$user) {
             return redirect()->route('login');
         }
 
-        // Super Admin can access everything
+        // Admin roles bypass school check
         if ($user->hasRole('Super Admin') || $user->hasRole('Admin')) {
             return $next($request);
         }
 
-        // Get user's school from their specific faculty admin role
-        $userSchoolCode = $this->getUserSchoolFromRole($user);
-        
-        // Also check the schools column as fallback
-        if (!$userSchoolCode && $user->schools) {
-            $userSchoolCode = strtoupper($user->schools);
-        }
+        // Get user's school code
+        $userSchoolCode = $this->getUserSchoolFromRole($user)
+            ?? ($user->schools ? strtoupper($user->schools) : null);
 
         if (!$userSchoolCode) {
             return redirect()->route('dashboard')
                 ->with('error', 'No faculty assignment found. Please contact administrator.');
         }
 
-        // Extract school code from URL if not provided as parameter
+        // Load valid schools DYNAMICALLY from database
+        $validSchools = DB::table('schools')
+            ->when(app()->has('tenant'), fn($q) => $q->where('tenant_id', tenant()->id))
+            ->where('is_active', true)
+            ->pluck('code')
+            ->map(fn($c) => strtoupper($c))
+            ->toArray();
+
+        // Resolve school code from URL if not passed as parameter
         if (!$schoolCode) {
             $urlSegments = explode('/', trim($request->path(), '/'));
-            $schoolCode = strtoupper($urlSegments[0] ?? '');
+            $schoolCode  = strtoupper($urlSegments[0] ?? '');
         } else {
             $schoolCode = strtoupper($schoolCode);
         }
 
-        // Valid school codes
-        $validSchools = ['SCES', 'SBS', 'SLS', 'SHS', 'TOURISM', 'SHM'];
-
-        // Check if this is a school-specific route
+        // If this is a school-specific route, check access
         if (in_array($schoolCode, $validSchools)) {
             if ($userSchoolCode !== $schoolCode) {
-                // Instead of aborting, redirect to their own faculty dashboard
-                $userSchoolLower = strtolower($userSchoolCode);
-                
-                // Try to redirect to the same type of page in their faculty
-                $currentPath = $request->path();
-                $pathSegments = explode('/', $currentPath);
-                
-                if (count($pathSegments) > 1) {
-                    // Replace the school code in the URL with user's school
-                    $pathSegments[0] = $userSchoolLower;
-                    $newPath = implode('/', $pathSegments);
-                    
-                    return redirect($newPath)
-                        ->with('warning', "Redirected to your faculty area. You can only access {$userSchoolCode} data.");
-                } else {
-                    // Fallback to their dashboard
-                    return redirect()->route('faculty.dashboard', ['school' => $userSchoolLower])
-                        ->with('warning', "Access denied: You can only access {$userSchoolCode} data.");
-                }
+                $pathSegments    = explode('/', $request->path());
+                $pathSegments[0] = strtolower($userSchoolCode);
+                $newPath         = implode('/', $pathSegments);
+
+                return redirect($newPath)
+                    ->with('warning', "Redirected to your faculty ({$userSchoolCode}).");
             }
         }
 
-        // Set school context for the request
         $request->merge(['current_school_code' => $userSchoolCode]);
-
         return $next($request);
     }
 
-    /**
-     * Get user's school code from their faculty admin role
-     */
-    private function getUserSchoolFromRole($user)
+    private function getUserSchoolFromRole($user): ?string
     {
-        $roles = $user->getRoleNames();
-
-        foreach ($roles as $role) {
+        foreach ($user->getRoleNames() as $role) {
             if (str_starts_with($role, 'Faculty Admin - ')) {
                 return str_replace('Faculty Admin - ', '', $role);
             }
         }
-
         return null;
     }
 }

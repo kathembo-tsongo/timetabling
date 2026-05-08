@@ -4,11 +4,13 @@ import { Head } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 
 interface School {
+  [key: string]: any;
   id: number
   name: string
 }
 
 interface Lecturer {
+  [key: string]: any;
   id: number
   name: string
   email: string
@@ -23,6 +25,7 @@ interface Lecturer {
 }
 
 interface Props {
+  [key: string]: any;
   lecturer: Lecturer | null
   error?: string
 }

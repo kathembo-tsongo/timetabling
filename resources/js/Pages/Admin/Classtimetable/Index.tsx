@@ -4,11 +4,11 @@ import type React from "react"
 import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react"
 import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
-import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/Components/ui/button"
+import { ScrollArea } from "@/Components/ui/scroll-area"
+import { Alert, AlertDescription } from "@/Components/ui/alert"
+import { Badge } from "@/Components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Components/ui/card"
 import {
   AlertCircle,
   CheckCircle,
@@ -30,6 +30,7 @@ import axios from "axios"
 
 // Keep all existing interfaces...
 interface ClassTimetable {
+  [key: string]: any;
   id: number
   semester_id: number
   unit_id: number
@@ -53,6 +54,7 @@ interface ClassTimetable {
 }
 
 interface PaginatedClassTimetables {
+  [key: string]: any;
   data: ClassTimetable[]
   links: any[]
   total: number
@@ -61,6 +63,7 @@ interface PaginatedClassTimetables {
 }
 
 interface FormState {
+  [key: string]: any;
   id: number
   day: string
   enrollment_id: number
@@ -85,6 +88,7 @@ interface FormState {
 }
 
 interface SchedulingConstraints {
+  [key: string]: any;
   maxPhysicalPerDay: number
   maxOnlinePerDay: number
   minHoursPerDay: number

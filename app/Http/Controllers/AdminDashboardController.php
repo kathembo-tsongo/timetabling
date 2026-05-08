@@ -16,23 +16,26 @@ use Carbon\Carbon;
 class DashboardController extends Controller
 {
     /**
-     * SCES Dashboard - DEBUG VERSION
+     * Faculty Dashboard - DEBUG VERSION
      */
     public function scesDashboard()
     {
         $user = auth()->user();
+        $facultyRole = $user->getRoleNames()->first(fn($r) => str_starts_with($r, 'Faculty Admin - '));
+        $schoolCode = $facultyRole ? str_replace('Faculty Admin - ', '', $facultyRole) : 'SCES';
+        $user = auth()->user();
         
         if (!$user->can('view-faculty-dashboard-sces') && !$user->hasRole('Faculty Admin - SCES')) {
-            abort(403, 'Unauthorized access to SCES faculty dashboard.');
+            abort(403, 'Unauthorized access to faculty dashboard.');
         }
 
         try {
             // Get SCES school
-            $scesSchool = School::where('code', 'SCES')->first();
+            $scesSchool = School::where('code', $schoolCode)->first();
             
             if (!$scesSchool) {
                 Log::error('SCES school not found');
-                return $this->returnErrorDashboard('SCES school not found in database');
+                return $this->returnErrorDashboard($schoolCode . ' school not found in database');
             }
 
             Log::info('SCES School found', ['school_id' => $scesSchool->id, 'school_name' => $scesSchool->name]);
@@ -138,7 +141,7 @@ class DashboardController extends Controller
 
             $dashboardData = [
                 'schoolName' => 'School of Computing and Engineering Sciences',
-                'schoolCode' => 'SCES',
+                'schoolCode' => $schoolCode,
                 'currentSemester' => $currentSemester ? [
                     'id' => $currentSemester->id,
                     'name' => $currentSemester->name,
@@ -392,7 +395,7 @@ class DashboardController extends Controller
 
         return Inertia::render('SchoolAdmin/Dashboard', [
             'schoolName' => 'School of Computing and Engineering Sciences',
-            'schoolCode' => 'SCES',
+            'schoolCode' => $schoolCode,
             'currentSemester' => null,
             'stats' => [
                 'totalStudents' => 0,

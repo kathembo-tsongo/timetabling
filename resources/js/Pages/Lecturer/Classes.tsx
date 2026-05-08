@@ -7,6 +7,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { Users, BookOpen, ArrowLeft, Eye, Calendar, School, AlertTriangle, ChevronDown, GraduationCap } from 'lucide-react'
 
 interface Unit {
+  [key: string]: any;
   id: number
   code: string
   name: string
@@ -14,6 +15,7 @@ interface Unit {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   year?: number
@@ -21,6 +23,7 @@ interface Semester {
 }
 
 interface Props {
+  [key: string]: any;
   units: Unit[]
   currentSemester: Semester
   semesters: Semester[]

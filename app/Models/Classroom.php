@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 class Classroom extends Model
 {
     use HasFactory;
+    use BelongsToTenant;
 
     /**
      * The attributes that are mass assignable.
@@ -17,7 +19,7 @@ class Classroom extends Model
         'name',
         'code',
         'building_id',  // Use building_id since that's what your DB has
-        'building',     // Keep building for backwards compatibility
+        // 'building' column removed - now using building_id
         'floor',
         'capacity',
         'type',

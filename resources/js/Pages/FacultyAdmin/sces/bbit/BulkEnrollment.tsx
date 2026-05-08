@@ -2,17 +2,18 @@
 
 import type React from "react"
 import { useState } from "react"
-import { Head, router, useForm, route } from "@inertiajs/react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Badge } from "@/components/ui/badge"
+import { Head, router, useForm } from "@inertiajs/react"
+import { Button } from "@/Components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Components/ui/card"
+import { Label } from "@/Components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/Components/ui/select"
+import { Textarea } from "@/Components/ui/textarea"
+import { Checkbox } from "@/Components/ui/checkbox"
+import { Badge } from "@/Components/ui/badge"
 import { ArrowLeft, Users } from "lucide-react"
 
 interface Props {
+  [key: string]: any;
   students: Array<{
     id: number
     code: string

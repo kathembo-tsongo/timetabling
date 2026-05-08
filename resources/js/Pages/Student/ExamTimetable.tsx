@@ -4,12 +4,14 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Calendar, Clock, MapPin, BookOpen, Download } from 'lucide-react';
 
 interface Unit {
+  [key: string]: any;
   id: number;
   code: string;
   name: string;
 }
 
 interface ExamTimetable {
+  [key: string]: any;
   id: number;
   date: string;
   day: string;
@@ -21,12 +23,14 @@ interface ExamTimetable {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number;
   name: string;
   is_active: boolean;
 }
 
 interface Props {
+  [key: string]: any;
   upcomingExams: ExamTimetable[];
   enrolledUnits: any[];
   currentSemester: Semester | null;

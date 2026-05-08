@@ -5,11 +5,13 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { useState } from "react"
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
 }
 
 interface Supervision {
+  [key: string]: any;
   id: number
   unit_code: string
   unit_name: string
@@ -23,12 +25,14 @@ interface Supervision {
 }
 
 interface Unit {
+  [key: string]: any;
   id: number
   code: string
   name: string
 }
 
 interface Props {
+  [key: string]: any;
   supervisions: Supervision[]
   lecturerSemesters: Semester[]
   units: Unit[]

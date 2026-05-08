@@ -9,12 +9,14 @@ import { toast } from "react-hot-toast"
 
 // Define interfaces for BBIT specific data structure
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   is_active: boolean
 }
 
 interface Group {
+  [key: string]: any;
   id: number
   name: string
   class: { id: number; name: string }
@@ -23,12 +25,14 @@ interface Group {
 }
 
 interface Class {
+  [key: string]: any;
   id: number
   name: string
   semester_id: number
 }
 
 interface BbitUnit {
+  [key: string]: any;
   id: number
   name: string
   code: string
@@ -37,6 +41,7 @@ interface BbitUnit {
 }
 
 interface Student {
+  [key: string]: any;
   id: number
   code: string
   first_name: string
@@ -45,6 +50,7 @@ interface Student {
 }
 
 interface BbitEnrollment {
+  [key: string]: any;
   id: number
   student_code: string
   unit_id: number
@@ -67,6 +73,7 @@ interface BbitEnrollment {
 }
 
 interface LecturerAssignment {
+  [key: string]: any;
   id?: number
   unit_id: number
   unit_name: string
@@ -78,6 +85,7 @@ interface LecturerAssignment {
 }
 
 interface PageProps {
+  [key: string]: any;
   enrollments: BbitEnrollment[]
   lecturerAssignments: LecturerAssignment[]
   bbitUnits: BbitUnit[]

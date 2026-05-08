@@ -25,6 +25,7 @@ import {
 
 // Interfaces
 interface Building {
+  [key: string]: any;
   id: number;
   name: string;
   code: string;
@@ -38,12 +39,14 @@ interface Building {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
   url: string | null;
   label: string;
   active: boolean;
 }
 
 interface PaginatedBuildings {
+  [key: string]: any;
   data: Building[];
   links: PaginationLinks[];
   total: number;

@@ -177,15 +177,16 @@ public function index(Request $request, $schoolCode)
         });
 
         $responseData = [
-            'programs' => $programs,
-            'school' => [
-                'id' => $school->id,
+            'programs'    => $programs,
+            'school'      => [
+                'id'   => $school->id,
                 'name' => $school->name,
                 'code' => $school->code,
             ],
-            'schoolCode' => $schoolCode,
-            'filters' => $request->only(['search', 'is_active', 'sort_field', 'sort_direction']),
-            'can' => [
+            'schoolCode'  => $schoolCode,
+            'degreeTypes' => $this->getDegreeTypesForSchool($schoolCode),
+            'filters'     => $request->only(['search', 'is_active', 'sort_field', 'sort_direction']),
+            'can'         => [
                 'create' => $this->hasSchoolPermission($user, $schoolCode, 'create'),
                 'update' => $this->hasSchoolPermission($user, $schoolCode, 'edit'),
                 'delete' => $this->hasSchoolPermission($user, $schoolCode, 'delete'),
@@ -234,7 +235,7 @@ public function index(Request $request, $schoolCode)
         $school = School::where('code', $schoolCode)->first();
         
         if (!$school) {
-            $routeName = $schoolCode === 'SCES' ? 'schools.sces.programs.index' : 'schools.sbs.programs.index';
+            $routeName = 'schools.' . strtolower($schoolCode) . '.programs.index';
             return redirect()->route($routeName)
                 ->withErrors(['error' => "{$schoolCode} school not found."]);
         }
@@ -449,7 +450,7 @@ public function index(Request $request, $schoolCode)
                 'user_id' => $user->id
             ]);
 
-            $routeName = $schoolCode === 'SCES' ? 'schools.sces.programs.index' : 'schools.sbs.programs.index';
+            $routeName = 'schools.' . strtolower($schoolCode) . '.programs.index';
             return redirect()->route($routeName)
                 ->withErrors(['error' => 'Unable to load program details.']);
         }
@@ -589,7 +590,7 @@ public function index(Request $request, $schoolCode)
                 if ($hasUnits) $associations[] = 'units';
                 if ($hasEnrollments) $associations[] = 'enrollments';
 
-                $routeName = $schoolCode === 'SCES' ? 'schools.sces.programs.index' : 'schools.sbs.programs.index';
+                $routeName = 'schools.' . strtolower($schoolCode) . '.programs.index';
                 return redirect()->route($routeName)
                     ->withErrors(['error' => 'Cannot delete program because it has associated ' . implode(', ', $associations) . '.']);
             }
@@ -613,7 +614,7 @@ public function index(Request $request, $schoolCode)
                 'user_id' => $user->id
             ]);
 
-            $routeName = $schoolCode === 'SCES' ? 'schools.sces.programs.index' : 'schools.sbs.programs.index';
+            $routeName = 'schools.' . strtolower($schoolCode) . '.programs.index';
             return redirect()->route($routeName)
                 ->withErrors(['error' => 'Failed to delete program. Please try again.']);
         }
@@ -710,7 +711,7 @@ public function index(Request $request, $schoolCode)
         ];
 
         // Add school-specific degree types
-        if ($schoolCode === 'SBS') {
+        if ($schoolCode) { // Dynamic school check
             $base['MBA'] = 'Master of Business Administration';
         }
 

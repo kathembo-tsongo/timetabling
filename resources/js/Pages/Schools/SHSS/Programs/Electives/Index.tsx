@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { toast } from 'react-hot-toast';
 
 interface Unit {
+  [key: string]: any;
   id: number;
   code: string;
   name: string;
@@ -11,6 +12,7 @@ interface Unit {
 }
 
 interface Elective {
+  [key: string]: any;
   id: number;
   unit_id: number;
   category: 'language' | 'other';
@@ -28,6 +30,7 @@ interface Elective {
 }
 
 interface PaginatedElectives {
+  [key: string]: any;
   data: Elective[];
   current_page: number;
   last_page: number;
@@ -38,6 +41,7 @@ interface PaginatedElectives {
 }
 
 interface Props {
+  [key: string]: any;
   electives: PaginatedElectives;
   units: Unit[];
   filters: {
@@ -49,6 +53,7 @@ interface Props {
 }
 
 interface FormData {
+  [key: string]: any;
   unit_id: string | number;
   category: 'language' | 'other';
   year_level: number;
@@ -672,6 +677,7 @@ export default function Index({ electives, units, filters }: Props) {
 
 // Form Modal Component
 interface ElectiveFormModalProps {
+  [key: string]: any;
   title: string;
   formData: FormData;
   setFormData: (data: FormData) => void;
@@ -880,6 +886,7 @@ function ElectiveFormModal({
 
 // View Modal Component
 interface ElectiveViewModalProps {
+  [key: string]: any;
   elective: Elective;
   onClose: () => void;
   onEdit: () => void;

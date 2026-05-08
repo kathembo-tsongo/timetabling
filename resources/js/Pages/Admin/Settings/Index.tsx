@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { toast } from 'react-hot-toast';
 
 interface Settings {
+  [key: string]: any;
     system_name: string;
     system_email: string;
     timezone: string;

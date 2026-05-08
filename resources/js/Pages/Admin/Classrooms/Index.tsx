@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { toast } from 'react-hot-toast';
 
 interface Classroom {
+  [key: string]: any;
     building_name: string;
     id: number;
     name: string;
@@ -27,6 +28,7 @@ interface Classroom {
 }
 
 interface PageProps {
+  [key: string]: any;
     classrooms: Classroom[];
     stats: {
         total: number;
@@ -54,6 +56,7 @@ interface PageProps {
 }
 
 interface ClassroomFormData {
+  [key: string]: any;
     name: string;
     code: string;
     building: string;

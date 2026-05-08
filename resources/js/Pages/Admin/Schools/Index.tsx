@@ -26,6 +26,7 @@ import {
 
 // Interfaces
 interface School {
+  [key: string]: any;
   id: number
   code: string
   name: string
@@ -42,6 +43,7 @@ interface School {
 }
 
 interface PageProps {
+  [key: string]: any;
   schools: School[]
   filters: {
     search?: string
@@ -63,6 +65,7 @@ interface PageProps {
 }
 
 interface SchoolFormData {
+  [key: string]: any;
   code: string
   name: string
   description: string
@@ -564,7 +567,7 @@ const SchoolsManagement: React.FC = () => {
                         value={formData.code}
                         onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                        placeholder="e.g., SCES, SBS"
+                        placeholder="e.g., SOC, SBS, LAW"
                         maxLength={10}
                         required
                       />

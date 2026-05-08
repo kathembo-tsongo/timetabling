@@ -6,6 +6,7 @@ import { useState, useEffect } from "react"
 import { Users, BookOpen, ArrowLeft, Home, AlertTriangle, RefreshCw, Mail, CreditCard, School, Calendar, User, GraduationCap } from 'lucide-react'
 
 interface Unit {
+  [key: string]: any;
   id: number
   code: string
   name: string
@@ -13,12 +14,14 @@ interface Unit {
 }
 
 interface Student {
+  [key: string]: any;
   id: number | null 
   email: string
   code: string
 }
 
 interface Enrollment {
+  [key: string]: any;
   id: number
   student_id: number | null
   unit_id: number
@@ -27,11 +30,13 @@ interface Enrollment {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
 }
 
 interface Props {
+  [key: string]: any;
   unit: Unit | null
   students: Enrollment[]
   unitSemester: Semester | null

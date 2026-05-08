@@ -6,6 +6,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { Calendar, Clock, Download, Filter, MapPin, User } from "lucide-react"
 
 interface ClassTimetable {
+  [key: string]: any;
   id: number
   day: string
   start_time: string
@@ -24,6 +25,7 @@ interface ClassTimetable {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   year?: number
@@ -31,6 +33,7 @@ interface Semester {
 }
 
 interface Props {
+  [key: string]: any;
   classTimetables: {
     data: ClassTimetable[]
   }

@@ -3,6 +3,7 @@ import { Head, Link, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 interface DashboardProps {
+  [key: string]: any;
     schoolCode: string;
     schoolName: string;
     auth: {

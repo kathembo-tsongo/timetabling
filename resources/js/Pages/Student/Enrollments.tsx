@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { toast } from 'react-hot-toast';
 
 interface Unit {
+  [key: string]: any;
   id: number;
   code: string;
   name: string;
@@ -23,6 +24,7 @@ interface Unit {
 }
 
 interface Class {
+  [key: string]: any;
   id: number;
   name: string;
   section: string;
@@ -34,12 +36,14 @@ interface Class {
 }
 
 interface School {
+  [key: string]: any;
   id: number;
   code: string;
   name: string;
 }
 
 interface Program {
+  [key: string]: any;
   id: number;
   code: string;
   name: string;
@@ -47,12 +51,14 @@ interface Program {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number;
   name: string;
   is_active: boolean;
 }
 
 interface Enrollment {
+  [key: string]: any;
   id: number;
   unit: {
     code: string;
@@ -76,6 +82,7 @@ interface Enrollment {
 }
 
 interface EnrollmentFormData {
+  [key: string]: any;
   student_code: string;
   school_id: number | '';
   program_id: number | '';
@@ -86,11 +93,13 @@ interface EnrollmentFormData {
 }
 
 interface ElectiveFormData {
+  [key: string]: any;
   language_elective_id: number | '';
   other_elective_id: number | '';
 }
 
 interface StudentInfo {
+  [key: string]: any;
   code: string;
   name: string;
   school: string;
@@ -100,6 +109,7 @@ interface StudentInfo {
 }
 
 interface Props {
+  [key: string]: any;
   enrollments?: {
     data?: Enrollment[];
   };

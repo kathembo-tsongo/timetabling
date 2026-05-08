@@ -1,9 +1,9 @@
 "use client"
 import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
-import route from "ziggy-js"
 
 interface ExamTimetable {
+  [key: string]: any;
   id: number
   date: string
   day: string
@@ -21,6 +21,7 @@ interface ExamTimetable {
 }
 
 interface Student {
+  [key: string]: any;
   id: number
   code: string
   first_name: string
@@ -29,11 +30,13 @@ interface Student {
 }
 
 interface Change {
+  [key: string]: any;
   old: string
   new: string
 }
 
 interface PageProps {
+  [key: string]: any;
   exam: ExamTimetable
   students: Student[]
   studentCount: number

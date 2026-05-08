@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { toast } from 'react-hot-toast';
 
 interface Permission {
+  [key: string]: any;
     id: number;
     name: string;
     category: string;
@@ -11,6 +12,7 @@ interface Permission {
 }
 
 interface Role {
+  [key: string]: any;
     id: number;
     name: string;
     description: string | null;
@@ -22,12 +24,14 @@ interface Role {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedRoles {
+  [key: string]: any;
     data: Role[];
     links: PaginationLinks[];
     total: number;

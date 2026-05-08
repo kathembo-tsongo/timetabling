@@ -7,17 +7,20 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 import { Calendar, Clock, BookOpen, Home, AlertTriangle, RefreshCw, Filter, X, MapPin, Users, GraduationCap, ChevronDown, Building, Hash } from 'lucide-react'
 
 interface Unit {
+  [key: string]: any;
   id: number
   code: string
   name: string
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
 }
 
 interface ClassTimetable {
+  [key: string]: any;
   id: number
   unit_id: number
   semester_id: number
@@ -46,6 +49,7 @@ interface ClassTimetable {
 }
 
 interface Props {
+  [key: string]: any;
   classTimetables: ClassTimetable[]
   currentSemester: Semester | null
   selectedSemesterId: number | null

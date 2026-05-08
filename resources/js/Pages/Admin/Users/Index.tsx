@@ -20,11 +20,13 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { toast } from 'react-hot-toast';
 
 interface Role {
+  [key: string]: any;
   id: number;
   name: string;
 }
 
 interface UserData {
+  [key: string]: any;
   id: number;
   code: string;
   first_name: string;
@@ -40,12 +42,14 @@ interface UserData {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
   url: string | null;
   label: string;
   active: boolean;
 }
 
 interface PaginatedUsers {
+  [key: string]: any;
   data: UserData[];
   links: PaginationLinks[];
   total: number;
@@ -54,6 +58,7 @@ interface PaginatedUsers {
 }
 
 interface Props {
+  [key: string]: any;
   users: PaginatedUsers;
   filters: {
     search: string;

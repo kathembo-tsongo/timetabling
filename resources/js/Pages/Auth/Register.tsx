@@ -1,7 +1,8 @@
 import { useForm } from '@inertiajs/react';
 
 export default function Register() {
-    const { data, setData, post, processing, errors } = useForm({
+    const { tenant } = usePage<any>().props
+  const { data, setData, post, processing, errors } = useForm({
         code: '',
         first_name: '',
         last_name: '',
@@ -25,8 +26,8 @@ export default function Register() {
             <div className="mb-6 text-center flex justify-center">
                 <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-lg">
                     <img 
-                        src="/images/strathmore.png" 
-                        alt="Strathmore Logo" 
+                        src={tenant?.logo ? `/storage/${tenant.logo}` : "/images/logo.png"} 
+                        alt={tenant?.name || "University Logo"} 
                         className="h-24 w-24 rounded-full object-cover" 
                     />
                 </div>

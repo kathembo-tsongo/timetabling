@@ -7,6 +7,7 @@ import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   units: Unit[]
@@ -14,6 +15,7 @@ interface Semester {
 
 // Update the Unit interface to include the is_suggestion property
 interface Unit {
+  [key: string]: any;
   id: number
   name: string
   code: string
@@ -22,6 +24,7 @@ interface Unit {
 }
 
 interface Class {
+  [key: string]: any;
   id: number
   name: string
 }

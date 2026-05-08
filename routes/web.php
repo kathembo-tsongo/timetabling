@@ -57,6 +57,36 @@ Route::get('/', function () {
     return redirect()->route('login');
 })->name('home');
 
+
+// ── Onboarding (public — no auth required) ────────────────────────────────
+Route::prefix('onboarding')->name('onboarding.')->group(function () {
+    Route::get('/',        [App\Http\Controllers\OnboardingController::class, 'index'])->name('index');
+    Route::get('/setup',   [App\Http\Controllers\OnboardingController::class, 'setup'])->name('setup');
+    Route::post('/store',  [App\Http\Controllers\OnboardingController::class, 'store'])->name('store');
+    Route::get('/success', [App\Http\Controllers\OnboardingController::class, 'success'])->name('success');
+});
+
+
+// ── Super Admin Panel ─────────────────────────────────────────────────────
+Route::prefix('super-admin')
+    ->name('super-admin.')
+    ->middleware(['auth', 'super_admin'])
+    ->group(function () {
+        Route::get('/',                          [App\Http\Controllers\SuperAdmin\SuperAdminController::class, 'dashboard'])->name('dashboard');
+        Route::post('/stop-impersonating',       [App\Http\Controllers\SuperAdmin\SuperAdminController::class, 'stopImpersonating'])->name('stop-impersonating');
+
+        // Billing routes — must be before /{tenant} wildcard
+        Route::get('/billing',                   [App\Http\Controllers\BillingController::class, 'adminIndex'])->name('billing');
+        Route::post('/billing/{invoice}/paid',   [App\Http\Controllers\BillingController::class, 'adminMarkPaid'])->name('billing.paid');
+        Route::post('/billing/{tenant}/suspend', [App\Http\Controllers\BillingController::class, 'adminSuspend'])->name('billing.suspend');
+
+        // Tenant wildcard routes — must be last
+        Route::get('/{tenant}',                  [App\Http\Controllers\SuperAdmin\SuperAdminController::class, 'show'])->name('show');
+        Route::post('/{tenant}/toggle',          [App\Http\Controllers\SuperAdmin\SuperAdminController::class, 'toggleTenant'])->name('toggle');
+        Route::post('/{tenant}/impersonate',     [App\Http\Controllers\SuperAdmin\SuperAdminController::class, 'impersonate'])->name('impersonate');
+        Route::delete('/{tenant}',               [App\Http\Controllers\SuperAdmin\SuperAdminController::class, 'destroy'])->name('destroy');
+    });
+
 Route::middleware(['auth'])->group(function () {
 
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
@@ -236,7 +266,7 @@ Route::middleware(['auth'])->group(function () {
             }
         })->middleware(['permission:create-exam-timetables'])->name('api.exams.bulk-schedule');
         // Exam Timetable APIs (your existing code)
-        Route::prefix('exam-timetables')->group(function () {
+        Route::prefix('exam-timetables')->middleware(['plan.feature:exam_timetabling'])->group(function () {
             Route::get('/classes-by-semester/{semesterId}', 
                 [ExamTimetableController::class, 'getClassesBySemester']
             )->middleware(['permission:view-exam-timetables']);
@@ -410,7 +440,7 @@ Route::middleware(['auth'])->group(function () {
         Route::middleware(['permission:view-users'])->group(function () {
             Route::get('/users', [UserController::class, 'index'])->name('admin.users.index');
         });
-        Route::get('/users/create',[UserController::class, 'create'])->middleware(['permission:create-users'])->name('admin.users.create');
+        Route::get('/users/create',[UserController::class, 'create'])->middleware(['permission:create-users','usage.limit:users'])->name('admin.users.create');
         Route::post('/users', [UserController::class, 'store'])->middleware(['permission:create-users'])->name('admin.users.store');
         Route::get('/users/{user}/edit', [UserController::class, 'edit'])->middleware(['permission:edit-users'])->name('admin.users.edit');
         Route::put('/users/{user}', [UserController::class, 'update'])->middleware(['permission:edit-users'])->name('admin.users.update');
@@ -2558,6 +2588,24 @@ Route::delete('/examrooms/{examroom}', [ExamroomController::class, 'destroy'])
         'exportFailures'
     ])->name('exam-scheduling-failures.export')
       ->middleware('permission:view-exam-timetables');
+
+
+    // ── Tenant Settings ───────────────────────────────────────────────────
+    Route::prefix('settings')->name('settings.')->group(function () {
+        Route::get('/',                [App\Http\Controllers\TenantSettingsController::class, 'index'])->name('index');
+        Route::post('/general',        [App\Http\Controllers\TenantSettingsController::class, 'updateGeneral'])->name('general');
+        Route::post('/branding',       [App\Http\Controllers\TenantSettingsController::class, 'updateBranding'])->name('branding');
+        Route::post('/academic',       [App\Http\Controllers\TenantSettingsController::class, 'updateAcademic'])->name('academic');
+        Route::post('/domain',         [App\Http\Controllers\TenantSettingsController::class, 'updateDomain'])->name('domain');
+    });
+
+
+    // ── Billing ───────────────────────────────────────────────────────────
+    Route::prefix('billing')->name('billing.')->group(function () {
+        Route::get('/',                          [App\Http\Controllers\BillingController::class, 'index'])->name('index');
+        Route::post('/upgrade',                  [App\Http\Controllers\BillingController::class, 'requestUpgrade'])->name('upgrade');
+        Route::post('/confirm/{invoice}',        [App\Http\Controllers\BillingController::class, 'confirmPayment'])->name('confirm');
+    });
 
     // CATCH-ALL ROUTE
     Route::get('/{any}', function () {

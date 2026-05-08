@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import Pagination from '@/components/ui/Pagination';
+import Pagination from '@/Components/ui/Pagination';
 
 interface ClassTimeSlot {
+  [key: string]: any;
     id: number;
     day: string;    
     start_time: string;
@@ -12,12 +13,14 @@ interface ClassTimeSlot {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedTimeSlots {
+  [key: string]: any;
     data: ClassTimeSlot[];
     links: PaginationLinks[];
     total: number;

@@ -1,15 +1,16 @@
 "use client"
 
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/Components/ui/button"
+import { Alert, AlertDescription } from "@/Components/ui/alert"
+import { Badge } from "@/Components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Components/ui/card"
 import { AlertCircle, CheckCircle, XCircle, Clock, Zap, RefreshCw, Settings, Users } from "lucide-react"
 import { toast } from "react-hot-toast"
 import axios from "axios"
 
 interface ConflictResolutionProps {
+  [key: string]: any;
   classTimetables: any
   constraints: any
   detectedConflicts: any[]

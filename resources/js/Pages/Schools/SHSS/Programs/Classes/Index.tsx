@@ -20,6 +20,7 @@ import {
 
 // Interfaces
 interface Class {
+  [key: string]: any;
   id: number
   name: string
   section: string
@@ -41,6 +42,7 @@ interface Class {
 }
 
 interface Program {
+  [key: string]: any;
   id: number
   code: string
   name: string
@@ -52,12 +54,14 @@ interface Program {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   is_active: boolean
 }
 
 interface PaginationData {
+  [key: string]: any;
   current_page: number
   last_page: number
   per_page: number
@@ -73,6 +77,7 @@ interface PaginationData {
 }
 
 interface PageProps {
+  [key: string]: any;
   classes: PaginationData
   program: Program
   schoolCode: string
@@ -96,6 +101,7 @@ interface PageProps {
 }
 
 interface ClassFormData {
+  [key: string]: any;
   name: string
   semester_id: number | ''
   year_level: number | ''

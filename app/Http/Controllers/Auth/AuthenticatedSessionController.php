@@ -52,11 +52,8 @@ class AuthenticatedSessionController extends Controller
     $facultyRole = $roles->first(fn($role) => str_starts_with($role, 'Faculty Admin - '));
     if ($facultyRole) {
         $faculty = str_replace('Faculty Admin - ', '', $facultyRole);
-        $redirectRoute = match($faculty) {
-            'SCES' => 'schoolAdmin.dashboard',
-            'SBS' => 'schoolAdmin.dashboard',
-            default => null
-        };
+        // Dynamic — works for any school code at any university
+        $redirectRoute = 'schoolAdmin.dashboard';
         if ($redirectRoute) {
             return redirect()->route($redirectRoute);
         }

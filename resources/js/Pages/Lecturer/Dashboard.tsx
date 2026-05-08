@@ -5,6 +5,7 @@ import { Users, Calendar, FileText, BookOpen, Clock, School, TrendingUp, Award, 
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 
 interface Unit {
+  [key: string]: any;
   id: number
   code: string
   name: string
@@ -12,17 +13,20 @@ interface Unit {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   year?: number
 }
 
 interface SemesterUnits {
+  [key: string]: any;
   semester: Semester
   units: Unit[]
 }
 
 interface Props {
+  [key: string]: any;
   currentSemester: Semester
   lecturerSemesters: Semester[]
   unitsBySemester: Record<string, SemesterUnits>

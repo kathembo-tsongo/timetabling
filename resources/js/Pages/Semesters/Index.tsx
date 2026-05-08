@@ -3,6 +3,7 @@ import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 interface Semester {
+  [key: string]: any;
     id: number;
     name: string;
     start_date: string;
@@ -10,12 +11,14 @@ interface Semester {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedSemesters {
+  [key: string]: any;
     data: Semester[];
     links: PaginationLinks[];
     total: number;

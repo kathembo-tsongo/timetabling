@@ -5,6 +5,7 @@ import { Head, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 
 interface ClassTimetable {
+  [key: string]: any;
   id: number
   day: string
   unit_code: string
@@ -20,6 +21,7 @@ interface ClassTimetable {
 }
 
 interface Student {
+  [key: string]: any;
   id: number
   first_name: string
   last_name: string
@@ -28,11 +30,13 @@ interface Student {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
 }
 
 interface Props {
+  [key: string]: any;
   classTimetables?: any
   currentSemester?: Semester
   availableSemesters?: Semester[] // Add available semesters

@@ -287,7 +287,11 @@ export default function UnitAssignments() {
       selectedClasses.forEach(classId => params.append('class_id[]', classId.toString()));
     }
 
-    router.get(`/Schools/SCES/Programs/UnitAssignments?${params.toString()}`);
+    // Get school code dynamically from URL or props
+    const currentPath = window.location.pathname
+    const schoolMatch = currentPath.match(/\/[Ss]chools\/([A-Z]+)\//i)
+    const dynamicSchool = schoolMatch ? schoolMatch[1].toUpperCase() : (schoolCode || 'DEFAULT')
+    router.get(`/Schools/${dynamicSchool}/Programs/UnitAssignments?${params.toString()}`);
   };
 
   return (

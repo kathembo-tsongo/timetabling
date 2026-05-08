@@ -4,6 +4,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Calendar, Clock, MapPin, Users, FileText, AlertCircle, Download } from "lucide-react";
 
 interface ExamTimetable {
+  [key: string]: any;
     id: number;
     date: string;
     day: string;
@@ -24,6 +25,7 @@ interface ExamTimetable {
 }
 
 interface Props {
+  [key: string]: any;
     stats: {
         totalExams: number;
         upcomingExams: number;

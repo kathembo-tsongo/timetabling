@@ -3,9 +3,9 @@
 import React from "react"
 import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
-import route from "ziggy-js"
 
 interface ExamTimetable {
+  [key: string]: any;
   id: number
   date: string
   day: string
@@ -23,6 +23,7 @@ interface ExamTimetable {
 }
 
 interface NotificationLog {
+  [key: string]: any;
   id: number
   notification_type: string
   notifiable_type: string
@@ -34,6 +35,7 @@ interface NotificationLog {
 }
 
 interface PageProps {
+  [key: string]: any;
   upcomingExams: ExamTimetable[]
   recentNotifications: NotificationLog[]
   can: {

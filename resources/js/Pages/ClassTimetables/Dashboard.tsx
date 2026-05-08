@@ -1,10 +1,10 @@
 import React from 'react';
 import { Head } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Badge } from '@/Components/ui/badge';
+import { Button } from '@/Components/ui/button';
+import { Alert, AlertDescription } from '@/Components/ui/alert';
 import { 
   Calendar, 
   AlertCircle, 
@@ -21,6 +21,7 @@ import {
 import { Link } from '@inertiajs/react';
 
 interface Statistic {
+  [key: string]: any;
   count: number;
   growthRate: number;
   period: string;
@@ -30,12 +31,14 @@ interface Statistic {
 }
 
 interface Conflict {
+  [key: string]: any;
   type: string;
   description: string;
   severity: string;
 }
 
 interface Activity {
+  [key: string]: any;
   id: number;
   type: string;
   description: string;
@@ -43,16 +46,19 @@ interface Activity {
 }
 
 interface DailySchedule {
+  [key: string]: any;
   day: string;
   classes: number;
 }
 
 interface VenueUtilization {
+  [key: string]: any;
   venue: string;
   usage: number;
 }
 
 interface QuickAction {
+  [key: string]: any;
   title: string;
   description: string;
   route: string;
@@ -60,6 +66,7 @@ interface QuickAction {
 }
 
 interface Props {
+  [key: string]: any;
   statistics: {
     totalTimetables: Statistic;
     activeClasses: Statistic;

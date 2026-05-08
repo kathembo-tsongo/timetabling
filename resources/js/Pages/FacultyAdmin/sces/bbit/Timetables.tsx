@@ -11,9 +11,10 @@ import { Badge } from "@/Components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/Components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table"
 import { Calendar, Clock, MapPin, Download, Search, Filter, Eye } from "lucide-react"
-import { route } from "vue-router" // Declare the route variable
+
 
 interface Timetable {
+  [key: string]: any;
   id: number
   unit_name: string
   unit_code: string
@@ -28,12 +29,14 @@ interface Timetable {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   is_active: boolean
 }
 
 interface Props {
+  [key: string]: any;
   timetables: {
     data: Timetable[]
     links: any[]

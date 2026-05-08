@@ -3,16 +3,19 @@ import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 interface Semester {
+  [key: string]: any;
     id: number;
     name: string;
 }
 
 interface Program {
+  [key: string]: any;
     id: number;
     name: string;
 }
 
 interface Class {
+  [key: string]: any;
     id: number;
     name: string;
     semester_id: number | null;
@@ -20,12 +23,14 @@ interface Class {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedClasses {
+  [key: string]: any;
     data: Class[];
     links: PaginationLinks[];
     total: number;
@@ -34,6 +39,7 @@ interface PaginatedClasses {
 }
 
 interface PageProps {
+  [key: string]: any;
     classes: PaginatedClasses;
     semesters: Semester[];
     programs: Program[];

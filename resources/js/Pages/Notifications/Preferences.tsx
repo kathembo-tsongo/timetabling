@@ -5,6 +5,7 @@ import { Head, useForm } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 
 interface NotificationPreference {
+  [key: string]: any;
   id: number
   email_enabled: boolean
   sms_enabled: boolean
@@ -14,6 +15,7 @@ interface NotificationPreference {
 }
 
 interface PageProps {
+  [key: string]: any;
   auth: any
   preferences: NotificationPreference
 }

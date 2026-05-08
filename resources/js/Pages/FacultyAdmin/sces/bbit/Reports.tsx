@@ -8,9 +8,10 @@ import { Button } from "@/Components/ui/button"
 import { Badge } from "@/Components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/Components/ui/select"
 import { BarChart3, TrendingUp, Users, BookOpen, GraduationCap, Download, PieChart, FileText } from "lucide-react"
-import route from "ziggy-js" // Import route from ziggy-js
+
 
 interface ReportData {
+  [key: string]: any;
   enrollmentStats: {
     totalEnrollments: number
     activeStudents: number
@@ -37,12 +38,14 @@ interface ReportData {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number
   name: string
   is_active: boolean
 }
 
 interface Props {
+  [key: string]: any;
   reportData: ReportData
   semesters: Semester[]
   schoolCode: string

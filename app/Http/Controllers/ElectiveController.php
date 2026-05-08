@@ -83,25 +83,18 @@ class ElectiveController extends Controller
                             ];
                         });
 
-        // ✅ FIXED: Get SHSS school ID from database, not from user
-        $shssSchool = \App\Models\School::where('code', 'SHSS')->first();
-        
-        if (!$shssSchool) {
-            \Log::error('SHSS School not found in database');
-            $allUnits = collect(); // Empty collection
-        } else {
-            // Get ALL units for SHSS school
-            $allUnits = Unit::where('school_id', $shssSchool->id)
-                            ->orderBy('code')
-                            ->get(['id', 'code', 'name', 'credit_hours']);
-            
-            \Log::info('Fetched units for SHSS', [
-                'school_id' => $shssSchool->id,
-                'units_count' => $allUnits->count()
-            ]);
-        }
-
-        return Inertia::render('Schools/SHSS/Programs/Electives/Index', [
+        // Dynamic — resolve school from request context
+        $schoolCode = $request->input('school_code')
+            ?? $request->current_school_code
+            ?? (auth()->user()->schools ?? null);
+        $school = $schoolCode
+            ? \App\Models\School::where('code', strtoupper($schoolCode))->first()
+            : null;
+        $allUnits = $school
+            ? Unit::where('school_id', $school->id)->orderBy('code')->get(['id','code','name','credit_hours'])
+            : collect();
+        $schoolCodeUpper = strtoupper($schoolCode ?? 'DEFAULT');
+        return Inertia::render('Schools/' . $schoolCodeUpper . '/Programs/Electives/Index', [
             'electives' => $electives,
             'units' => $allUnits,
             'filters' => $request->only(['search', 'category', 'year_level', 'status']),

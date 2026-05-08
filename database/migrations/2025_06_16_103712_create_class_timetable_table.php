@@ -1,9 +1,7 @@
 <?php
-
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-
 return new class extends Migration
 {
     public function up(): void
@@ -16,19 +14,18 @@ return new class extends Migration
             $table->string('day');
             $table->time('start_time');
             $table->time('end_time');
-            $table->string('teaching_mode')->deafault('Physical');
+            $table->string('teaching_mode')->default('Physical');
             $table->string('venue')->nullable();
             $table->string('location')->nullable();
-            $table->integer('no')->nullable(); // Number of students
+            $table->integer('no')->nullable();
             $table->string('lecturer')->nullable();
-            $table->string('group', 1)->nullable(); // Added group field to match with enrollments
+            $table->string('group', 1)->nullable();
             $table->foreignId('program_id')->nullable()->constrained()->onDelete('set null');
             $table->foreignId('school_id')->nullable()->constrained()->onDelete('set null');
-            $table->foreignId('group_id')->nullable()->constrained()->onDelete('cascade'); // Add group_id
+            $table->foreignId('group_id')->nullable()->constrained('program_groups')->onDelete('set null');
             $table->timestamps();
         });
     }
-
     public function down(): void
     {
         Schema::dropIfExists('class_timetable');

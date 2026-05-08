@@ -625,7 +625,7 @@ const availableLecturersAlternative = lecturers.filter(lecturer => {
 
   // Event handlers
   const handleSearch = () => {
-    router.get('/schools/SCES/Programs/enrollments', {
+    router.get(`/schools/${schoolCode || schools?.[0]?.code || ''}/Programs/enrollments`, {
       search: searchTerm,
       semester_id: selectedSemester,
       school_id: selectedSchool,

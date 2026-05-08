@@ -1,37 +1,28 @@
 <?php
 
-if (!function_exists('getSchoolName')) {
-    function getSchoolName($schoolCode) {
-        $schools = [
-            'SCES' => 'School of Computing and Engineering Sciences',
-            'SBS' => 'School of Business Studies', 
-            'SLS' => 'School of Legal Studies',
-            'SHS' => 'School of Health Sciences',
-            'TOURISM' => 'School of Tourism and Hospitality',
-            'SHM' => 'School of Humanities',
-        ];
-        
-        return $schools[$schoolCode] ?? $schoolCode;
+if (!function_exists('tenant')) {
+    function tenant(): ?\App\Models\Tenant
+    {
+        return app()->has('tenant') ? app('tenant') : null;
     }
 }
 
-if (!function_exists('getValidSchoolCodes')) {
-    function getValidSchoolCodes() {
-        return ['SCES', 'SBS', 'SLS', 'SHS', 'TOURISM', 'SHM'];
+if (!function_exists('tenantCan')) {
+    function tenantCan(string $feature): bool
+    {
+        if (!app()->has('tenant')) return true;
+        $plan   = tenant()->plan ?? 'free';
+        $limits = \App\Http\Middleware\CheckPlanFeature::planLimits();
+        return $limits[$plan][$feature] ?? false;
     }
 }
 
-if (!function_exists('getUserSchoolCode')) {
-    function getUserSchoolCode($user) {
-        // First try to get from role
-        $roles = $user->getRoleNames();
-        foreach ($roles as $role) {
-            if (str_starts_with($role, 'Faculty Admin - ')) {
-                return str_replace('Faculty Admin - ', '', $role);
-            }
-        }
-
-        // Fallback to schools column
-        return $user->schools ? strtoupper($user->schools) : null;
+if (!function_exists('tenantLimit')) {
+    function tenantLimit(string $key): int
+    {
+        if (!app()->has('tenant')) return -1;
+        $plan   = tenant()->plan ?? 'free';
+        $limits = \App\Http\Middleware\CheckPlanFeature::planLimits();
+        return $limits[$plan][$key] ?? 0;
     }
 }

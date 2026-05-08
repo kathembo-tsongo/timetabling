@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 interface Unit {
+  [key: string]: any;
   id: number;
   code: string;
   name: string;
@@ -30,6 +31,7 @@ interface Unit {
 }
 
 interface ExamTimetable {
+  [key: string]: any;
   id: number;
   date: string;
   day: string;
@@ -43,6 +45,7 @@ interface ExamTimetable {
 }
 
 interface Semester {
+  [key: string]: any;
   id: number;
   name: string;
   year: number;
@@ -50,6 +53,7 @@ interface Semester {
 }
 
 interface Props {
+  [key: string]: any;
   upcomingExams: ExamTimetable[];
   enrolledUnits: any[];
   currentSemester: Semester;

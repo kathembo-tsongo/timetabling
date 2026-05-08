@@ -22,6 +22,7 @@ import { toast } from 'react-hot-toast'
 
 // ✅ UPDATED: Interface to match backend data structure
 interface Failure {
+  [key: string]: any;
   id: number
   batch_id: string
   unit_code: string
@@ -43,6 +44,7 @@ interface Failure {
 }
 
 interface Props {
+  [key: string]: any;
   failedExams: {
     data: Failure[]
     current_page: number

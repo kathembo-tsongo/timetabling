@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import Pagination from '@/components/ui/Pagination'; // Import the Pagination component
+import Pagination from '@/Components/ui/Pagination'; // Import the Pagination component
 
 interface TimeSlot {
+  [key: string]: any
     id: number;
     day: string;
     date: string;
@@ -12,12 +13,14 @@ interface TimeSlot {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedTimeSlots {
+  [key: string]: any;
     data: TimeSlot[];
     links: PaginationLinks[];
     total: number;
@@ -61,7 +64,7 @@ const TimeSlots = () => {
         e.preventDefault();
 
         if (modalType === 'create') {
-            router.post('/timeslots', currentTimeSlot, {
+            router.post('/timeslots', currentTimeSlot || undefined, {
                 onSuccess: () => {
                     alert('Time slot created successfully!');
                     handleCloseModal();

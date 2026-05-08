@@ -22,12 +22,14 @@ import {
 
 // Interfaces
 interface Semester {
+  [key: string]: any;
   id: number;
   name: string;
   is_active: boolean;
 }
 
 interface Program {
+  [key: string]: any;
   id: number;
   code: string;
   name: string;
@@ -36,6 +38,7 @@ interface Program {
 }
 
 interface Class {
+  [key: string]: any;
   id: number;
   name: string;
   semester_id: number;
@@ -52,12 +55,14 @@ interface Class {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
   url: string | null;
   label: string;
   active: boolean;
 }
 
 interface PaginatedClasses {
+  [key: string]: any;
   data: Class[];
   links: PaginationLinks[];
   total: number;
@@ -66,6 +71,7 @@ interface PaginatedClasses {
 }
 
 interface PageProps {
+  [key: string]: any;
   classes: PaginatedClasses;
   semesters: Semester[];
   programs: Program[];

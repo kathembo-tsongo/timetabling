@@ -3,6 +3,7 @@ import { Head } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
 
 interface DailyStats {
+  [key: string]: any;
   date: string
   total: number
   successful: number
@@ -10,6 +11,7 @@ interface DailyStats {
 }
 
 interface ChannelStats {
+  [key: string]: any;
   channel: string
   total: number
   successful: number
@@ -17,6 +19,7 @@ interface ChannelStats {
 }
 
 interface TypeStats {
+  [key: string]: any;
   notification_type: string
   total: number
   successful: number
@@ -24,6 +27,7 @@ interface TypeStats {
 }
 
 interface Failure {
+  [key: string]: any;
   id: number
   notification_type: string
   channel: string
@@ -32,6 +36,7 @@ interface Failure {
 }
 
 interface OverallStats {
+  [key: string]: any;
   total: number
   successful: number
   failed: number
@@ -39,6 +44,7 @@ interface OverallStats {
 }
 
 interface PageProps {
+  [key: string]: any;
   auth: any
   dailyStats: DailyStats[]
   channelStats: ChannelStats[]

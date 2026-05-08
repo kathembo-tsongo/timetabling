@@ -1,10 +1,10 @@
 "use client"
 import { Head, usePage, router } from "@inertiajs/react"
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout"
-import route from "ziggy-js"
 import { useState } from "react"
 
 interface Notification {
+  [key: string]: any;
   id: string
   type: string
   data: any
@@ -13,6 +13,7 @@ interface Notification {
 }
 
 interface PageProps {
+  [key: string]: any;
   auth: any
   unreadNotifications: Notification[]
   readNotifications: Notification[]

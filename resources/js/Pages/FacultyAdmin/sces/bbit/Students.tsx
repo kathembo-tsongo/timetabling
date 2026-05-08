@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Users, Plus, Edit, Trash2, Search } from "lucide-react"
 
 interface Student {
+  [key: string]: any;
   id: number
   code: string
   first_name: string
@@ -20,6 +21,7 @@ interface Student {
 }
 
 interface Props {
+  [key: string]: any;
   students: {
     data: Student[]
     links: any[]

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import Sidebar from '@/components/ui/sidebar';
-import Navbar from '@/components/ui/navbar';
+import Sidebar from '@/Components/ui/sidebar';
+import Navbar from '@/Components/ui/navbar';
 import { usePage } from '@inertiajs/react';
 import { Menu } from 'lucide-react';
 

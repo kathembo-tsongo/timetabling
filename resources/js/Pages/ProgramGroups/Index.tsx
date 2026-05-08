@@ -3,11 +3,13 @@ import { Head, usePage, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
 interface Program {
+  [key: string]: any;
     id: number;
     name: string;
 }
 
 interface ProgramGroup {
+  [key: string]: any;
     id: number;
     name: string;
     description: string;
@@ -17,12 +19,14 @@ interface ProgramGroup {
 }
 
 interface PaginationLinks {
+  [key: string]: any;
     url: string | null;
     label: string;
     active: boolean;
 }
 
 interface PaginatedProgramGroups {
+  [key: string]: any;
     data: ProgramGroup[];
     links: PaginationLinks[];
     total: number;

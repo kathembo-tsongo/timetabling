@@ -712,7 +712,7 @@ public function storeProgramUnit(Program $program, Request $request, $schoolCode
 
         DB::commit();
         
-        return redirect()->route('schools.SCES.programs.units.index', [
+        return redirect()->route('schools.' . strtoupper($schoolCode) . '.programs.units.index', [
             'schoolCode' => $schoolCode,
             'program' => $program->id
         ])->with('success', "Unit '{$unit->code}' created successfully!");

@@ -52,8 +52,8 @@ export default function Login({ status, canResetPassword }: { status?: string, c
                             {/* Logo Container */}
                             <div className="relative w-32 h-32 bg-gradient-to-br from-white to-blue-50 rounded-full flex items-center justify-center shadow-2xl border-4 border-white/50 mx-auto">
                                 <img 
-                                    src="/images/strathmore.png" 
-                                    alt="Strathmore Logo" 
+                                    src={tenant?.logo ? `/storage/${tenant.logo}` : "/images/logo.png"} 
+                                    alt={tenant?.name || "University Logo"} 
                                     className="h-20 w-20 rounded-full object-cover shadow-lg" 
                                 />
                             </div>
@@ -209,7 +209,7 @@ export default function Login({ status, canResetPassword }: { status?: string, c
                     {/* Footer */}
                     <div className="mt-8 text-center">
                         <p className="text-xs text-slate-500">
-                            © 2024 Strathmore University. All rights reserved.
+                            {new Date().getFullYear()} {tenant?.name || "Timetabling System"}. All rights reserved.
                         </p>
                     </div>
                 </div>
